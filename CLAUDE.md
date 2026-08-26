@@ -1,3 +1,12 @@
+playwright configuration:
+APP BASE URL: http://localhost:8080
+Login Auth: 
+User Name: test@example.com
+Password: password
+user this authentication for using playwright mcp server.
+playwright trigger clause: if user write plarywright trigger command at prompt explicitly only than use it. 
+PHP Path: D:\Projects\laragon\bin\php\php-8.4.12-nts-Win32-vs17-x64
+
 <laravel-boost-guidelines>
 === foundation rules ===
 
