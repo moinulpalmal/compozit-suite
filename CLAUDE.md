@@ -1,11 +1,14 @@
 playwright configuration:
-APP BASE URL: http://localhost:8080
+APP BASE URL: http://localhost:8000
+  (served by `composer run dev`, which runs `php artisan serve` + queue + vite concurrently.
+   The URL is only live while that is running. Port 8080 is the Laragon landing page, not this app.)
 Login Auth: 
 User Name: test@example.com
 Password: password
 user this authentication for using playwright mcp server.
 playwright trigger clause: if user write plarywright trigger command at prompt explicitly only than use it. 
 PHP Path: D:\Projects\laragon\bin\php\php-8.4.12-nts-Win32-vs17-x64
+  (php is not on PATH in the bash shell; invoke it via this full path or use PowerShell.)
 
 <laravel-boost-guidelines>
 === foundation rules ===
