@@ -1,6 +1,10 @@
 <?php
 
+use App\Models\Admin\Permission;
+use App\Models\Admin\Role;
+use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Spatie\Permission\PermissionRegistrar;
 use Tests\TestCase;
 
 /*
@@ -16,6 +20,7 @@ use Tests\TestCase;
 
 pest()->extend(TestCase::class)
     ->use(RefreshDatabase::class)
+    ->beforeEach(fn () => app(PermissionRegistrar::class)->forgetCachedPermissions())
     ->in('Feature');
 
 /*
@@ -47,4 +52,38 @@ expect()->extend('toBeOne', function () {
 function something()
 {
     // ..
+}
+
+/**
+ * Create a verified user holding exactly the given permissions.
+ *
+ * The permissions are created on the fly, so a test names the abilities it
+ * needs without depending on the seeded catalogue.
+ */
+function userWithPermissions(string ...$permissions): User
+{
+    $user = User::factory()->create();
+
+    $user->givePermissionTo(array_map(
+        fn (string $name): Permission => Permission::findOrCreate($name, 'web'),
+        $permissions,
+    ));
+
+    app(PermissionRegistrar::class)->forgetCachedPermissions();
+
+    return $user;
+}
+
+/**
+ * Create a user holding the super-admin role, which bypasses every check.
+ */
+function superAdmin(): User
+{
+    $user = User::factory()->create();
+
+    $user->assignRole(Role::findOrCreate(Role::SUPER_ADMIN, 'web'));
+
+    app(PermissionRegistrar::class)->forgetCachedPermissions();
+
+    return $user;
 }

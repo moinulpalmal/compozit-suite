@@ -1,5 +1,11 @@
 import { Link } from '@inertiajs/react';
-import { BookOpen, FolderGit2, LayoutGrid } from 'lucide-react';
+import {
+    BookOpen,
+    FolderGit2,
+    KeyRound,
+    LayoutGrid,
+    ShieldCheck,
+} from 'lucide-react';
 import AppLogo from '@/components/app-logo';
 import { NavFooter } from '@/components/nav-footer';
 import { NavMain } from '@/components/nav-main';
@@ -13,7 +19,10 @@ import {
     SidebarMenuButton,
     SidebarMenuItem,
 } from '@/components/ui/sidebar';
+import { useCan } from '@/hooks/use-can';
 import { dashboard } from '@/routes';
+import { index as permissionsIndex } from '@/routes/admin/permissions';
+import { index as rolesIndex } from '@/routes/admin/roles';
 import type { NavItem } from '@/types';
 
 const mainNavItems: NavItem[] = [
@@ -38,6 +47,27 @@ const footerNavItems: NavItem[] = [
 ];
 
 export function AppSidebar() {
+    // Hiding a link is convenience, not authorization — the routes are gated by
+    // the `permission:` middleware and the module's policies.
+    const canViewRoles = useCan('admin.roles.view');
+    const canViewPermissions = useCan('admin.permissions.view');
+
+    // Admin surfaces live in their own group, not alongside Platform.
+    const adminNavItems: NavItem[] = [
+        ...(canViewRoles
+            ? [{ title: 'Roles', href: rolesIndex(), icon: ShieldCheck }]
+            : []),
+        ...(canViewPermissions
+            ? [
+                  {
+                      title: 'Permissions',
+                      href: permissionsIndex(),
+                      icon: KeyRound,
+                  },
+              ]
+            : []),
+    ];
+
     return (
         <Sidebar collapsible="icon" variant="inset">
             <SidebarHeader>
@@ -54,6 +84,10 @@ export function AppSidebar() {
 
             <SidebarContent>
                 <NavMain items={mainNavItems} />
+
+                {adminNavItems.length > 0 && (
+                    <NavMain items={adminNavItems} label="Admin" />
+                )}
             </SidebarContent>
 
             <SidebarFooter>

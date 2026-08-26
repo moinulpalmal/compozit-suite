@@ -27,7 +27,7 @@ database, five functional modules plus a dashboard.
 | Runtime | PHP | 8.4 (`^8.3` required) | `D:\Projects\laragon\bin\php\php-8.4.12-nts-Win32-vs17-x64` — not on the bash `PATH` |
 | Framework | Laravel | `^13.17` | |
 | Auth | Laravel Fortify | `^1.37` | Headless auth backend; routes registered by the package |
-| RBAC | spatie/laravel-permission | `^8.3` | Installed, **not yet published** — see [§9.1](#91-rbac-roles--permissions) |
+| RBAC | spatie/laravel-permission | `^8.3` | Published and wired, teams off — see [§9.1](#91-rbac-roles--permissions) |
 | Adapter | Inertia.js (Laravel) | `^3.0` | v3 — no Axios, `Inertia::optional()` not `lazy()` |
 | Typed routes | Laravel Wayfinder | `^0.1` | Generates TS from routes/controllers |
 | UI | React | `19.2` | React Compiler enabled via Babel |
@@ -145,7 +145,7 @@ exception — see [§6.4](#64-frontend-pages).
 | # | Module | Namespace segment | Route file | Name prefix | URL prefix | Pages root | Status |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | 0 | Dashboard | `Dashboard` | `routes/web.php` | `dashboard` | `/dashboard` | `pages/dashboard.tsx` | ✅ built (placeholder content) |
-| 1 | Admin | `Admin` | `routes/admin.php` | `admin.` | `/admin` | `pages/admin/` | 🟡 scaffolded |
+| 1 | Admin | `Admin` | `routes/admin.php` | `admin.` | `/admin` | `pages/admin/` | 🟡 RBAC built, rest scaffolded |
 | 2 | Settings | `Settings` | `routes/settings.php` | *(see note)* | `/settings` | `pages/settings/` | ✅ partly built |
 | 3 | Merchandising | `Merchandising` | `routes/merchandising.php` | `merchandising.` | `/merchandising` | `pages/merchandising/` | 🟡 scaffolded |
 | 4 | Production | `Production` | `routes/production.php` | `production.` | `/production` | `pages/production/` | 🟡 scaffolded |
@@ -175,16 +175,23 @@ dashboard tile needs a query, that query belongs in the owning module's service.
 
 ### Module 1 — Admin
 
-| Sub-area | Backend home | Pages |
-| --- | --- | --- |
-| a. User management | `Admin\UserController` | `pages/admin/users/` |
-| b. RBAC (roles & permissions) | `Admin\RoleController`, `Admin\PermissionController` | `pages/admin/roles/`, `pages/admin/permissions/` |
-| c. Buyer-wise user access control | `Admin\BuyerAccessController` | `pages/admin/buyer-access/` |
-| d. Buyer setup & management | `Admin\BuyerController` | `pages/admin/buyers/` |
-| e. Audit logging | `Admin\AuditLogController` | `pages/admin/audit-logs/` |
+| Sub-area | Backend home | Pages | Status |
+| --- | --- | --- | --- |
+| a. User management | `Admin\UserController` | `pages/admin/users/` | 🟡 |
+| b. RBAC (roles & permissions) | `Admin\RoleController`, `Admin\PermissionController` | `pages/admin/roles/`, `pages/admin/permissions/` | ✅ |
+| c. Buyer-wise user access control | `Admin\BuyerAccessController` | `pages/admin/buyer-access/` | 🟡 |
+| d. Buyer setup & management | `Admin\BuyerController` | `pages/admin/buyers/` | 🟡 |
+| e. Audit logging | `Admin\AuditLogController` | `pages/admin/audit-logs/` | 🟡 |
 
-Models live in `app/Models/Admin/` (`Buyer`, `AuditLog`, …). `User` stays at `app/Models/User.php`
-— it is an authentication concern shared by the whole app, not an Admin-owned model.
+Models live in `app/Models/Admin/` (`Role`, `Permission`, `Buyer`, `AuditLog`, …). `Role` and
+`Permission` extend spatie's models so RBAC data is Admin-owned like everything else — see
+[§9.1](#91-rbac-roles--permissions). `User` stays at `app/Models/User.php` — it is an
+authentication concern shared by the whole app, not an Admin-owned model.
+
+Both RBAC screens follow the module's standard path: resource routes (`show` excluded) gated
+per-action by `permission:` middleware, a `{Model}Service` for the write path, form requests that
+enforce the name formats, and `pages/admin/{roles,permissions}/{index,create,edit}.tsx`. Shared
+form pieces live in `resources/js/components/admin/`.
 
 Admin is the only module allowed to write to roles, permissions, buyer-access assignments, and
 audit log records.
@@ -362,8 +369,17 @@ module needs its own sub-layout (the way Settings does), and record that decisio
 
 ### 8.3 Navigation
 
-The sidebar is defined in `resources/js/components/app-sidebar.tsx` (`mainNavItems`). Adding a
-module surface means adding an entry there — see the checklist in [§11](#11-adding-a-new-module).
+The sidebar is defined in `resources/js/components/app-sidebar.tsx`. Adding a module surface means
+adding an entry there — see the checklist in [§11](#11-adding-a-new-module).
+
+**Nav items are grouped by module.** `<NavMain>` renders one labelled group; the sidebar composes
+one per module — `mainNavItems` under the default "Platform" label, `adminNavItems` under "Admin",
+and so on as modules land. A module's links never join another module's group. A group whose items
+are all hidden is not rendered at all.
+
+Entries for permission-gated surfaces are appended conditionally with `useCan()` (see
+[§9.1](#91-rbac-roles--permissions)), so a user never sees a link they cannot open. That is
+presentation only — the route's `permission:` middleware is what actually denies access.
 
 ### 8.4 Inertia v3 notes
 
@@ -379,16 +395,35 @@ module surface means adding an entry there — see the checklist in [§11](#11-a
 
 ### 9.1 RBAC (roles & permissions)
 
-`spatie/laravel-permission ^8.3` is in `composer.json` but **not yet installed into the app** —
-`config/permission.php` and the permissions migration have not been published, and `User` does not
-yet use `HasRoles`. First task in the Admin module is to publish and wire it. ⬜
+`spatie/laravel-permission ^8.3` is **installed and wired**. The shape:
 
-Once wired, the intended shape:
+| Piece | Where |
+| --- | --- |
+| Config | `config/permission.php` — published, pointed at the app's own models |
+| Tables | `database/migrations/2026_08_26_065123_create_permission_tables.php` (teams **off**) |
+| Models | `App\Models\Admin\Role` / `App\Models\Admin\Permission`, each extending the spatie model |
+| User trait | `App\Models\User` uses `Spatie\Permission\Traits\HasRoles` |
+| Middleware aliases | `bootstrap/app.php` → `role`, `permission`, `role_or_permission` |
+| Super-admin bypass | `AppServiceProvider::configureAuthorization()` — `Gate::before` for `Role::SUPER_ADMIN` |
+| Catalogue + seeding | `Database\Seeders\Admin\RolePermissionSeeder`, run from `DatabaseSeeder` |
+| Admin UI | `Admin\RoleController`, `Admin\PermissionController` → `pages/admin/{roles,permissions}/` |
 
-- Permission names read `{module}.{resource}.{action}` — `merchandising.tech-packs.update`.
-- Roles are data, not code. Never hardcode a role name in a check; check the permission.
+Rules:
+
+- Permission names read `{module}.{resource}.{action}` — `merchandising.tech-packs.update`. The
+  format is enforced by `RoleStoreRequest`/`PermissionStoreRequest` validation.
+- Roles are data, not code. Never hardcode a role name in a check; check the permission. The one
+  exception is `Role::SUPER_ADMIN` (`super-admin`), which exists only so the `Gate::before` bypass
+  and the "you may not edit this role" guards have something to name.
 - Route-level gating uses spatie's `permission:` middleware; record-level gating uses the module's
   policy in `app/Policies/{Module}/`.
+- **Teams are deliberately off.** Buyer scoping ([§9.2](#92-buyer-scoped-access-control)) is
+  row-level data filtering, not per-team roles; spatie's teams feature does not solve it and would
+  add a `team_id` to every pivot for nothing.
+- `HandleInertiaRequests` shares `auth.permissions` (a flat array of the signed-in user's effective
+  permission names, `['*']` for a super admin) so the front end can hide surfaces the user cannot
+  reach. Use the `useCan()` hook in `resources/js/hooks/use-can.ts`, never a role-name check.
+  Hiding a link is **not** authorization — the route middleware and policy are.
 
 ### 9.2 Buyer-scoped access control
 
@@ -455,7 +490,8 @@ A module is not "added" until every one of these is done:
 - [ ] `resources/js/pages/{module}/` created.
 - [ ] `resources/js/components/{module}/` created.
 - [ ] `tests/Feature/{Module}/` created.
-- [ ] Sidebar entry added to `resources/js/components/app-sidebar.tsx`.
+- [ ] Sidebar group added to `resources/js/components/app-sidebar.tsx` — a `{module}NavItems` array
+      rendered as its own `<NavMain items={…} label="{Module}" />` (see [§8.3](#83-navigation)).
 - [ ] Permission names for the module decided and seeded.
 - [ ] **A row added to the module registry in [§5](#5-module-registry) of this file, plus a
       per-module section.**
@@ -503,6 +539,9 @@ composer run dev
 # Tests
 php artisan test --compact
 php artisan test --compact --filter=TechPack
+
+# Seed the RBAC catalogue (idempotent — re-run after adding permissions)
+php artisan db:seed --class="Database\Seeders\Admin\RolePermissionSeeder"
 
 # Quality gate (lint + types + tests)
 composer run ci:check
