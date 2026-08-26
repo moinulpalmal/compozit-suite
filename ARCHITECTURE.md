@@ -267,6 +267,9 @@ curly braces always, PHPDoc over inline comments, `TitleCase` enum cases.
 - URL segments: lowercase kebab-case — `/merchandising/tech-packs/{techPack}/edit`.
 - Route names: dot-delimited, `{module}.{resource}.{action}` —
   `merchandising.tech-packs.index`.
+- **There is no public landing page.** `/` is named `home` but renders nothing: it redirects
+  authenticated users to `dashboard` and guests to `login`. The name is retained because the auth
+  layouts and Wayfinder's generated `routes/index.ts` both depend on `home()` resolving.
 - Prefer resource routes; prefer `route()` and Wayfinder over hand-written URLs.
 - Every module route file already applies `['auth', 'auth.session', 'verified']`. Add permission
   middleware per route or per sub-group, not globally.
@@ -350,7 +353,6 @@ Layouts are assigned centrally by page-name prefix, not per page:
 
 | Page name matches | Layout |
 | --- | --- |
-| `welcome` | none |
 | `auth/*` | `AuthLayout` |
 | `settings/*` | `[AppLayout, SettingsLayout]` |
 | everything else | `AppLayout` |

@@ -77,7 +77,7 @@ test('a super admin is shared as a wildcard rather than the whole catalogue', fu
 });
 
 test('guests are shared no permissions', function () {
-    $this->get('/')
+    $this->get(route('login'))
         ->assertOk()
         ->assertInertia(fn ($page) => $page->where('auth.permissions', []));
 });

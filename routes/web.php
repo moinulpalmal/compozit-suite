@@ -1,8 +1,15 @@
 <?php
 
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Route;
 
-Route::inertia('/', 'welcome')->name('home');
+/**
+ * There is no public landing page. `/` keeps the `home` name because the auth
+ * layouts and Wayfinder's generated route helpers depend on `home()` resolving.
+ */
+Route::get('/', fn () => Auth::check()
+    ? redirect()->route('dashboard')
+    : redirect()->route('login'))->name('home');
 
 Route::middleware(['auth', 'auth.session', 'verified'])->group(function () {
     Route::inertia('dashboard', 'dashboard')->name('dashboard');

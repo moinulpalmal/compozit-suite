@@ -10,6 +10,20 @@ test('login screen can be rendered', function () {
     $response->assertOk();
 });
 
+test('guests hitting the root url are redirected to the login screen', function () {
+    $response = $this->get(route('home'));
+
+    $response->assertRedirect(route('login'));
+});
+
+test('authenticated users hitting the root url are redirected to the dashboard', function () {
+    $user = User::factory()->create();
+
+    $response = $this->actingAs($user)->get(route('home'));
+
+    $response->assertRedirect(route('dashboard'));
+});
+
 test('users can authenticate using the login screen', function () {
     $user = User::factory()->create();
 

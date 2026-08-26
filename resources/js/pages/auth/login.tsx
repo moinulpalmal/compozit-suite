@@ -101,7 +101,11 @@ export default function Login({ status, canResetPassword }: Props) {
     );
 }
 
+/**
+ * No `title` — the app name is the heading here, and the form itself already
+ * says what the screen is. The other auth pages do pass one, to distinguish
+ * themselves from login.
+ */
 Login.layout = {
-    title: 'Log in to your account',
     description: 'Enter your email and password below to log in',
 };
