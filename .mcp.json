@@ -20,7 +20,11 @@
         "--context",
         "ide-assistant",
         "--project",
-        "D:\\Projects\\laragon\\www\\compozit-suite"
+        "D:\\Projects\\laragon\\www\\compozit-suite",
+        "--open-web-dashboard",
+        "false",
+        "--enable-gui-log-window",
+        "false"
       ],
       "env": {}
     }
