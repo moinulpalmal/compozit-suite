@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Http\Requests\Admin\RoleIndexRequest;
 use App\Http\Requests\Admin\RoleStoreRequest;
 use App\Http\Requests\Admin\RoleUpdateRequest;
 use App\Models\Admin\Role;
@@ -14,6 +15,11 @@ use Inertia\Response;
 
 class RoleController extends Controller
 {
+    /**
+     * Rows per page on the role list.
+     */
+    protected const int PER_PAGE = 25;
+
     public function __construct(
         protected RoleService $roles,
         protected PermissionService $permissions,
@@ -22,13 +28,17 @@ class RoleController extends Controller
     /**
      * List every role.
      */
-    public function index(): Response
+    public function index(RoleIndexRequest $request): Response
     {
+        $filters = $request->filters();
+
         $roles = Role::query()
             ->withCount(['permissions', 'users'])
-            ->orderBy('name')
-            ->get()
-            ->map(fn (Role $role): array => [
+            ->search($filters['search_field'], $filters['search'])
+            ->sortBy($filters['sort'], $filters['direction'])
+            ->paginate(self::PER_PAGE)
+            ->withQueryString()
+            ->through(fn (Role $role): array => [
                 'id' => $role->id,
                 'name' => $role->name,
                 'permissions_count' => $role->permissions_count,
@@ -37,7 +47,12 @@ class RoleController extends Controller
                 'is_deletable' => $this->roles->isDeletable($role),
             ]);
 
-        return Inertia::render('admin/roles/index', ['roles' => $roles]);
+        return Inertia::render('admin/roles/index', [
+            'roles' => $roles,
+            'sortable' => Role::SORTABLE,
+            'searchable' => Role::SEARCHABLE,
+            'filters' => $filters,
+        ]);
     }
 
     /**

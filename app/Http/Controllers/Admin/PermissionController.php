@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Http\Requests\Admin\PermissionIndexRequest;
 use App\Http\Requests\Admin\PermissionStoreRequest;
 use App\Http\Requests\Admin\PermissionUpdateRequest;
 use App\Models\Admin\Permission;
@@ -14,25 +15,48 @@ use Inertia\Response;
 
 class PermissionController extends Controller
 {
+    /**
+     * Rows per page on the permission list.
+     */
+    protected const int PER_PAGE = 25;
+
     public function __construct(protected PermissionService $permissions) {}
 
     /**
-     * List every permission, grouped by module.
+     * List permissions as a flat, filterable table.
+     *
+     * This page used to group rows under module headings client-side. Grouping
+     * and pagination cannot both hold — a group would be cut across a page
+     * boundary, with the remainder opening the next page under no heading — so
+     * the grouping became a Module column and a module filter. The role form's
+     * picker still groups, through `PermissionService::groupedByModule()`,
+     * which is a different query and is untouched.
      */
-    public function index(): Response
+    public function index(PermissionIndexRequest $request): Response
     {
+        $filters = $request->filters();
+
         $permissions = Permission::query()
             ->with('roles:id,name')
-            ->orderBy('name')
-            ->get()
-            ->map(fn (Permission $permission): array => [
+            ->inModule($filters['module'])
+            ->search($filters['search_field'], $filters['search'])
+            ->sortBy($filters['sort'], $filters['direction'])
+            ->paginate(self::PER_PAGE)
+            ->withQueryString()
+            ->through(fn (Permission $permission): array => [
                 'id' => $permission->id,
                 'name' => $permission->name,
                 'module' => $permission->module(),
                 'roles' => $permission->roles->pluck('name'),
             ]);
 
-        return Inertia::render('admin/permissions/index', ['permissions' => $permissions]);
+        return Inertia::render('admin/permissions/index', [
+            'permissions' => $permissions,
+            'modules' => $this->permissions->moduleOptions(),
+            'sortable' => Permission::SORTABLE,
+            'searchable' => Permission::SEARCHABLE,
+            'filters' => $filters,
+        ]);
     }
 
     /**

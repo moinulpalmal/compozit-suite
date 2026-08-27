@@ -3,6 +3,7 @@ import type { ReactNode } from 'react';
 import { useState } from 'react';
 import InputError from '@/components/input-error';
 import { Button } from '@/components/ui/button';
+import Combobox from '@/components/ui/combobox';
 import {
     Dialog,
     DialogClose,
@@ -95,22 +96,17 @@ export default function DesignationFormDialog({
 
                             <div className="grid gap-1.5">
                                 <Label htmlFor="status">Status</Label>
-                                <select
+                                {/* Two options — below SEARCH_THRESHOLD, so this
+                                    renders as a plain listbox with no search
+                                    input. See ARCHITECTURE.md §8.5. */}
+                                <Combobox
                                     id="status"
                                     name="status"
                                     defaultValue={designation?.status ?? 'A'}
-                                    className="select w-full"
+                                    options={statuses}
+                                    required
                                     data-test="designation-status"
-                                >
-                                    {statuses.map((status) => (
-                                        <option
-                                            key={status.value}
-                                            value={status.value}
-                                        >
-                                            {status.label}
-                                        </option>
-                                    ))}
-                                </select>
+                                />
                                 <p className="text-xs text-base-content/60">
                                     Deactivating hides it from the user form.
                                     Anyone already holding it keeps it.

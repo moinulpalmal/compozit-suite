@@ -1,6 +1,13 @@
 import { useCombobox, useMultipleSelection } from 'downshift';
 import { Check, ChevronsUpDown, LoaderCircle, Search, X } from 'lucide-react';
-import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
+import {
+    useCallback,
+    useEffect,
+    useId,
+    useMemo,
+    useRef,
+    useState,
+} from 'react';
 import { useOptionSearch } from '@/hooks/use-option-search';
 import { ANCHOR_GAP, positionAnchored } from '@/lib/anchored-position';
 import { cn } from '@/lib/utils';
@@ -101,7 +108,12 @@ function SingleCombobox({
 
     const [query, setQuery] = useState('');
     const remote = useOptionSearch(searchUrl, query);
-    const visible = useVisibleOptions(options, query, remote.options, searchUrl);
+    const visible = useVisibleOptions(
+        options,
+        query,
+        remote.options,
+        searchUrl,
+    );
 
     /*
      * The selected option may not be in `visible` — it has been filtered out, or
@@ -113,7 +125,8 @@ function SingleCombobox({
         remote.options.find((option) => option.value === selectedValue) ??
         null;
 
-    const showSearch = searchUrl !== undefined || options.length >= SEARCH_THRESHOLD;
+    const showSearch =
+        searchUrl !== undefined || options.length >= SEARCH_THRESHOLD;
 
     const {
         isOpen,
@@ -148,8 +161,15 @@ function SingleCombobox({
     const menuProps = getMenuProps({ ref: menuRef });
     const inputProps = getInputProps();
 
+    /*
+     * `id` goes *through* the prop getter rather than being spread before it:
+     * downshift supplies its own, and letting that win would silently break
+     * every `<Label htmlFor>` pointing at this control.
+     */
+    const toggleProps = getToggleButtonProps({ ref: anchorRef, id });
+
     return (
-        <div className={cn('relative', className)}>
+        <div className="relative">
             {name !== undefined && (
                 <input
                     type="hidden"
@@ -163,14 +183,17 @@ function SingleCombobox({
 
             <button
                 type="button"
-                id={id}
                 disabled={disabled}
+                // `className` styles the control, not the wrapper — the same
+                // contract as `Input`, so `select-sm` and widths land where a
+                // call site expects them to.
                 className={cn(
                     'select w-full items-center justify-between text-left',
                     selected === null && 'text-base-content/50',
+                    className,
                 )}
                 {...rest}
-                {...getToggleButtonProps({ ref: anchorRef })}
+                {...toggleProps}
             >
                 <span className="truncate">
                     {selected?.label ?? placeholder}
@@ -226,15 +249,17 @@ function MultiCombobox({
 
     const [query, setQuery] = useState('');
     const remote = useOptionSearch(searchUrl, query);
-    const pool = searchUrl === undefined ? options : [...options, ...remote.options];
 
-    const selectedItems = useMemo(
-        () =>
-            selectedValues
-                .map((entry) => pool.find((option) => option.value === entry))
-                .filter((option): option is ComboboxOption => option !== undefined),
-        [pool, selectedValues],
-    );
+    const selectedItems = useMemo(() => {
+        // Remote results are folded in so a chip keeps its label after the
+        // option that produced it has been searched away.
+        const pool =
+            searchUrl === undefined ? options : [...options, ...remote.options];
+
+        return selectedValues
+            .map((entry) => pool.find((option) => option.value === entry))
+            .filter((option): option is ComboboxOption => option !== undefined);
+    }, [options, remote.options, searchUrl, selectedValues]);
 
     const commit = useCallback(
         (next: Array<string | number>) => {
@@ -247,7 +272,12 @@ function MultiCombobox({
         [isControlled, onChange],
     );
 
-    const filtered = useVisibleOptions(options, query, remote.options, searchUrl);
+    const filtered = useVisibleOptions(
+        options,
+        query,
+        remote.options,
+        searchUrl,
+    );
     // Already-chosen options drop out of the menu rather than appearing ticked;
     // they are visible as chips directly above it.
     const visible = filtered.filter(
@@ -299,10 +329,15 @@ function MultiCombobox({
 
     const { anchorRef, menuRef } = useAnchoredMenu(isOpen);
     const menuProps = getMenuProps({ ref: menuRef });
-    const inputProps = getInputProps(getDropdownProps({ preventKeyAction: isOpen }));
+    const inputProps = getInputProps(
+        getDropdownProps({ preventKeyAction: isOpen }),
+    );
+
+    /* See the note in SingleCombobox — downshift's own `id` must not win. */
+    const toggleProps = getToggleButtonProps({ ref: anchorRef, id });
 
     return (
-        <div className={cn('relative', className)}>
+        <div className="relative">
             {/* One hidden input per selection, so the server receives an array
                 exactly as a checkbox list would have sent it. */}
             {name !== undefined &&
@@ -317,11 +352,13 @@ function MultiCombobox({
 
             <button
                 type="button"
-                id={id}
                 disabled={disabled}
-                className="select h-auto min-h-10 w-full items-center justify-between gap-2 py-1.5 text-left"
+                className={cn(
+                    'select h-auto min-h-10 w-full items-center justify-between gap-2 py-1.5 text-left',
+                    className,
+                )}
                 {...rest}
-                {...getToggleButtonProps({ ref: anchorRef })}
+                {...toggleProps}
             >
                 <span className="flex flex-wrap items-center gap-1">
                     {selectedItems.length === 0 && (
@@ -333,7 +370,7 @@ function MultiCombobox({
                     {selectedItems.map((option, index) => (
                         <span
                             key={option.value}
-                            className="badge gap-1 badge-sm badge-ghost"
+                            className="badge gap-1 badge-ghost badge-sm"
                             {...getSelectedItemProps({
                                 selectedItem: option,
                                 index,
@@ -422,7 +459,7 @@ function MenuShell({
                 keyboard handlers, and unmounting it would break arrow keys on
                 short lists. */}
             <div className={cn('p-1', !showSearch && 'sr-only')}>
-                <label className="input input-sm w-full">
+                <label className="input w-full input-sm">
                     <Search className="size-4 opacity-50" />
                     <input
                         {...(inputProps as Record<string, never>)}
@@ -492,7 +529,14 @@ function useVisibleOptions(
 ): ComboboxOption[] {
     return useMemo(() => {
         if (searchUrl !== undefined) {
-            return remoteOptions;
+            /*
+             * Fall back to the options the page was rendered with until the
+             * first remote result lands. Without this, opening the menu shows
+             * an empty list for the length of the debounce every time.
+             */
+            return remoteOptions.length === 0 && query.trim() === ''
+                ? options
+                : remoteOptions;
         }
 
         const term = query.trim().toLowerCase();

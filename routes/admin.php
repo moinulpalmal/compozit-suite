@@ -68,6 +68,15 @@ Route::middleware(['auth', 'auth.session', 'verified'])
          * `admin.users.assign-roles`, toggling a descriptive label grants
          * nobody any power, so it needs no permission of its own.
          */
+        /*
+         * The async source for `<Combobox searchUrl>` — see ARCHITECTURE.md
+         * §8.5. Declared before the resource so the literal segment is never
+         * shadowed by a model-bound one, the same way `users/availability` is.
+         */
+        Route::get('designations/options', [DesignationController::class, 'options'])
+            ->name('designations.options')
+            ->middleware('permission:admin.designations.view');
+
         Route::resource('designations', DesignationController::class)
             ->only(['index', 'store', 'update', 'destroy'])
             ->middlewareFor(['index'], 'permission:admin.designations.view')

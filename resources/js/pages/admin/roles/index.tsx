@@ -1,17 +1,48 @@
-import { Head, Link } from '@inertiajs/react';
+import { Head, Link, router } from '@inertiajs/react';
 import { Pencil, Plus } from 'lucide-react';
 import RoleController from '@/actions/App/Http/Controllers/Admin/RoleController';
 import ConfirmDeleteDialog from '@/components/admin/confirm-delete-dialog';
+import ListToolbar from '@/components/admin/list-toolbar';
+import Pagination from '@/components/admin/pagination';
+import SortableHeader, { nextSort } from '@/components/admin/sortable-header';
 import Heading from '@/components/heading';
 import { Button } from '@/components/ui/button';
 import { useCan } from '@/hooks/use-can';
 import { create, edit, index } from '@/routes/admin/roles';
-import type { RoleListItem } from '@/types';
+import type { Paginated, RoleFilters, RoleListItem } from '@/types';
 
-export default function RolesIndex({ roles }: { roles: RoleListItem[] }) {
+type Props = {
+    roles: Paginated<RoleListItem>;
+    sortable: string[];
+    searchable: string[];
+    filters: RoleFilters;
+};
+
+export default function RolesIndex({
+    roles,
+    sortable,
+    searchable,
+    filters,
+}: Props) {
     const canCreate = useCan('admin.roles.create');
     const canUpdate = useCan('admin.roles.update');
     const canDelete = useCan('admin.roles.delete');
+
+    // Any filter change resets to page 1 — staying on page 9 of a result set
+    // that now has two pages would show an empty table.
+    const visit = (next: Partial<RoleFilters>) =>
+        router.get(
+            index({ query: { ...filters, ...next, page: undefined } }),
+            {},
+            { preserveState: true, preserveScroll: true, replace: true },
+        );
+
+    const sortProps = (column: string) => ({
+        column,
+        sortable,
+        filters,
+        onSort: (target: string) => visit(nextSort(filters, target)),
+    });
 
     return (
         <>
@@ -33,29 +64,43 @@ export default function RolesIndex({ roles }: { roles: RoleListItem[] }) {
                     )}
                 </div>
 
+                <ListToolbar
+                    filters={filters}
+                    searchable={searchable}
+                    searchLabels={{ name: 'Role' }}
+                    onChange={visit}
+                    onClear={() => visit({ search: '' })}
+                />
+
                 <div className="overflow-x-auto rounded-box border border-base-300/70">
                     <table className="table">
                         <thead>
                             <tr>
-                                <th>Role</th>
+                                <SortableHeader {...sortProps('name')}>
+                                    Role
+                                </SortableHeader>
+                                {/* Aggregates, not columns — sorting by them
+                                    needs `orderBy` on the withCount alias, not
+                                    the allow-list path. See Role::SORTABLE. */}
                                 <th className="text-right">Permissions</th>
                                 <th className="text-right">Users</th>
                                 <th className="w-24" />
                             </tr>
                         </thead>
                         <tbody>
-                            {roles.length === 0 && (
+                            {roles.data.length === 0 && (
                                 <tr>
                                     <td
                                         colSpan={4}
                                         className="text-center text-base-content/60"
                                     >
-                                        No roles yet.
+                                        No roles match these filters. Search
+                                        matches from the start of the name.
                                     </td>
                                 </tr>
                             )}
 
-                            {roles.map((role) => (
+                            {roles.data.map((role) => (
                                 <tr key={role.id}>
                                     <td className="font-mono">
                                         {role.name}
@@ -111,6 +156,8 @@ export default function RolesIndex({ roles }: { roles: RoleListItem[] }) {
                         </tbody>
                     </table>
                 </div>
+
+                <Pagination page={roles} />
             </div>
         </>
     );

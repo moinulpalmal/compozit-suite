@@ -1,42 +1,67 @@
-import { Head, Link } from '@inertiajs/react';
+import { Head, Link, router } from '@inertiajs/react';
 import { Pencil, Plus } from 'lucide-react';
-import { useMemo, useState } from 'react';
 import PermissionController from '@/actions/App/Http/Controllers/Admin/PermissionController';
 import ConfirmDeleteDialog from '@/components/admin/confirm-delete-dialog';
+import ListToolbar from '@/components/admin/list-toolbar';
+import Pagination from '@/components/admin/pagination';
+import SortableHeader, { nextSort } from '@/components/admin/sortable-header';
 import Heading from '@/components/heading';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { useCan } from '@/hooks/use-can';
 import { create, edit, index } from '@/routes/admin/permissions';
-import type { PermissionListItem } from '@/types';
+import type {
+    ModuleOption,
+    Paginated,
+    PermissionFilters,
+    PermissionListItem,
+} from '@/types';
 
+type Props = {
+    permissions: Paginated<PermissionListItem>;
+    modules: ModuleOption[];
+    sortable: string[];
+    searchable: string[];
+    filters: PermissionFilters;
+};
+
+/**
+ * Permissions as a flat, filterable table.
+ *
+ * This page used to group rows under module headings, filtered client-side over
+ * the whole catalogue. **Grouping and pagination cannot both hold** — a group
+ * would be cut across a page boundary, and the remainder would open the next
+ * page under no heading. So the module became a column and a server-side
+ * filter, and the search moved to the shared prefix-matched one.
+ *
+ * The role form's permission picker still groups by module. That is a different
+ * query (`PermissionService::groupedByModule()`) and is deliberately untouched.
+ */
 export default function PermissionsIndex({
     permissions,
-}: {
-    permissions: PermissionListItem[];
-}) {
-    const [filter, setFilter] = useState('');
+    modules,
+    sortable,
+    searchable,
+    filters,
+}: Props) {
     const canCreate = useCan('admin.permissions.create');
     const canUpdate = useCan('admin.permissions.update');
     const canDelete = useCan('admin.permissions.delete');
 
-    const groups = useMemo(() => {
-        const needle = filter.trim().toLowerCase();
+    // Any filter change resets to page 1 — staying on page 9 of a result set
+    // that now has two pages would show an empty table.
+    const visit = (next: Partial<PermissionFilters>) =>
+        router.get(
+            index({ query: { ...filters, ...next, page: undefined } }),
+            {},
+            { preserveState: true, preserveScroll: true, replace: true },
+        );
 
-        return permissions
-            .filter((permission) => permission.name.includes(needle))
-            .reduce<Record<string, PermissionListItem[]>>(
-                (carry, permission) => {
-                    carry[permission.module] = [
-                        ...(carry[permission.module] ?? []),
-                        permission,
-                    ];
-
-                    return carry;
-                },
-                {},
-            );
-    }, [permissions, filter]);
+    const sortProps = (column: string) => ({
+        column,
+        sortable,
+        filters,
+        onSort: (target: string) => visit(nextSort(filters, target)),
+    });
 
     return (
         <>
@@ -58,101 +83,123 @@ export default function PermissionsIndex({
                     )}
                 </div>
 
-                <Input
-                    type="search"
-                    value={filter}
-                    onChange={(event) => setFilter(event.target.value)}
-                    placeholder="Filter by name…"
-                    aria-label="Filter permissions"
-                    className="max-w-sm"
+                <ListToolbar
+                    filters={filters}
+                    searchable={searchable}
+                    searchLabels={{ name: 'Permission' }}
+                    onChange={visit}
+                    onClear={() => visit({ search: '', module: '' })}
+                    controls={[
+                        {
+                            label: 'Module',
+                            ariaLabel: 'Filter by module',
+                            testId: 'module-filter',
+                            width: 'w-44',
+                            value: filters.module,
+                            onSelect: (module) => visit({ module }),
+                            options: [
+                                { value: '', label: 'All modules' },
+                                ...modules,
+                            ],
+                        },
+                    ]}
                 />
 
-                {Object.keys(groups).length === 0 && (
-                    <p className="text-sm text-base-content/60">
-                        No permissions match.
-                    </p>
-                )}
+                <div className="overflow-x-auto rounded-box border border-base-300/70">
+                    <table className="table">
+                        <thead>
+                            <tr>
+                                <SortableHeader {...sortProps('name')}>
+                                    Permission
+                                </SortableHeader>
+                                <th>Module</th>
+                                <th>Roles</th>
+                                <th className="w-24" />
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {permissions.data.length === 0 && (
+                                <tr>
+                                    <td
+                                        colSpan={4}
+                                        className="text-center text-base-content/60"
+                                    >
+                                        No permissions match these filters.
+                                        Search matches from the start of the
+                                        name — try the Module filter instead.
+                                    </td>
+                                </tr>
+                            )}
 
-                {Object.entries(groups).map(([module, items]) => (
-                    <section key={module} className="space-y-2">
-                        <h3 className="text-sm font-semibold tracking-tight">
-                            {module}
-                        </h3>
+                            {permissions.data.map((permission) => (
+                                <tr key={permission.id}>
+                                    <td className="font-mono">
+                                        {permission.name}
+                                    </td>
 
-                        <div className="overflow-x-auto rounded-box border border-base-300/70">
-                            <table className="table">
-                                <thead>
-                                    <tr>
-                                        <th>Permission</th>
-                                        <th>Roles</th>
-                                        <th className="w-24" />
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {items.map((permission) => (
-                                        <tr key={permission.id}>
-                                            <td className="font-mono">
-                                                {permission.name}
-                                            </td>
-                                            <td>
-                                                <div className="flex flex-wrap gap-1">
-                                                    {permission.roles.length ===
-                                                    0 ? (
-                                                        <span className="text-base-content/60">
-                                                            —
-                                                        </span>
-                                                    ) : (
-                                                        permission.roles.map(
-                                                            (role) => (
-                                                                <span
-                                                                    key={role}
-                                                                    className="badge badge-ghost badge-sm"
-                                                                >
-                                                                    {role}
-                                                                </span>
-                                                            ),
-                                                        )
-                                                    )}
-                                                </div>
-                                            </td>
-                                            <td>
-                                                <div className="flex items-center justify-end gap-1">
-                                                    {canUpdate && (
-                                                        <Button
-                                                            variant="ghost"
-                                                            size="icon"
-                                                            aria-label={`Edit ${permission.name}`}
-                                                            asChild
-                                                        >
-                                                            <Link
-                                                                href={edit(
-                                                                    permission.id,
-                                                                )}
-                                                            >
-                                                                <Pencil />
-                                                            </Link>
-                                                        </Button>
-                                                    )}
+                                    <td>
+                                        <span className="badge badge-ghost badge-sm">
+                                            {permission.module}
+                                        </span>
+                                    </td>
 
-                                                    {canDelete && (
-                                                        <ConfirmDeleteDialog
-                                                            submit={PermissionController.destroy.form(
-                                                                permission.id,
-                                                            )}
-                                                            title={`Delete ${permission.name}?`}
-                                                            description="Every role loses this ability, and any route or policy still naming it will deny access."
-                                                            testId="delete-permission"
-                                                        />
+                                    <td>
+                                        <div className="flex flex-wrap gap-1">
+                                            {permission.roles.length === 0 ? (
+                                                <span className="text-base-content/60">
+                                                    —
+                                                </span>
+                                            ) : (
+                                                permission.roles.map((role) => (
+                                                    <span
+                                                        key={role}
+                                                        className="badge badge-ghost badge-sm"
+                                                    >
+                                                        {role}
+                                                    </span>
+                                                ))
+                                            )}
+                                        </div>
+                                    </td>
+
+                                    <td>
+                                        <div className="flex items-center justify-end gap-1">
+                                            {canUpdate && (
+                                                <Button
+                                                    variant="ghost"
+                                                    size="icon"
+                                                    aria-label={`Edit ${permission.name}`}
+                                                    asChild
+                                                >
+                                                    <Link
+                                                        href={edit(
+                                                            permission.id,
+                                                        )}
+                                                    >
+                                                        <Pencil />
+                                                    </Link>
+                                                </Button>
+                                            )}
+
+                                            {canDelete && (
+                                                <ConfirmDeleteDialog
+                                                    submit={PermissionController.destroy.form(
+                                                        permission.id,
                                                     )}
-                                                </div>
-                                            </td>
-                                        </tr>
-                                    ))}
-                                </tbody>
-                            </table>
-                        </div>
-                    </section>
-                ))}
+                                                    title={`Delete ${permission.name}?`}
+                                                    description="Every role loses this ability, and any route or policy still naming it will deny access."
+                                                    testId="delete-permission"
+                                                />
+                                            )}
+                                        </div>
+                                    </td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
+
+                <Pagination page={permissions} />
             </div>
         </>
     );

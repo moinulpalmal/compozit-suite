@@ -1,6 +1,6 @@
 <?php
 
-use App\Enums\Admin\DesignationStatus;
+use App\Enums\RecordStatus;
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
@@ -35,7 +35,7 @@ return new class extends Migration
              */
             $table->string('short_form', 50)->nullable()->unique();
 
-            $table->string('status', 1)->default(DesignationStatus::Active->value);
+            $table->string('status', 1)->default(RecordStatus::Active->value);
             $table->foreignId('inserted_by')->nullable()->constrained('users')->nullOnDelete();
             $table->foreignId('last_updated_by')->nullable()->constrained('users')->nullOnDelete();
             $table->timestamps();

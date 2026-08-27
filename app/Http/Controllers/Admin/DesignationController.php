@@ -2,8 +2,9 @@
 
 namespace App\Http\Controllers\Admin;
 
-use App\Enums\Admin\DesignationStatus;
+use App\Enums\RecordStatus;
 use App\Http\Controllers\Controller;
+use App\Http\Requests\Admin\DesignationIndexRequest;
 use App\Http\Requests\Admin\DesignationStoreRequest;
 use App\Http\Requests\Admin\DesignationUpdateRequest;
 use App\Models\Admin\Designation;
@@ -17,6 +18,11 @@ use Inertia\Response;
 
 class DesignationController extends Controller
 {
+    /**
+     * Rows per page on the designation list.
+     */
+    protected const int PER_PAGE = 25;
+
     public function __construct(protected DesignationService $designations) {}
 
     /**
@@ -26,13 +32,18 @@ class DesignationController extends Controller
      * `admin/users` works. There are no Active/Historical tabs here — a
      * designation is retired by setting its status, not by soft-deleting it.
      */
-    public function index(): Response
+    public function index(DesignationIndexRequest $request): Response
     {
+        $filters = $request->filters();
+
         $designations = Designation::query()
             ->withCount(['users as users_count' => fn (Builder $query) => $query->withTrashed()])
-            ->orderBy('name')
-            ->get()
-            ->map(fn (Designation $designation): array => [
+            ->when($filters['status'] !== '', fn ($query) => $query->where('status', $filters['status']))
+            ->search($filters['search_field'], $filters['search'])
+            ->sortBy($filters['sort'], $filters['direction'])
+            ->paginate(self::PER_PAGE)
+            ->withQueryString()
+            ->through(fn (Designation $designation): array => [
                 'id' => $designation->id,
                 'name' => $designation->name,
                 'short_form' => $designation->short_form,
@@ -43,7 +54,10 @@ class DesignationController extends Controller
 
         return Inertia::render('admin/designations/index', [
             'designations' => $designations,
-            'statuses' => DesignationStatus::options(),
+            'statuses' => RecordStatus::options(),
+            'sortable' => Designation::SORTABLE,
+            'searchable' => Designation::SEARCHABLE,
+            'filters' => $filters,
         ]);
     }
 

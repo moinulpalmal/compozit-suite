@@ -1,11 +1,12 @@
 import { Form } from '@inertiajs/react';
 import { Check, LoaderCircle, X } from 'lucide-react';
 import type { ReactNode } from 'react';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import InputError from '@/components/input-error';
 import PasswordInput from '@/components/password-input';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
+import Combobox from '@/components/ui/combobox';
 import {
     Dialog,
     DialogClose,
@@ -19,7 +20,13 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import type { AvailabilityState } from '@/hooks/use-availability';
 import { useAvailability } from '@/hooks/use-availability';
-import type { DesignationOption, GenderOption, UserListItem } from '@/types';
+import { options as designationOptionsRoute } from '@/routes/admin/designations';
+import type {
+    DesignationOption,
+    GenderOption,
+    StatusOption,
+    UserListItem,
+} from '@/types';
 import type { RouteFormDefinition } from '@/wayfinder';
 
 /** `/^[A-Za-z0-9-]{3,10}$/` — kept in step with `EmployeeValidationRules`. */
@@ -39,6 +46,7 @@ export default function UserFormDialog({
     submit,
     genders,
     designations,
+    statuses,
     roles,
     user,
     title,
@@ -48,6 +56,8 @@ export default function UserFormDialog({
 }: {
     submit: RouteFormDefinition<'post'>;
     genders: GenderOption[];
+    /** `RecordStatus::options()` — active/inactive. */
+    statuses: StatusOption[];
     /**
      * Active designations, plus any retired one a row on this page still
      * holds — see `DesignationService::assignableOptions()`.
@@ -96,6 +106,23 @@ export default function UserFormDialog({
     );
     const [officialMobile, setOfficialMobile] = useState(
         user?.official_mobile_no ?? '',
+    );
+
+    const designationSearchUrl = designationOptionsRoute.url();
+
+    // A deactivated title is still offered when this user already holds it, so
+    // it has to say so rather than looking like any other choice.
+    const designationOptions = useMemo(
+        () =>
+            designations.map((designation) => ({
+                value: designation.value,
+                label:
+                    designation.status === 'I'
+                        ? `${designation.label} (deactivated)`
+                        : designation.label,
+                hint: designation.short_form ?? undefined,
+            })),
+        [designations],
     );
 
     return (
@@ -189,21 +216,13 @@ export default function UserFormDialog({
                                     htmlFor="gender"
                                     error={errors.gender}
                                 >
-                                    <select
+                                    <Combobox
                                         id="gender"
                                         name="gender"
                                         defaultValue={user?.gender ?? 'M'}
-                                        className="select w-full"
-                                    >
-                                        {genders.map((gender) => (
-                                            <option
-                                                key={gender.value}
-                                                value={gender.value}
-                                            >
-                                                {gender.label}
-                                            </option>
-                                        ))}
-                                    </select>
+                                        options={genders}
+                                        required
+                                    />
                                 </Field>
 
                                 <Field
@@ -211,35 +230,31 @@ export default function UserFormDialog({
                                     htmlFor="designation_id"
                                     error={errors.designation_id}
                                 >
-                                    <select
+                                    {/* No default guess — the admin has to
+                                        choose, and an existing user with no
+                                        designation must not silently keep
+                                        whichever title sorts first.
+
+                                        The one async consumer in the app: the
+                                        designation list is paginated, so this
+                                        picker searches the server rather than
+                                        being shipped whole. ARCHITECTURE.md
+                                        §8.5. The rendered `designations` still
+                                        seed it, which is what keeps a retired
+                                        title the user already holds visible —
+                                        the endpoint returns active ones only. */}
+                                    <Combobox
                                         id="designation_id"
                                         name="designation_id"
                                         defaultValue={
-                                            user?.designation_id ?? ''
+                                            user?.designation_id ?? null
                                         }
+                                        options={designationOptions}
+                                        searchUrl={designationSearchUrl}
+                                        placeholder="Choose a designation"
                                         required
-                                        className="select w-full"
                                         data-test="designation-select"
-                                    >
-                                        {/* No default guess — the admin has to
-                                            choose, and an existing user with no
-                                            designation must not silently keep
-                                            whichever title sorts first. */}
-                                        <option value="" disabled>
-                                            Choose a designation
-                                        </option>
-
-                                        {designations.map((designation) => (
-                                            <option
-                                                key={designation.value}
-                                                value={designation.value}
-                                            >
-                                                {designation.label}
-                                                {designation.status === 'I' &&
-                                                    ' (deactivated)'}
-                                            </option>
-                                        ))}
-                                    </select>
+                                    />
                                 </Field>
 
                                 <Field
@@ -362,21 +377,32 @@ export default function UserFormDialog({
                                     Status
                                 </legend>
 
-                                {/* Unchecked checkboxes submit nothing, so a hidden 0 backs each one. */}
-                                <label className="flex items-center gap-2 text-sm">
-                                    <input
-                                        type="hidden"
-                                        name="approved"
-                                        value="0"
+                                {/* `status` was a boolean `approved` checkbox
+                                    until RecordStatus made A/I the house
+                                    vocabulary. Two options, so the combobox
+                                    renders as a plain listbox. */}
+                                <div className="grid max-w-xs gap-1.5">
+                                    <Label htmlFor="status">
+                                        Account status
+                                    </Label>
+                                    <Combobox
+                                        id="status"
+                                        name="status"
+                                        defaultValue={user?.status ?? 'A'}
+                                        options={statuses}
+                                        required
+                                        data-test="user-status"
                                     />
-                                    <Checkbox
-                                        name="approved"
-                                        value="1"
-                                        defaultChecked={user?.approved ?? true}
-                                    />
-                                    Active — may sign in
-                                </label>
+                                    <p className="text-xs text-base-content/60">
+                                        Inactive accounts cannot sign in.
+                                    </p>
+                                    <InputError message={errors.status} />
+                                </div>
 
+                                {/* `approval_authority` stays a boolean: it is
+                                    a power flag, not an active flag. Unchecked
+                                    checkboxes submit nothing, so a hidden 0
+                                    backs it. */}
                                 <label className="flex items-center gap-2 text-sm">
                                     <input
                                         type="hidden"
@@ -393,7 +419,9 @@ export default function UserFormDialog({
                                     Approval authority
                                 </label>
 
-                                <InputError message={errors.approved} />
+                                <InputError
+                                    message={errors.approval_authority}
+                                />
                             </fieldset>
 
                             {isCreate && roles !== undefined && (

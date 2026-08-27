@@ -1,17 +1,34 @@
-import { Head } from '@inertiajs/react';
+import { Head, router } from '@inertiajs/react';
 import { Pencil, Plus, Trash2 } from 'lucide-react';
 import DesignationController from '@/actions/App/Http/Controllers/Admin/DesignationController';
 import ConfirmActionDialog from '@/components/admin/confirm-action-dialog';
 import DesignationFormDialog from '@/components/admin/designation-form-dialog';
+import ListToolbar from '@/components/admin/list-toolbar';
+import Pagination from '@/components/admin/pagination';
+import SortableHeader, { nextSort } from '@/components/admin/sortable-header';
 import Heading from '@/components/heading';
 import { Button } from '@/components/ui/button';
 import { useCan } from '@/hooks/use-can';
 import { index } from '@/routes/admin/designations';
-import type { DesignationListItem, StatusOption } from '@/types';
+import type {
+    DesignationFilters,
+    DesignationListItem,
+    Paginated,
+    StatusOption,
+} from '@/types';
+
+/** Human labels for the searchable column names the server allow-lists. */
+const SEARCH_LABELS: Record<string, string> = {
+    name: 'Name',
+    short_form: 'Short form',
+};
 
 type Props = {
-    designations: DesignationListItem[];
+    designations: Paginated<DesignationListItem>;
     statuses: StatusOption[];
+    sortable: string[];
+    searchable: string[];
+    filters: DesignationFilters;
 };
 
 /**
@@ -21,11 +38,37 @@ type Props = {
  * status, not by soft-deleting it, so deactivate and delete are two different
  * verbs here. Delete is refused while anybody holds the title, which is why the
  * row shows its holder count.
+ *
+ * Paginated, searchable and sortable like every Admin list — ARCHITECTURE.md
+ * §8.6. Note this pagination does **not** reach the user form's designation
+ * picker: that is a separate query which must offer every assignable title.
  */
-export default function DesignationsIndex({ designations, statuses }: Props) {
+export default function DesignationsIndex({
+    designations,
+    statuses,
+    sortable,
+    searchable,
+    filters,
+}: Props) {
     const canCreate = useCan('admin.designations.create');
     const canUpdate = useCan('admin.designations.update');
     const canDelete = useCan('admin.designations.delete');
+
+    // Any filter change resets to page 1 — staying on page 9 of a result set
+    // that now has two pages would show an empty table.
+    const visit = (next: Partial<DesignationFilters>) =>
+        router.get(
+            index({ query: { ...filters, ...next, page: undefined } }),
+            {},
+            { preserveState: true, preserveScroll: true, replace: true },
+        );
+
+    const sortProps = (column: string) => ({
+        column,
+        sortable,
+        filters,
+        onSort: (target: string) => visit(nextSort(filters, target)),
+    });
 
     return (
         <>
@@ -53,30 +96,60 @@ export default function DesignationsIndex({ designations, statuses }: Props) {
                     )}
                 </div>
 
+                <ListToolbar
+                    filters={filters}
+                    searchable={searchable}
+                    searchLabels={SEARCH_LABELS}
+                    onChange={visit}
+                    onClear={() => visit({ search: '', status: '' })}
+                    controls={[
+                        {
+                            label: 'Status',
+                            ariaLabel: 'Filter by status',
+                            testId: 'status-filter',
+                            width: 'w-36',
+                            value: filters.status,
+                            onSelect: (status) => visit({ status }),
+                            options: [
+                                { value: '', label: 'All statuses' },
+                                ...statuses,
+                            ],
+                        },
+                    ]}
+                />
+
                 <div className="overflow-x-auto rounded-box border border-base-300/70">
                     <table className="table table-sm">
                         <thead>
                             <tr>
-                                <th>Name</th>
-                                <th>Short form</th>
-                                <th>Status</th>
+                                <SortableHeader {...sortProps('name')}>
+                                    Name
+                                </SortableHeader>
+                                <SortableHeader {...sortProps('short_form')}>
+                                    Short form
+                                </SortableHeader>
+                                <SortableHeader {...sortProps('status')}>
+                                    Status
+                                </SortableHeader>
                                 <th>Users</th>
                                 <th className="w-24" />
                             </tr>
                         </thead>
                         <tbody>
-                            {designations.length === 0 && (
+                            {designations.data.length === 0 && (
                                 <tr>
                                     <td
                                         colSpan={5}
                                         className="text-center text-base-content/60"
                                     >
-                                        No designations yet.
+                                        No designations match these filters.
+                                        Search matches from the start of the
+                                        field.
                                     </td>
                                 </tr>
                             )}
 
-                            {designations.map((designation) => (
+                            {designations.data.map((designation) => (
                                 <tr key={designation.id}>
                                     <td className="font-medium">
                                         {designation.name}
@@ -170,6 +243,8 @@ export default function DesignationsIndex({ designations, statuses }: Props) {
                         </tbody>
                     </table>
                 </div>
+
+                <Pagination page={designations} />
             </div>
         </>
     );

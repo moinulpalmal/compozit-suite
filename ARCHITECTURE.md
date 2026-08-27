@@ -297,6 +297,11 @@ duplicating the arithmetic.
 Request classes are named `{Model}{Action}Request` — `TechPackStoreRequest`,
 `TechPackUpdateRequest`. Actions are named as verbs — `DuplicateTechPack`, not `TechPackDuplicator`.
 
+An index screen's request is `{Model}IndexRequest` and extends `App\Http\Requests\ListRequest`
+rather than `FormRequest` — see [§8.6](#86-every-list-is-paginated-searchable-and-sortable). That
+base class is the one request that lives at the root of `app/Http/Requests/`, because it belongs to
+no module.
+
 Follow the PHP conventions in `CLAUDE.md`: explicit return types, promoted constructor properties,
 curly braces always, PHPDoc over inline comments, `TitleCase` enum cases.
 
@@ -511,6 +516,43 @@ shipping fewer rows is the entire point. Match `q` as a **prefix** so the query 
 `hooks/use-option-search.ts`, which follows `use-availability.ts` including its
 `X-Requested-With` header — omit that and Laravel records the JSON URL as the session's previous
 URL, sending every later `back()` to it.
+
+### 8.6 Every list is paginated, searchable and sortable
+
+**A list screen is never a bare `->get()`.** All four Admin lists — users, designations, roles,
+permissions — go through one apparatus, and a new one inherits it rather than re-implementing it:
+
+| Piece | Job |
+| --- | --- |
+| `app/Concerns/Listable` | `scopeSearch()` and `scopeSortBy()`. The model declares `SEARCHABLE` and `SORTABLE` |
+| `app/Http/Requests/ListRequest` | Abstract base validating `sort` / `direction` / `search_field` / `search` / `page`. Subclasses add their own filters through `filterRules()` and `filterValues()` |
+| `components/admin/list-toolbar.tsx` | The filter bar — dropdown filters plus a field-scoped search |
+| `components/admin/sortable-header.tsx` | Clickable `<th>`, and `nextSort()` |
+| `components/admin/pagination.tsx` | "Showing x–y of z" with prev/next |
+
+Rules that come with it:
+
+- **The allow-lists are a security control, not a convenience.** Request input reaching `orderBy()`
+  is a SQL injection. It is validated in the request *and* clamped in the scope; keep both.
+- **Search is a prefix match on one named field.** Never an `OR` across columns — see
+  [§6.3](#63-migrations). The toolbar's "Search in" selector is what makes the per-column indexes pay.
+- **Paginate with `->paginate()->withQueryString()->through(…)`.** Without `withQueryString`, page 2
+  silently drops the sort and filters.
+- **`SORTABLE` holds columns, not aggregates.** Sorting by a `withCount` alias needs a different
+  path; `Role::SORTABLE` records why `users_count` is absent.
+- **A list and its picker are different queries.** Paginating a list must never paginate the
+  dropdown that offers the same records elsewhere —
+  `DesignationService::assignableOptions()` and `PermissionService::groupedByModule()` are both
+  deliberately unpaginated, and both have a test pinning it.
+- **Grouped rendering and pagination are incompatible.** A group gets cut across a page boundary.
+  The permissions list traded its module grouping for a Module column and filter; if a future list
+  wants grouping, it does not get pagination, and that trade must be recorded.
+
+`ListRequest` sits at the root of `app/Http/Requests/` rather than a module folder, because it
+belongs to no module — a deliberate exception to [§6.1](#61-backend-classes).
+
+The contract is tested once for every surface in `tests/Feature/Admin/ListBehaviourTest.php`. **Add
+a new list to its `surfaces()` dataset** and it inherits the whole set.
 
 ---
 

@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Enums\Admin\Gender;
+use App\Enums\RecordStatus;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Admin\UserIndexRequest;
 use App\Http\Requests\Admin\UserPasswordUpdateRequest;
@@ -44,7 +45,7 @@ class UserController extends Controller
             ->when($filters['filter'] === 'trashed', fn ($query) => $query->onlyTrashed())
             ->when($filters['gender'] !== '', fn ($query) => $query->where('gender', $filters['gender']))
             ->when($filters['designation'] !== '', fn ($query) => $query->where('designation_id', $filters['designation']))
-            ->when($filters['status'] !== '', fn ($query) => $query->where('approved', $filters['status'] === 'active'))
+            ->when($filters['status'] !== '', fn ($query) => $query->where('status', $filters['status']))
             ->with(['roles:id,name', 'designation:id,name,short_form', 'insertedBy:id,name', 'lastUpdatedBy:id,name'])
             ->search($filters['search_field'], $filters['search'])
             ->sortBy($filters['sort'], $filters['direction'])
@@ -56,6 +57,7 @@ class UserController extends Controller
             'users' => $users,
             'roles' => $this->users->assignableRoleNames(),
             'genders' => Gender::options(),
+            'statuses' => RecordStatus::options(),
             /*
              * Two different lists on purpose. The edit modal may only offer
              * active designations — plus whichever retired ones this page's
@@ -98,7 +100,10 @@ class UserController extends Controller
      */
     public function update(UserUpdateRequest $request, User $user): RedirectResponse
     {
-        $blocker = $this->users->approvalBlocker($user, $request->boolean('approved'));
+        $blocker = $this->users->statusBlocker(
+            $user,
+            RecordStatus::from($request->string('status')->value()),
+        );
 
         if ($blocker !== null) {
             return $this->refuse($blocker);
@@ -245,7 +250,7 @@ class UserController extends Controller
             'gender' => $user->gender->value,
             'designation_id' => $user->designation_id,
             'designation' => $user->designation?->name,
-            'approved' => $user->approved,
+            'status' => $user->status->value,
             'approval_authority' => $user->approval_authority,
             'roles' => $user->roles->pluck('name'),
             'inserted_by' => $user->insertedBy?->name,

@@ -2,13 +2,14 @@
 
 namespace App\Models\Admin;
 
-use App\Enums\Admin\DesignationStatus;
+use App\Concerns\HasStatus;
+use App\Concerns\Listable;
+use App\Enums\RecordStatus;
 use App\Models\User;
 use App\Observers\ActorObserver;
 use Database\Factories\Admin\DesignationFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\ObservedBy;
-use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -27,7 +28,7 @@ use Illuminate\Support\Carbon;
  * @property int $id
  * @property string $name
  * @property string|null $short_form
- * @property DesignationStatus $status
+ * @property RecordStatus $status
  * @property int|null $inserted_by
  * @property int|null $last_updated_by
  * @property Carbon|null $created_at
@@ -41,19 +42,24 @@ use Illuminate\Support\Carbon;
 class Designation extends Model
 {
     /** @use HasFactory<DesignationFactory> */
-    use HasFactory;
+    use HasFactory, HasStatus, Listable;
 
     /**
-     * Get the attributes that should be cast.
+     * The fields the designation list may be searched by.
      *
-     * @return array<string, string>
+     * One named field rather than an `OR` across both, for the reason in
+     * ARCHITECTURE.md §6.3 — `name` is covered by its unique index.
+     *
+     * @var list<string>
      */
-    protected function casts(): array
-    {
-        return [
-            'status' => DesignationStatus::class,
-        ];
-    }
+    public const array SEARCHABLE = ['name', 'short_form'];
+
+    /**
+     * The columns the designation list may be sorted by.
+     *
+     * @var list<string>
+     */
+    public const array SORTABLE = ['name', 'short_form', 'status', 'created_at'];
 
     /**
      * The users holding this designation.
@@ -83,23 +89,5 @@ class Designation extends Model
     public function lastUpdatedBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'last_updated_by');
-    }
-
-    /**
-     * Limit the query to designations that may still be assigned.
-     *
-     * @param  Builder<Designation>  $query
-     */
-    public function scopeActive(Builder $query): void
-    {
-        $query->where('status', DesignationStatus::Active);
-    }
-
-    /**
-     * Determine whether this designation may still be assigned to a user.
-     */
-    public function isActive(): bool
-    {
-        return $this->status === DesignationStatus::Active;
     }
 }

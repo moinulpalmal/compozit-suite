@@ -2,7 +2,7 @@
 
 namespace App\Concerns;
 
-use App\Enums\Admin\DesignationStatus;
+use App\Enums\RecordStatus;
 use App\Models\Admin\Designation;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Validation\Rule;
@@ -39,7 +39,7 @@ trait DesignationValidationRules
                 'max:50',
                 Rule::unique(Designation::class, 'short_form')->ignore($designationId),
             ],
-            'status' => ['required', Rule::enum(DesignationStatus::class)],
+            'status' => ['required', Rule::enum(RecordStatus::class)],
         ];
     }
 

@@ -2,7 +2,7 @@
 
 namespace Database\Factories\Admin;
 
-use App\Enums\Admin\DesignationStatus;
+use App\Enums\RecordStatus;
 use App\Models\Admin\Designation;
 use Illuminate\Database\Eloquent\Factories\Factory;
 
@@ -24,7 +24,7 @@ class DesignationFactory extends Factory
         return [
             'name' => fake()->unique()->jobTitle(),
             'short_form' => strtoupper(fake()->unique()->lexify('???')),
-            'status' => DesignationStatus::Active,
+            'status' => RecordStatus::Active,
         ];
     }
 
@@ -34,7 +34,7 @@ class DesignationFactory extends Factory
     public function inactive(): static
     {
         return $this->state(fn (array $attributes): array => [
-            'status' => DesignationStatus::Inactive,
+            'status' => RecordStatus::Inactive,
         ]);
     }
 

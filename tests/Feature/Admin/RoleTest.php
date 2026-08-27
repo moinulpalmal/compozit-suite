@@ -23,8 +23,8 @@ test('users with the view permission see the role list', function () {
         ->assertOk()
         ->assertInertia(fn ($page) => $page
             ->component('admin/roles/index')
-            ->has('roles', 1)
-            ->where('roles.0.name', 'merchandiser'));
+            ->has('roles.data', 1)
+            ->where('roles.data.0.name', 'merchandiser'));
 });
 
 test('a super admin reaches the role list without an explicit permission', function () {

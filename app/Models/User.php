@@ -3,7 +3,10 @@
 namespace App\Models;
 
 // use Illuminate\Contracts\Auth\MustVerifyEmail;
+use App\Concerns\HasStatus;
+use App\Concerns\Listable;
 use App\Enums\Admin\Gender;
+use App\Enums\RecordStatus;
 use App\Enums\Theme;
 use App\Models\Admin\Designation;
 use App\Observers\ActorObserver;
@@ -11,7 +14,6 @@ use Database\Factories\UserFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Hidden;
 use Illuminate\Database\Eloquent\Attributes\ObservedBy;
-use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\SoftDeletes;
@@ -29,7 +31,7 @@ use Spatie\Permission\Traits\HasRoles;
  * @property string|null $official_extension_no
  * @property Gender $gender
  * @property int|null $designation_id
- * @property bool $approved
+ * @property RecordStatus $status
  * @property bool $approval_authority
  * @property int|null $inserted_by
  * @property int|null $last_updated_by
@@ -57,7 +59,7 @@ use Spatie\Permission\Traits\HasRoles;
     'official_extension_no',
     'gender',
     'designation_id',
-    'approved',
+    'status',
     'approval_authority',
     'email',
     'password',
@@ -67,7 +69,7 @@ use Spatie\Permission\Traits\HasRoles;
 class User extends Authenticatable
 {
     /** @use HasFactory<UserFactory> */
-    use HasFactory, HasRoles, Notifiable, SoftDeletes;
+    use HasFactory, HasRoles, HasStatus, Listable, Notifiable, SoftDeletes;
 
     /**
      * Get the attributes that should be cast.
@@ -81,7 +83,6 @@ class User extends Authenticatable
             'password' => 'hashed',
             'theme' => Theme::class,
             'gender' => Gender::class,
-            'approved' => 'boolean',
             'approval_authority' => 'boolean',
         ];
     }
@@ -146,44 +147,4 @@ class User extends Authenticatable
      * @var list<string>
      */
     public const array SORTABLE = ['name', 'employee_id', 'email', 'created_at'];
-
-    /**
-     * Filter users by a prefix match on one searchable field.
-     *
-     * **Prefix, not contains.** `LIKE 'term%'` uses an index; `LIKE '%term%'`
-     * cannot, ever. So "158" finds employee 15868 but "868" does not — that is
-     * the contract, not a bug.
-     *
-     * @param  Builder<User>  $query
-     */
-    public function scopeSearch(Builder $query, ?string $field, ?string $term): void
-    {
-        $term = trim((string) $term);
-
-        if ($term === '' || ! in_array($field, self::SEARCHABLE, true)) {
-            return;
-        }
-
-        // Otherwise a term of "%" becomes a wildcard and scans the whole table.
-        $escaped = addcslashes($term, '%_\\');
-
-        $query->where($field, 'like', "{$escaped}%");
-    }
-
-    /**
-     * Order the list by an allow-listed column.
-     *
-     * The allow-list is load-bearing: passing request input straight to
-     * `orderBy()` is a SQL injection. An unknown column falls back to the
-     * default rather than reaching the database.
-     *
-     * @param  Builder<User>  $query
-     */
-    public function scopeSortBy(Builder $query, ?string $column, ?string $direction): void
-    {
-        $column = in_array($column, self::SORTABLE, true) ? $column : 'name';
-        $direction = $direction === 'desc' ? 'desc' : 'asc';
-
-        $query->orderBy($column, $direction);
-    }
 }

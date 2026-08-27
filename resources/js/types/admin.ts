@@ -47,7 +47,7 @@ export type GenderOption = {
     label: string;
 };
 
-/** A status option as `DesignationStatus::options()` serialises it. */
+/** A status option as `RecordStatus::options()` serialises it. */
 export type StatusOption = {
     value: string;
     label: string;
@@ -85,6 +85,12 @@ export type DesignationFilterOption = {
     label: string;
 };
 
+/** A module segment, as the permission list's filter renders it. */
+export type ModuleOption = {
+    value: string;
+    label: string;
+};
+
 export type UserListItem = {
     id: number;
     name: string;
@@ -97,7 +103,8 @@ export type UserListItem = {
     designation_id: number | null;
     /** Null on rows created before designations existed. */
     designation: string | null;
-    approved: boolean;
+    /** `'A'` active, `'I'` disabled — `RecordStatus`, shared with designations. */
+    status: string;
     approval_authority: boolean;
     roles: string[];
     inserted_by: string | null;
@@ -110,8 +117,11 @@ export type UserListItem = {
     is_last_super_admin: boolean;
 };
 
-export type UserFilters = {
-    filter: 'active' | 'trashed';
+/**
+ * The query state every Admin list screen carries, as `ListRequest::filters()`
+ * serialises it. Surface-specific filters extend this.
+ */
+export type ListFilters = {
     /** Allow-listed column name; anything else is rejected server-side. */
     sort: string;
     direction: 'asc' | 'desc';
@@ -119,10 +129,27 @@ export type UserFilters = {
     search_field: string;
     /** Matched as a **prefix** — "158" finds 15868, "868" does not. */
     search: string;
+};
+
+export type UserFilters = ListFilters & {
+    filter: 'active' | 'trashed';
     gender: string;
     /** A designation id as a string, or '' for all. */
     designation: string;
-    status: '' | 'active' | 'inactive';
+    /** A `RecordStatus` value (`'A'` / `'I'`), or '' for all. */
+    status: string;
+};
+
+export type DesignationFilters = ListFilters & {
+    /** `'A'`, `'I'`, or '' for all. */
+    status: string;
+};
+
+export type RoleFilters = ListFilters;
+
+export type PermissionFilters = ListFilters & {
+    /** A module segment (`admin`, `merchandising`), or '' for all. */
+    module: string;
 };
 
 /** One page of a Laravel paginator, as Inertia serialises it. */

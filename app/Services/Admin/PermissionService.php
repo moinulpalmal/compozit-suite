@@ -31,6 +31,31 @@ class PermissionService
     }
 
     /**
+     * The distinct module segments, as the list's module filter renders them.
+     *
+     * Derived from the names rather than stored: the module *is* the first
+     * dot-delimited segment, and a second table for a dozen values that are
+     * already implied would be one more thing to keep in step.
+     *
+     * @return list<array{value: string, label: string}>
+     */
+    public function moduleOptions(): array
+    {
+        return Permission::query()
+            ->orderBy('name')
+            ->pluck('name')
+            ->map(fn (string $name): string => explode('.', $name)[0])
+            ->unique()
+            ->sort()
+            ->values()
+            ->map(fn (string $module): array => [
+                'value' => $module,
+                'label' => $module,
+            ])
+            ->all();
+    }
+
+    /**
      * Split a permission into the parts the picker renders.
      *
      * @return array{id: int, name: string, resource: string, action: string}

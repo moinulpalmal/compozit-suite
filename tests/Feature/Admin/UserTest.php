@@ -1,5 +1,6 @@
 <?php
 
+use App\Enums\RecordStatus;
 use App\Models\Admin\Designation;
 use App\Models\Admin\Role;
 use App\Models\User;
@@ -155,14 +156,14 @@ test('the list filters by gender and by status', function () {
 
     User::factory()->create(['name' => 'Female Person', 'gender' => 'F']);
     User::factory()->create(['name' => 'Male Person', 'gender' => 'M']);
-    User::factory()->unapproved()->create(['name' => 'Disabled Person', 'gender' => 'M']);
+    User::factory()->inactive()->create(['name' => 'Disabled Person', 'gender' => 'M']);
 
     $this->get(route('admin.users.index', ['gender' => 'F']))
         ->assertInertia(fn ($page) => $page
             ->has('users.data', 1)
             ->where('users.data.0.name', 'Female Person'));
 
-    $this->get(route('admin.users.index', ['status' => 'inactive']))
+    $this->get(route('admin.users.index', ['status' => RecordStatus::Inactive->value]))
         ->assertInertia(fn ($page) => $page
             ->has('users.data', 1)
             ->where('users.data.0.name', 'Disabled Person'));
@@ -200,7 +201,7 @@ test('a user is created with roles and a verified email', function () {
 
     expect($user->name)->toBe('New Person')
         ->and($user->email_verified_at)->not->toBeNull()
-        ->and($user->approved)->toBeTrue()
+        ->and($user->status)->toBe(RecordStatus::Active)
         ->and($user->hasRole('merchandiser'))->toBeTrue()
         ->and(Hash::check('Str0ng-Pass!word', $user->password))->toBeTrue();
 });
@@ -432,11 +433,11 @@ test('the last super admin cannot be deactivated', function () {
     $this->actingAs($actor)
         ->from(route('admin.users.index'))
         ->put(route('admin.users.update', $target), userPayload(
-            ['employee_id' => $target->employee_id, 'email' => $target->email, 'approved' => 0],
+            ['employee_id' => $target->employee_id, 'email' => $target->email, 'status' => RecordStatus::Inactive->value],
             except: ['password', 'password_confirmation'],
         ));
 
-    expect($target->refresh()->approved)->toBeTrue();
+    expect($target->refresh()->status)->toBe(RecordStatus::Active);
 });
 
 /*
@@ -599,7 +600,7 @@ function userPayload(array $overrides = [], array $except = []): array
         // not litter the table.
         'designation_id' => (Designation::query()->active()->first()
             ?? Designation::factory()->create())->id,
-        'approved' => 1,
+        'status' => RecordStatus::Active->value,
         'approval_authority' => 0,
         'password' => 'Str0ng-Pass!word',
         'password_confirmation' => 'Str0ng-Pass!word',

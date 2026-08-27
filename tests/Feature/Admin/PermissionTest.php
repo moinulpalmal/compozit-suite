@@ -14,19 +14,56 @@ test('users without the view permission are denied', function () {
     $this->get(route('admin.permissions.index'))->assertForbidden();
 });
 
-test('permissions are listed grouped by module', function () {
+test('permissions are listed flat, each carrying its module', function () {
     $this->actingAs(userWithPermissions('admin.permissions.view'));
 
     Permission::findOrCreate('merchandising.tech-packs.view', 'web');
 
+    /*
+     * Flat, not grouped: grouping and pagination cannot both hold, because a
+     * group would be cut across a page boundary. The module became a column
+     * and a filter instead — see documentation/admin.md §5.
+     */
     $this->get(route('admin.permissions.index'))
         ->assertOk()
         ->assertInertia(fn ($page) => $page
             ->component('admin/permissions/index')
-            ->where('permissions.0.name', 'admin.permissions.view')
-            ->where('permissions.0.module', 'admin')
-            ->where('permissions.1.name', 'merchandising.tech-packs.view')
-            ->where('permissions.1.module', 'merchandising'));
+            ->where('permissions.data.0.name', 'admin.permissions.view')
+            ->where('permissions.data.0.module', 'admin')
+            ->where('permissions.data.1.name', 'merchandising.tech-packs.view')
+            ->where('permissions.data.1.module', 'merchandising'));
+});
+
+test('the permission list filters by module', function () {
+    $this->actingAs(userWithPermissions('admin.permissions.view'));
+
+    Permission::findOrCreate('merchandising.tech-packs.view', 'web');
+
+    $this->get(route('admin.permissions.index', ['module' => 'merchandising']))
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page
+            ->has('permissions.data', 1)
+            ->where('permissions.data.0.name', 'merchandising.tech-packs.view'));
+});
+
+test('the module filter matches a whole segment, not a prefix of one', function () {
+    $this->actingAs(userWithPermissions('admin.permissions.view'));
+
+    Permission::findOrCreate('merchandising.tech-packs.view', 'web');
+
+    // "admin" must not sweep in a neighbouring "administration.*" module: the
+    // scope appends the dot separator rather than matching the bare prefix.
+    Permission::findOrCreate('administration.things.view', 'web');
+
+    $this->get(route('admin.permissions.index', ['module' => 'admin']))
+        ->assertOk()
+        ->assertInertia(function ($page) {
+            $listed = collect($page->toArray()['props']['permissions']['data'])
+                ->pluck('name');
+
+            expect($listed)->not->toContain('administration.things.view')
+                ->and($listed)->toContain('admin.permissions.view');
+        });
 });
 
 test('a permission is created and attached to roles', function () {

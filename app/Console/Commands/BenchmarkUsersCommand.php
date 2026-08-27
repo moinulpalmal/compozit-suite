@@ -2,6 +2,7 @@
 
 namespace App\Console\Commands;
 
+use App\Enums\RecordStatus;
 use App\Models\Admin\Designation;
 use App\Models\User;
 use Illuminate\Console\Command;
@@ -39,7 +40,7 @@ class BenchmarkUsersCommand extends Command
         'bench_deleted_personal_mobile' => ['deleted_at', 'personal_mobile_no'],
         'bench_deleted_official_mobile' => ['deleted_at', 'official_mobile_no'],
         'bench_deleted_extension' => ['deleted_at', 'official_extension_no'],
-        'bench_deleted_approved_name' => ['deleted_at', 'approved', 'name'],
+        'bench_deleted_status_name' => ['deleted_at', 'status', 'name'],
         'bench_deleted_gender_name' => ['deleted_at', 'gender', 'name'],
 
         /*
@@ -119,7 +120,7 @@ class BenchmarkUsersCommand extends Command
         $inactive = array_slice($seeded, (int) ($rows / 10), (int) ($rows / 20));
 
         User::query()->whereIn('id', $trashed)->delete();
-        User::query()->whereIn('id', $inactive)->update(['approved' => false]);
+        User::query()->whereIn('id', $inactive)->update(['status' => RecordStatus::Inactive]);
 
         $this->spreadDesignations($seeded);
 
@@ -211,7 +212,7 @@ class BenchmarkUsersCommand extends Command
             'filter gender' => "{$base} AND gender = 'F' ORDER BY name LIMIT 25",
             'filter designation (common)' => "{$base} AND designation_id = {$sample['designation_common']} ORDER BY name LIMIT 25",
             'filter designation (rare)' => "{$base} AND designation_id = {$sample['designation_rare']} ORDER BY name LIMIT 25",
-            'filter inactive' => "{$base} AND approved = 0 ORDER BY name LIMIT 25",
+            'filter inactive' => "{$base} AND status = 'I' ORDER BY name LIMIT 25",
             'historical tab' => 'SELECT * FROM users WHERE deleted_at IS NOT NULL ORDER BY name LIMIT 25',
             'deep page (offset 2000)' => "{$base} ORDER BY name ASC LIMIT 25 OFFSET 2000",
         ];

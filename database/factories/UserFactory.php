@@ -3,6 +3,7 @@
 namespace Database\Factories;
 
 use App\Enums\Admin\Gender;
+use App\Enums\RecordStatus;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Factories\Factory;
 use Illuminate\Support\Facades\Hash;
@@ -35,7 +36,7 @@ class UserFactory extends Factory
                 : null,
             'official_extension_no' => fake()->numerify('###'),
             'gender' => fake()->randomElement(Gender::cases()),
-            'approved' => true,
+            'status' => RecordStatus::Active,
             'approval_authority' => false,
             'email' => fake()->unique()->safeEmail(),
             'email_verified_at' => now(),
@@ -45,12 +46,12 @@ class UserFactory extends Factory
     }
 
     /**
-     * Indicate that the user is not approved.
+     * Indicate that the user's account is disabled.
      */
-    public function unapproved(): static
+    public function inactive(): static
     {
         return $this->state(fn (array $attributes) => [
-            'approved' => false,
+            'status' => RecordStatus::Inactive,
         ]);
     }
 

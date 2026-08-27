@@ -1,6 +1,6 @@
 <?php
 
-use App\Enums\Admin\DesignationStatus;
+use App\Enums\RecordStatus;
 use App\Models\Admin\Designation;
 use App\Models\User;
 
@@ -46,11 +46,11 @@ test('the list shows every designation with its holder count', function () {
             ->component('admin/designations/index')
             // Inactive ones are listed here — this screen is where they are
             // reactivated, unlike the user form's picker.
-            ->has('designations', 2)
-            ->where('designations.0.name', 'Merchandiser')
-            ->where('designations.0.users_count', 2)
-            ->where('designations.0.is_deletable', false)
-            ->where('designations.1.is_deletable', true));
+            ->has('designations.data', 2)
+            ->where('designations.data.0.name', 'Merchandiser')
+            ->where('designations.data.0.users_count', 2)
+            ->where('designations.data.0.is_deletable', false)
+            ->where('designations.data.1.is_deletable', true));
 });
 
 /*
@@ -68,7 +68,7 @@ test('a designation is created', function () {
     $designation = Designation::query()->where('name', 'Senior Merchandiser')->firstOrFail();
 
     expect($designation->short_form)->toBe('SMER')
-        ->and($designation->status)->toBe(DesignationStatus::Active);
+        ->and($designation->status)->toBe(RecordStatus::Active);
 });
 
 test('the name is required', function () {
@@ -189,10 +189,10 @@ test('deactivating keeps the designation and its holders', function () {
     $this->put(route('admin.designations.update', $designation), designationPayload([
         'name' => $designation->name,
         'short_form' => $designation->short_form,
-        'status' => DesignationStatus::Inactive->value,
+        'status' => RecordStatus::Inactive->value,
     ]))->assertSessionHasNoErrors();
 
-    expect($designation->refresh()->status)->toBe(DesignationStatus::Inactive)
+    expect($designation->refresh()->status)->toBe(RecordStatus::Inactive)
         ->and($holder->refresh()->designation_id)->toBe($designation->id);
 });
 
@@ -225,6 +225,100 @@ test('the users filter lists deactivated designations too', function () {
 
             expect($filters)->toContain('Retired');
         });
+});
+
+test('paginating the designation list does not paginate the user form picker', function () {
+    $this->actingAs(userWithPermissions('admin.users.view'));
+
+    // Comfortably more than the list's 25-row page.
+    Designation::factory()->count(40)->create();
+
+    /*
+     * A list and its picker are different queries against the same table. The
+     * list is paginated; `assignableOptions()` must still offer every
+     * assignable title, or a user on page 2 of designations could not be given
+     * one of the first 25.
+     */
+    $this->get(route('admin.users.index'))
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page
+            ->has('designations', 40)
+            ->has('designationFilters', 40));
+});
+
+/*
+|--------------------------------------------------------------------------
+| The options endpoint — the combobox's async source
+|--------------------------------------------------------------------------
+|
+| `<Combobox searchUrl>` reads this. The shape is a convention every later
+| options endpoint follows, so it is pinned here rather than left implicit.
+| See ARCHITECTURE.md §8.5.
+|
+*/
+
+test('the options endpoint is denied without the view permission', function () {
+    $this->actingAs(User::factory()->create());
+
+    $this->getJson(route('admin.designations.options'))->assertForbidden();
+});
+
+test('the options endpoint returns the agreed shape', function () {
+    $this->actingAs(userWithPermissions('admin.designations.view'));
+
+    Designation::factory()->create(['name' => 'Merchandiser', 'short_form' => 'MER']);
+
+    $this->getJson(route('admin.designations.options'))
+        ->assertOk()
+        ->assertJsonStructure(['data' => [['value', 'label', 'hint']]])
+        ->assertJsonPath('data.0.label', 'Merchandiser')
+        ->assertJsonPath('data.0.hint', 'MER');
+});
+
+test('the options endpoint offers active designations only', function () {
+    $this->actingAs(userWithPermissions('admin.designations.view'));
+
+    Designation::factory()->create(['name' => 'Offered']);
+    Designation::factory()->inactive()->create(['name' => 'Retired']);
+
+    $response = $this->getJson(route('admin.designations.options'))->assertOk();
+
+    expect(collect($response->json('data'))->pluck('label'))
+        ->toContain('Offered')
+        ->not->toContain('Retired');
+});
+
+test('the options endpoint matches the term by prefix', function () {
+    $this->actingAs(userWithPermissions('admin.designations.view'));
+
+    Designation::factory()->create(['name' => 'Merchandiser', 'short_form' => 'MER']);
+    Designation::factory()->create(['name' => 'Cutter', 'short_form' => 'CUT']);
+
+    // Prefix, not contains — the same indexable contract as the user search.
+    $matched = $this->getJson(route('admin.designations.options', ['q' => 'Merc']))->json('data');
+    $unmatched = $this->getJson(route('admin.designations.options', ['q' => 'erch']))->json('data');
+
+    expect($matched)->toHaveCount(1)
+        ->and($matched[0]['label'])->toBe('Merchandiser')
+        ->and($unmatched)->toHaveCount(0);
+});
+
+test('the options endpoint matches the short form too', function () {
+    $this->actingAs(userWithPermissions('admin.designations.view'));
+
+    Designation::factory()->create(['name' => 'Quality Inspector', 'short_form' => 'QI']);
+
+    expect($this->getJson(route('admin.designations.options', ['q' => 'QI']))->json('data'))
+        ->toHaveCount(1);
+});
+
+test('a wildcard in the options term is escaped, not honoured', function () {
+    $this->actingAs(userWithPermissions('admin.designations.view'));
+
+    Designation::factory()->create(['name' => 'Merchandiser']);
+
+    expect($this->getJson(route('admin.designations.options', ['q' => '%']))->json('data'))
+        ->toHaveCount(0);
 });
 
 /*
@@ -265,7 +359,7 @@ function designationPayload(array $overrides = []): array
     return [
         'name' => 'Senior Merchandiser',
         'short_form' => 'SMER',
-        'status' => DesignationStatus::Active->value,
+        'status' => RecordStatus::Active->value,
         ...$overrides,
     ];
 }

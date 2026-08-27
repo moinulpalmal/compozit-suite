@@ -28,7 +28,17 @@ export function useOptionSearch(
     query: string,
 ): OptionSearchState {
     const trimmed = query.trim();
-    const [state, setState] = useState<OptionSearchState>(IDLE);
+
+    /*
+     * Keyed by the query it answers, so `loading` is *derived* below rather than
+     * set from inside the effect. Setting it synchronously there triggers the
+     * cascading-render the React Compiler lint rules reject; `use-availability.ts`
+     * dodges it the same way, and for the same reason.
+     */
+    const [result, setResult] = useState<{
+        query: string;
+        options: ComboboxOption[];
+    } | null>(null);
 
     useEffect(() => {
         if (searchUrl === undefined) {
@@ -36,8 +46,6 @@ export function useOptionSearch(
         }
 
         const controller = new AbortController();
-
-        setState((current) => ({ ...current, loading: true }));
 
         const timer = setTimeout(() => {
             const separator = searchUrl.includes('?') ? '&' : '?';
@@ -58,16 +66,19 @@ export function useOptionSearch(
                     response.ok ? response.json() : Promise.reject(response),
                 )
                 .then((body: { data?: ComboboxOption[] }) =>
-                    setState({ options: body.data ?? [], loading: false }),
+                    setResult({ query: trimmed, options: body.data ?? [] }),
                 )
                 // A failed lookup shows "No matches" rather than breaking the
                 // form; the server still validates whatever is submitted.
                 .catch((error: unknown) => {
-                    if (error instanceof DOMException && error.name === 'AbortError') {
+                    if (
+                        error instanceof DOMException &&
+                        error.name === 'AbortError'
+                    ) {
                         return;
                     }
 
-                    setState({ options: [], loading: false });
+                    setResult({ query: trimmed, options: [] });
                 });
         }, DEBOUNCE_MS);
 
@@ -77,5 +88,14 @@ export function useOptionSearch(
         };
     }, [searchUrl, trimmed]);
 
-    return searchUrl === undefined ? IDLE : state;
+    if (searchUrl === undefined) {
+        return IDLE;
+    }
+
+    // The previous query's options stay on screen while the next ones load, so
+    // the menu does not blink empty on every keystroke.
+    return {
+        options: result?.options ?? [],
+        loading: result?.query !== trimmed,
+    };
 }

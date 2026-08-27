@@ -2,8 +2,8 @@
 
 namespace App\Concerns;
 
-use App\Enums\Admin\DesignationStatus;
 use App\Enums\Admin\Gender;
+use App\Enums\RecordStatus;
 use App\Models\Admin\Designation;
 use App\Models\User;
 use Illuminate\Contracts\Validation\ValidationRule;
@@ -98,7 +98,7 @@ trait EmployeeValidationRules
             'integer',
             Rule::exists(Designation::class, 'id')->where(
                 function (Builder $query) use ($userId): void {
-                    $query->where('status', DesignationStatus::Active->value);
+                    $query->where('status', RecordStatus::Active->value);
 
                     if ($userId !== null) {
                         $query->orWhereIn('id', User::query()
@@ -125,7 +125,7 @@ trait EmployeeValidationRules
             'official_extension_no' => $this->extensionRules(),
             'gender' => $this->genderRules(),
             'designation_id' => $this->designationRules($userId),
-            'approved' => ['required', 'boolean'],
+            'status' => ['required', Rule::enum(RecordStatus::class)],
             'approval_authority' => ['required', 'boolean'],
         ];
     }

@@ -2,29 +2,26 @@
 
 namespace App\Http\Requests\Admin;
 
-use App\Enums\Admin\Gender;
 use App\Enums\RecordStatus;
 use App\Http\Requests\ListRequest;
 use App\Models\Admin\Designation;
-use App\Models\User;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Validation\Rule;
 
 /**
- * Validates the Admin user list's query string.
+ * Validates the designation list's query string.
  *
  * The shared sort / direction / search / page rules come from
- * {@see ListRequest}. Everything below is what this surface adds of its own:
- * the active-versus-historical tab, and three filters.
+ * {@see ListRequest}; the status filter is this surface's own.
  */
-class UserIndexRequest extends ListRequest
+class DesignationIndexRequest extends ListRequest
 {
     /**
      * {@inheritDoc}
      */
     protected function sortable(): array
     {
-        return User::SORTABLE;
+        return Designation::SORTABLE;
     }
 
     /**
@@ -32,7 +29,7 @@ class UserIndexRequest extends ListRequest
      */
     protected function searchable(): array
     {
-        return User::SEARCHABLE;
+        return Designation::SEARCHABLE;
     }
 
     /**
@@ -43,9 +40,6 @@ class UserIndexRequest extends ListRequest
     protected function filterRules(): array
     {
         return [
-            'filter' => ['sometimes', 'in:active,trashed'],
-            'gender' => ['sometimes', 'nullable', Rule::enum(Gender::class)],
-            'designation' => ['sometimes', 'nullable', 'integer', Rule::exists(Designation::class, 'id')],
             'status' => ['sometimes', 'nullable', Rule::enum(RecordStatus::class)],
         ];
     }
@@ -57,11 +51,6 @@ class UserIndexRequest extends ListRequest
      */
     protected function filterValues(): array
     {
-        return [
-            'filter' => $this->string('filter')->value() === 'trashed' ? 'trashed' : 'active',
-            'gender' => $this->string('gender')->value(),
-            'designation' => $this->string('designation')->value(),
-            'status' => $this->string('status')->value(),
-        ];
+        return ['status' => $this->string('status')->value()];
     }
 }

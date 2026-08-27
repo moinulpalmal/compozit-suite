@@ -2,6 +2,7 @@
 
 namespace App\Services\Admin;
 
+use App\Enums\RecordStatus;
 use App\Models\Admin\Role;
 use App\Models\User;
 use Illuminate\Support\Facades\Auth;
@@ -136,9 +137,9 @@ class UserService
     /**
      * The reason the actor may not deactivate this user, if there is one.
      */
-    public function approvalBlocker(User $user, bool $approved): ?string
+    public function statusBlocker(User $user, RecordStatus $status): ?string
     {
-        if ($approved) {
+        if ($status === RecordStatus::Active) {
             return null;
         }
 

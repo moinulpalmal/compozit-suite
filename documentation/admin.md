@@ -306,6 +306,27 @@ This deliberately diverges from the `index/create/edit` pattern that roles and p
 see [ARCHITECTURE.md → Module 1](../ARCHITECTURE.md#5-module-registry). Do not harmonise one into
 the other without a new decision.
 
+### 3.1.1 The list apparatus, and what is no longer here
+
+The toolbar, sortable headers, prefix search and pagination that this page pioneered are now shared
+by all four Admin lists —
+[ARCHITECTURE.md §8.6](../ARCHITECTURE.md#86-every-list-is-paginated-searchable-and-sortable).
+
+Three things moved out of this page in that change, so look for them in their new homes:
+
+| Was | Now |
+| --- | --- |
+| `components/admin/users-table-toolbar.tsx` | `components/admin/list-toolbar.tsx`, taking a declarative `controls` array |
+| A `SortableHeader` local to `pages/admin/users/index.tsx` | `components/admin/sortable-header.tsx`, plus `nextSort()` |
+| `User::scopeSearch()` / `scopeSortBy()` | `App\Concerns\Listable`. `User::SEARCHABLE` and `SORTABLE` stayed on the model |
+| `UserIndexRequest extends FormRequest` | `extends App\Http\Requests\ListRequest`; only the tab and three filters are still declared here |
+
+All of these stay in `components/admin/`, **not** `components/shared/`: §6.5's promotion rule fires
+when a second *module* imports a component, not a second surface, and all four lists are Admin.
+
+The users list's behaviour did not change in that refactor. Its existing suite was the regression
+test, and it stayed green throughout.
+
 ### 3.2 Components
 
 | Component | Purpose |
@@ -315,8 +336,15 @@ the other without a new decision.
 | `admin/user-password-dialog.tsx` | Sets another user's password — no current-password prompt, because the actor is not the owner. |
 | `admin/confirm-action-dialog.tsx` | Generic confirm-then-submit over a Wayfinder `.form()`. Takes the trigger as `children`. |
 | `admin/confirm-delete-dialog.tsx` | The destructive icon-button preset over the above. Roles and permissions still use it unchanged. |
-| `admin/users-table-toolbar.tsx` | Gender and status filters, plus the field-scoped search box. |
+| `admin/list-toolbar.tsx` | Declarative filter dropdowns plus the field-scoped search box. Shared by all four lists. |
+| `admin/sortable-header.tsx` | Clickable `<th>` and `nextSort()`. Shared by all four lists. |
 | `admin/pagination.tsx` | Previous/next paging. Moves to `components/shared/` the moment a second module imports it, per [ARCHITECTURE.md §6.5](../ARCHITECTURE.md#65-components). |
+
+Every dropdown on these screens is `components/ui/combobox.tsx`, not a native `<select>` — there are
+none left in the application. It shows its search input only above ten options, so Gender and Status
+stay one click while Designation is typeable. See
+[ARCHITECTURE.md §8.5](../ARCHITECTURE.md#85-selects-are-comboboxes); the hidden-input detail there
+is what keeps these uncontrolled `<Form>`s submitting.
 
 There is no SweetAlert dependency. Confirmations are the project's own `components/ui/dialog.tsx`
 (a native `<dialog>` styled with daisyUI) and outcomes are reported through `sonner` via
@@ -382,6 +410,31 @@ Roles are data — never check a role name in code, check the permission. `Role:
 single exception, and exists only so the `Gate::before` bypass and the immutability guards have
 something to name.
 
+### 5.1 The permission list is flat, and used not to be
+
+`pages/admin/permissions/index.tsx` rendered one `<section>` per module, grouped client-side with a
+`useMemo` over the whole catalogue and filtered by a `String.includes()` box.
+
+**Grouping and pagination cannot both hold.** A group gets cut across a page boundary — page 1 ends
+midway through `admin.users`, page 2 opens with the remainder under no heading. When every Admin
+list became paginated ([ARCHITECTURE.md §8.6](../ARCHITECTURE.md#86-every-list-is-paginated-searchable-and-sortable)),
+the grouping had to give way. It became:
+
+- a **Module column** on each row, and
+- a **module filter**, served by `Permission::scopeInModule()` and `PermissionService::moduleOptions()`.
+
+`scopeInModule()` matches `"{module}.%"`, appending the dot on purpose: a bare `admin%` prefix would
+also sweep in a neighbouring `administration.*` module. There is a test pinning that.
+
+The module is derived from the name rather than stored — it *is* the first dot-delimited segment,
+and a second table for a dozen implied values would be one more thing to keep in step.
+
+**The role form's permission picker still groups by module.** It runs
+`PermissionService::groupedByModule()`, a different query, and is deliberately untouched — the same
+list-versus-picker distinction that governs designations ([§8.3](#83-the-picker-excludes-inactive-designations--with-one-exception)).
+The client-side filter box also went: search is now the shared prefix-matched one, so it is
+server-side and indexable rather than a `includes()` over every row.
+
 ---
 
 ## 6. How to extend
@@ -395,9 +448,24 @@ something to name.
    message to `employeeMessages()`.
 4. `UserController::describe()` so the row carries it.
 5. `types/admin.ts` → `UserListItem`.
-6. `admin/user-form-dialog.tsx` → a `<Field>` in the grid.
+6. `admin/user-form-dialog.tsx` → a `<Field>` in the grid. If it is a choice, that is a
+   `<Combobox>`, not a `<select>` — there are none left.
 7. `UserFactory`, then a test in `tests/Feature/Admin/UserTest.php`.
 8. Update the table in [§2.1](#21-the-users-table).
+
+### Adding a list screen
+
+1. `use Listable` on the model, and declare `SEARCHABLE` / `SORTABLE`.
+2. `{Model}IndexRequest extends ListRequest` — implement `sortable()` and `searchable()`, and add
+   `filterRules()` / `filterValues()` only if the surface has filters of its own.
+3. Controller: `->search(…)->sortBy(…)->paginate(self::PER_PAGE)->withQueryString()->through(…)`,
+   and pass `sortable`, `searchable` and `filters` as props.
+4. Page: `<ListToolbar>`, `<SortableHeader>` per sortable column, `<Pagination>`.
+5. **Add the surface to `surfaces()` in `tests/Feature/Admin/ListBehaviourTest.php`** — it then
+   inherits the whole shared contract for free.
+
+Check before you start that the records are not also offered by a picker somewhere. If they are,
+that query stays unpaginated; see [§8.3](#83-the-picker-excludes-inactive-designations--with-one-exception).
 
 Step 3 is the one people miss. `designation_id` went through it, which is why the "choose a
 designation" message reads like a person wrote it.
@@ -504,6 +572,25 @@ Without that exception, opening the edit modal for someone holding a since-retir
 a select that does not contain their value — blanking the field on save, or failing validation on
 something the admin never touched. `EmployeeValidationRules::designationRules($userId)` grants the
 same exception server-side, per user. **The two must agree**: if you change one, change the other.
+
+**The designation list is paginated; this picker is not.** They are two queries against one table,
+and conflating them would mean a user could not be given any title outside the list's current page.
+There is a test pinning it — 40 designations, list paginated at 25, picker still offering all 40.
+
+#### The picker is also the app's one async combobox
+
+It is the single consumer of `<Combobox searchUrl>`
+([ARCHITECTURE.md §8.5](../ARCHITECTURE.md#85-selects-are-comboboxes)), because it is the first list
+that outgrew being shipped whole. `admin.designations.options` serves it —
+`DesignationService::searchAssignable()`, prefix-matched on name or short form, capped at 50.
+
+Two consequences worth knowing:
+
+- The endpoint returns **active designations only**, while the rendered `designations` prop still
+  seeds the control. That is what keeps a retired title visible for the user who holds it while
+  making it unassignable to anyone else — the same rule as above, arrived at from the other side.
+- The seeded options are shown until the first remote result lands, so opening the menu never blinks
+  empty for the length of the debounce.
 
 `DesignationService::filterOptions()` is deliberately different — it lists *every* designation,
 retired ones included, because a retired title still has holders and an admin has to be able to find

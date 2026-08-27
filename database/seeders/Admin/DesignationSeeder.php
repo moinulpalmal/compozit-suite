@@ -2,7 +2,7 @@
 
 namespace Database\Seeders\Admin;
 
-use App\Enums\Admin\DesignationStatus;
+use App\Enums\RecordStatus;
 use App\Models\Admin\Designation;
 use Illuminate\Database\Console\Seeds\WithoutModelEvents;
 use Illuminate\Database\Seeder;
@@ -53,7 +53,7 @@ class DesignationSeeder extends Seeder
         foreach (self::DESIGNATIONS as $name => $shortForm) {
             Designation::firstOrCreate(
                 ['name' => $name],
-                ['short_form' => $shortForm, 'status' => DesignationStatus::Active],
+                ['short_form' => $shortForm, 'status' => RecordStatus::Active],
             );
         }
     }

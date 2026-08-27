@@ -63,7 +63,8 @@ export function positionAnchored(
             align === 'end'
                 ? anchorRect.right - floatingRect.width
                 : align === 'center'
-                  ? anchorRect.left + (anchorRect.width - floatingRect.width) / 2
+                  ? anchorRect.left +
+                    (anchorRect.width - floatingRect.width) / 2
                   : anchorRect.left;
 
         // Flip when the preferred side has no room but the opposite one does.

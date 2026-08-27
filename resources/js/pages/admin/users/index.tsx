@@ -1,8 +1,5 @@
 import { Head, router } from '@inertiajs/react';
 import {
-    ArrowDown,
-    ArrowUp,
-    ArrowUpDown,
     KeyRound,
     Pencil,
     Plus,
@@ -10,14 +7,14 @@ import {
     ShieldCheck,
     Trash2,
 } from 'lucide-react';
-import type { ReactNode } from 'react';
 import UserController from '@/actions/App/Http/Controllers/Admin/UserController';
 import ConfirmActionDialog from '@/components/admin/confirm-action-dialog';
+import ListToolbar from '@/components/admin/list-toolbar';
 import Pagination from '@/components/admin/pagination';
+import SortableHeader, { nextSort } from '@/components/admin/sortable-header';
 import UserFormDialog from '@/components/admin/user-form-dialog';
 import UserPasswordDialog from '@/components/admin/user-password-dialog';
 import UserRoleDialog from '@/components/admin/user-role-dialog';
-import UsersTableToolbar from '@/components/admin/users-table-toolbar';
 import Heading from '@/components/heading';
 import { Button } from '@/components/ui/button';
 import { useCan } from '@/hooks/use-can';
@@ -27,14 +24,27 @@ import type {
     DesignationOption,
     GenderOption,
     Paginated,
+    StatusOption,
     UserFilters,
     UserListItem,
 } from '@/types';
+
+/** Human labels for the searchable column names the server allow-lists. */
+const SEARCH_LABELS: Record<string, string> = {
+    name: 'Name',
+    employee_id: 'Employee ID',
+    email: 'Email',
+    personal_mobile_no: 'Personal mobile',
+    official_mobile_no: 'Official mobile',
+    official_extension_no: 'Extension',
+};
 
 type Props = {
     users: Paginated<UserListItem>;
     roles: string[];
     genders: GenderOption[];
+    /** `RecordStatus::options()` — drives both the form and the filter. */
+    statuses: StatusOption[];
     /** What the create/edit modal may offer. */
     designations: DesignationOption[];
     /** What the filter dropdown lists — retired designations included. */
@@ -49,6 +59,7 @@ export default function UsersIndex({
     users,
     roles,
     genders,
+    statuses,
     designations,
     designationFilters,
     sortable,
@@ -75,15 +86,7 @@ export default function UsersIndex({
             { preserveState: true, preserveScroll: true, replace: true },
         );
 
-    // Clicking the active column flips direction; a new column starts ascending.
-    const toggleSort = (column: string) =>
-        visit({
-            sort: column,
-            direction:
-                filters.sort === column && filters.direction === 'asc'
-                    ? 'desc'
-                    : 'asc',
-        });
+    const toggleSort = (column: string) => visit(nextSort(filters, column));
 
     const sortProps = (column: string) => ({
         column,
@@ -107,6 +110,7 @@ export default function UsersIndex({
                         <UserFormDialog
                             submit={UserController.store.form()}
                             genders={genders}
+                            statuses={statuses}
                             designations={designations}
                             roles={roles}
                             title="New user"
@@ -149,12 +153,63 @@ export default function UsersIndex({
                     </div>
                 </div>
 
-                <UsersTableToolbar
+                <ListToolbar
                     filters={filters}
                     searchable={searchable}
-                    genders={genders}
-                    designations={designationFilters}
+                    searchLabels={SEARCH_LABELS}
                     onChange={visit}
+                    onClear={() =>
+                        visit({
+                            search: '',
+                            gender: '',
+                            designation: '',
+                            status: '',
+                        })
+                    }
+                    controls={[
+                        {
+                            label: 'Gender',
+                            ariaLabel: 'Filter by gender',
+                            width: 'w-40',
+                            value: filters.gender,
+                            onSelect: (gender) => visit({ gender }),
+                            options: [
+                                { value: '', label: 'All genders' },
+                                ...genders,
+                            ],
+                        },
+                        {
+                            label: 'Designation',
+                            ariaLabel: 'Filter by designation',
+                            testId: 'designation-filter',
+                            width: 'w-52',
+                            value: filters.designation,
+                            onSelect: (designation) => visit({ designation }),
+                            /* Deactivated designations are listed too: a
+                               retired title still has holders and they have to
+                               be findable. Values are stringified to match
+                               `filters.designation`, which arrives from the
+                               query string. */
+                            options: [
+                                { value: '', label: 'All designations' },
+                                ...designationFilters.map((designation) => ({
+                                    value: String(designation.value),
+                                    label: designation.label,
+                                })),
+                            ],
+                        },
+                        {
+                            label: 'Status',
+                            ariaLabel: 'Filter by status',
+                            width: 'w-36',
+                            value: filters.status,
+                            onSelect: (status) => visit({ status }),
+                            options: [
+                                { value: '', label: 'All statuses' },
+                                ...statuses,
+                            ],
+                        },
+                    ]}
                 />
 
                 <div className="overflow-x-auto rounded-box border border-base-300/70">
@@ -268,9 +323,9 @@ export default function UsersIndex({
                                             </span>
                                         ) : (
                                             <span
-                                                className={`badge badge-sm ${user.approved ? 'badge-success' : 'badge-warning'}`}
+                                                className={`badge badge-sm ${user.status === 'A' ? 'badge-success' : 'badge-warning'}`}
                                             >
-                                                {user.approved
+                                                {user.status === 'A'
                                                     ? 'Active'
                                                     : 'Inactive'}
                                             </span>
@@ -344,6 +399,7 @@ export default function UsersIndex({
                                                                 user.id,
                                                             )}
                                                             genders={genders}
+                                                            statuses={statuses}
                                                             designations={
                                                                 designations
                                                             }
@@ -444,60 +500,6 @@ export default function UsersIndex({
                 <Pagination page={users} />
             </div>
         </>
-    );
-}
-
-/**
- * A `<th>` that sorts the list, or a plain one when the column is not
- * allow-listed by the server.
- */
-function SortableHeader({
-    column,
-    sortable,
-    filters,
-    onSort,
-    className,
-    children,
-}: {
-    column: string;
-    sortable: string[];
-    filters: UserFilters;
-    onSort: (column: string) => void;
-    className?: string;
-    children: ReactNode;
-}) {
-    if (!sortable.includes(column)) {
-        return <th className={className}>{children}</th>;
-    }
-
-    const active = filters.sort === column;
-    const Icon = !active
-        ? ArrowUpDown
-        : filters.direction === 'asc'
-          ? ArrowUp
-          : ArrowDown;
-
-    return (
-        <th
-            className={className}
-            aria-sort={
-                active
-                    ? filters.direction === 'asc'
-                        ? 'ascending'
-                        : 'descending'
-                    : 'none'
-            }
-        >
-            <button
-                type="button"
-                className="inline-flex cursor-pointer items-center gap-1 hover:text-base-content"
-                onClick={() => onSort(column)}
-                data-test={`sort-${column}`}
-            >
-                {children}
-                <Icon className={active ? 'size-3' : 'size-3 opacity-40'} />
-            </button>
-        </th>
     );
 }
 

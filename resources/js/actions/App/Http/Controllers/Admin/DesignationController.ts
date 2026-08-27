@@ -1,7 +1,92 @@
 import { queryParams, type RouteQueryOptions, type RouteDefinition, type RouteFormDefinition, applyUrlDefaults } from './../../../../../wayfinder'
 /**
+* @see \App\Http\Controllers\Admin\DesignationController::options
+ * @see app/Http/Controllers/Admin/DesignationController.php:71
+ * @route '/admin/designations/options'
+ */
+export const options = (routeOptions?: RouteQueryOptions): RouteDefinition<'get'> => ({
+    url: options.url(routeOptions),
+    method: 'get',
+})
+
+options.definition = {
+    methods: ["get","head"],
+    url: '/admin/designations/options',
+} satisfies RouteDefinition<["get","head"]>
+
+/**
+* @see \App\Http\Controllers\Admin\DesignationController::options
+ * @see app/Http/Controllers/Admin/DesignationController.php:71
+ * @route '/admin/designations/options'
+ */
+options.url = (routeOptions?: RouteQueryOptions) => {
+    return options.definition.url
+ + queryParams(routeOptions)
+}
+
+/**
+* @see \App\Http\Controllers\Admin\DesignationController::options
+ * @see app/Http/Controllers/Admin/DesignationController.php:71
+ * @route '/admin/designations/options'
+ */
+options.get = (routeOptions?: RouteQueryOptions): RouteDefinition<'get'> => ({
+    url: options.url(routeOptions),
+    method: 'get',
+})
+/**
+* @see \App\Http\Controllers\Admin\DesignationController::options
+ * @see app/Http/Controllers/Admin/DesignationController.php:71
+ * @route '/admin/designations/options'
+ */
+options.head = (routeOptions?: RouteQueryOptions): RouteDefinition<'head'> => ({
+    url: options.url(routeOptions),
+    method: 'head',
+})
+
+    /**
+* @see \App\Http\Controllers\Admin\DesignationController::options
+ * @see app/Http/Controllers/Admin/DesignationController.php:71
+ * @route '/admin/designations/options'
+ */
+    const optionsForm = (routeOptions?: RouteQueryOptions): RouteFormDefinition<'get'> => ({
+        action: options.url(
+            
+                            routeOptions
+                   ),
+        method: 'get',
+    })
+
+            /**
+* @see \App\Http\Controllers\Admin\DesignationController::options
+ * @see app/Http/Controllers/Admin/DesignationController.php:71
+ * @route '/admin/designations/options'
+ */
+        optionsForm.get = (routeOptions?: RouteQueryOptions): RouteFormDefinition<'get'> => ({
+            action: options.url(
+                
+                                routeOptions
+                           ),
+            method: 'get',
+        })
+            /**
+* @see \App\Http\Controllers\Admin\DesignationController::options
+ * @see app/Http/Controllers/Admin/DesignationController.php:71
+ * @route '/admin/designations/options'
+ */
+        optionsForm.head = (routeOptions?: RouteQueryOptions): RouteFormDefinition<'get'> => ({
+            action: options.url({
+                        [routeOptions?.mergeQuery ? 'mergeQuery' : 'query']: {
+                            _method: 'HEAD',
+                            ...(routeOptions?.query ?? routeOptions?.mergeQuery ?? {}),
+                        }
+                    }),
+            method: 'get',
+        })
+    
+    options.form = optionsForm
+/**
 * @see \App\Http\Controllers\Admin\DesignationController::index
- * @see app/Http/Controllers/Admin/DesignationController.php:29
+ * @see app/Http/Controllers/Admin/DesignationController.php:35
  * @route '/admin/designations'
  */
 export const index = (options?: RouteQueryOptions): RouteDefinition<'get'> => ({
@@ -16,7 +101,7 @@ index.definition = {
 
 /**
 * @see \App\Http\Controllers\Admin\DesignationController::index
- * @see app/Http/Controllers/Admin/DesignationController.php:29
+ * @see app/Http/Controllers/Admin/DesignationController.php:35
  * @route '/admin/designations'
  */
 index.url = (options?: RouteQueryOptions) => {
@@ -25,7 +110,7 @@ index.url = (options?: RouteQueryOptions) => {
 
 /**
 * @see \App\Http\Controllers\Admin\DesignationController::index
- * @see app/Http/Controllers/Admin/DesignationController.php:29
+ * @see app/Http/Controllers/Admin/DesignationController.php:35
  * @route '/admin/designations'
  */
 index.get = (options?: RouteQueryOptions): RouteDefinition<'get'> => ({
@@ -34,7 +119,7 @@ index.get = (options?: RouteQueryOptions): RouteDefinition<'get'> => ({
 })
 /**
 * @see \App\Http\Controllers\Admin\DesignationController::index
- * @see app/Http/Controllers/Admin/DesignationController.php:29
+ * @see app/Http/Controllers/Admin/DesignationController.php:35
  * @route '/admin/designations'
  */
 index.head = (options?: RouteQueryOptions): RouteDefinition<'head'> => ({
@@ -44,7 +129,7 @@ index.head = (options?: RouteQueryOptions): RouteDefinition<'head'> => ({
 
     /**
 * @see \App\Http\Controllers\Admin\DesignationController::index
- * @see app/Http/Controllers/Admin/DesignationController.php:29
+ * @see app/Http/Controllers/Admin/DesignationController.php:35
  * @route '/admin/designations'
  */
     const indexForm = (options?: RouteQueryOptions): RouteFormDefinition<'get'> => ({
@@ -54,7 +139,7 @@ index.head = (options?: RouteQueryOptions): RouteDefinition<'head'> => ({
 
             /**
 * @see \App\Http\Controllers\Admin\DesignationController::index
- * @see app/Http/Controllers/Admin/DesignationController.php:29
+ * @see app/Http/Controllers/Admin/DesignationController.php:35
  * @route '/admin/designations'
  */
         indexForm.get = (options?: RouteQueryOptions): RouteFormDefinition<'get'> => ({
@@ -63,7 +148,7 @@ index.head = (options?: RouteQueryOptions): RouteDefinition<'head'> => ({
         })
             /**
 * @see \App\Http\Controllers\Admin\DesignationController::index
- * @see app/Http/Controllers/Admin/DesignationController.php:29
+ * @see app/Http/Controllers/Admin/DesignationController.php:35
  * @route '/admin/designations'
  */
         indexForm.head = (options?: RouteQueryOptions): RouteFormDefinition<'get'> => ({
@@ -79,7 +164,7 @@ index.head = (options?: RouteQueryOptions): RouteDefinition<'head'> => ({
     index.form = indexForm
 /**
 * @see \App\Http\Controllers\Admin\DesignationController::store
- * @see app/Http/Controllers/Admin/DesignationController.php:71
+ * @see app/Http/Controllers/Admin/DesignationController.php:85
  * @route '/admin/designations'
  */
 export const store = (options?: RouteQueryOptions): RouteDefinition<'post'> => ({
@@ -94,7 +179,7 @@ store.definition = {
 
 /**
 * @see \App\Http\Controllers\Admin\DesignationController::store
- * @see app/Http/Controllers/Admin/DesignationController.php:71
+ * @see app/Http/Controllers/Admin/DesignationController.php:85
  * @route '/admin/designations'
  */
 store.url = (options?: RouteQueryOptions) => {
@@ -103,7 +188,7 @@ store.url = (options?: RouteQueryOptions) => {
 
 /**
 * @see \App\Http\Controllers\Admin\DesignationController::store
- * @see app/Http/Controllers/Admin/DesignationController.php:71
+ * @see app/Http/Controllers/Admin/DesignationController.php:85
  * @route '/admin/designations'
  */
 store.post = (options?: RouteQueryOptions): RouteDefinition<'post'> => ({
@@ -113,7 +198,7 @@ store.post = (options?: RouteQueryOptions): RouteDefinition<'post'> => ({
 
     /**
 * @see \App\Http\Controllers\Admin\DesignationController::store
- * @see app/Http/Controllers/Admin/DesignationController.php:71
+ * @see app/Http/Controllers/Admin/DesignationController.php:85
  * @route '/admin/designations'
  */
     const storeForm = (options?: RouteQueryOptions): RouteFormDefinition<'post'> => ({
@@ -123,7 +208,7 @@ store.post = (options?: RouteQueryOptions): RouteDefinition<'post'> => ({
 
             /**
 * @see \App\Http\Controllers\Admin\DesignationController::store
- * @see app/Http/Controllers/Admin/DesignationController.php:71
+ * @see app/Http/Controllers/Admin/DesignationController.php:85
  * @route '/admin/designations'
  */
         storeForm.post = (options?: RouteQueryOptions): RouteFormDefinition<'post'> => ({
@@ -134,7 +219,7 @@ store.post = (options?: RouteQueryOptions): RouteDefinition<'post'> => ({
     store.form = storeForm
 /**
 * @see \App\Http\Controllers\Admin\DesignationController::update
- * @see app/Http/Controllers/Admin/DesignationController.php:83
+ * @see app/Http/Controllers/Admin/DesignationController.php:97
  * @route '/admin/designations/{designation}'
  */
 export const update = (args: { designation: number | { id: number } } | [designation: number | { id: number } ] | number | { id: number }, options?: RouteQueryOptions): RouteDefinition<'put'> => ({
@@ -149,7 +234,7 @@ update.definition = {
 
 /**
 * @see \App\Http\Controllers\Admin\DesignationController::update
- * @see app/Http/Controllers/Admin/DesignationController.php:83
+ * @see app/Http/Controllers/Admin/DesignationController.php:97
  * @route '/admin/designations/{designation}'
  */
 update.url = (args: { designation: number | { id: number } } | [designation: number | { id: number } ] | number | { id: number }, options?: RouteQueryOptions) => {
@@ -182,7 +267,7 @@ update.url = (args: { designation: number | { id: number } } | [designation: num
 
 /**
 * @see \App\Http\Controllers\Admin\DesignationController::update
- * @see app/Http/Controllers/Admin/DesignationController.php:83
+ * @see app/Http/Controllers/Admin/DesignationController.php:97
  * @route '/admin/designations/{designation}'
  */
 update.put = (args: { designation: number | { id: number } } | [designation: number | { id: number } ] | number | { id: number }, options?: RouteQueryOptions): RouteDefinition<'put'> => ({
@@ -191,7 +276,7 @@ update.put = (args: { designation: number | { id: number } } | [designation: num
 })
 /**
 * @see \App\Http\Controllers\Admin\DesignationController::update
- * @see app/Http/Controllers/Admin/DesignationController.php:83
+ * @see app/Http/Controllers/Admin/DesignationController.php:97
  * @route '/admin/designations/{designation}'
  */
 update.patch = (args: { designation: number | { id: number } } | [designation: number | { id: number } ] | number | { id: number }, options?: RouteQueryOptions): RouteDefinition<'patch'> => ({
@@ -201,7 +286,7 @@ update.patch = (args: { designation: number | { id: number } } | [designation: n
 
     /**
 * @see \App\Http\Controllers\Admin\DesignationController::update
- * @see app/Http/Controllers/Admin/DesignationController.php:83
+ * @see app/Http/Controllers/Admin/DesignationController.php:97
  * @route '/admin/designations/{designation}'
  */
     const updateForm = (args: { designation: number | { id: number } } | [designation: number | { id: number } ] | number | { id: number }, options?: RouteQueryOptions): RouteFormDefinition<'post'> => ({
@@ -216,7 +301,7 @@ update.patch = (args: { designation: number | { id: number } } | [designation: n
 
             /**
 * @see \App\Http\Controllers\Admin\DesignationController::update
- * @see app/Http/Controllers/Admin/DesignationController.php:83
+ * @see app/Http/Controllers/Admin/DesignationController.php:97
  * @route '/admin/designations/{designation}'
  */
         updateForm.put = (args: { designation: number | { id: number } } | [designation: number | { id: number } ] | number | { id: number }, options?: RouteQueryOptions): RouteFormDefinition<'post'> => ({
@@ -230,7 +315,7 @@ update.patch = (args: { designation: number | { id: number } } | [designation: n
         })
             /**
 * @see \App\Http\Controllers\Admin\DesignationController::update
- * @see app/Http/Controllers/Admin/DesignationController.php:83
+ * @see app/Http/Controllers/Admin/DesignationController.php:97
  * @route '/admin/designations/{designation}'
  */
         updateForm.patch = (args: { designation: number | { id: number } } | [designation: number | { id: number } ] | number | { id: number }, options?: RouteQueryOptions): RouteFormDefinition<'post'> => ({
@@ -246,7 +331,7 @@ update.patch = (args: { designation: number | { id: number } } | [designation: n
     update.form = updateForm
 /**
 * @see \App\Http\Controllers\Admin\DesignationController::destroy
- * @see app/Http/Controllers/Admin/DesignationController.php:99
+ * @see app/Http/Controllers/Admin/DesignationController.php:113
  * @route '/admin/designations/{designation}'
  */
 export const destroy = (args: { designation: number | { id: number } } | [designation: number | { id: number } ] | number | { id: number }, options?: RouteQueryOptions): RouteDefinition<'delete'> => ({
@@ -261,7 +346,7 @@ destroy.definition = {
 
 /**
 * @see \App\Http\Controllers\Admin\DesignationController::destroy
- * @see app/Http/Controllers/Admin/DesignationController.php:99
+ * @see app/Http/Controllers/Admin/DesignationController.php:113
  * @route '/admin/designations/{designation}'
  */
 destroy.url = (args: { designation: number | { id: number } } | [designation: number | { id: number } ] | number | { id: number }, options?: RouteQueryOptions) => {
@@ -294,7 +379,7 @@ destroy.url = (args: { designation: number | { id: number } } | [designation: nu
 
 /**
 * @see \App\Http\Controllers\Admin\DesignationController::destroy
- * @see app/Http/Controllers/Admin/DesignationController.php:99
+ * @see app/Http/Controllers/Admin/DesignationController.php:113
  * @route '/admin/designations/{designation}'
  */
 destroy.delete = (args: { designation: number | { id: number } } | [designation: number | { id: number } ] | number | { id: number }, options?: RouteQueryOptions): RouteDefinition<'delete'> => ({
@@ -304,7 +389,7 @@ destroy.delete = (args: { designation: number | { id: number } } | [designation:
 
     /**
 * @see \App\Http\Controllers\Admin\DesignationController::destroy
- * @see app/Http/Controllers/Admin/DesignationController.php:99
+ * @see app/Http/Controllers/Admin/DesignationController.php:113
  * @route '/admin/designations/{designation}'
  */
     const destroyForm = (args: { designation: number | { id: number } } | [designation: number | { id: number } ] | number | { id: number }, options?: RouteQueryOptions): RouteFormDefinition<'post'> => ({
@@ -319,7 +404,7 @@ destroy.delete = (args: { designation: number | { id: number } } | [designation:
 
             /**
 * @see \App\Http\Controllers\Admin\DesignationController::destroy
- * @see app/Http/Controllers/Admin/DesignationController.php:99
+ * @see app/Http/Controllers/Admin/DesignationController.php:113
  * @route '/admin/designations/{designation}'
  */
         destroyForm.delete = (args: { designation: number | { id: number } } | [designation: number | { id: number } ] | number | { id: number }, options?: RouteQueryOptions): RouteFormDefinition<'post'> => ({
@@ -333,6 +418,6 @@ destroy.delete = (args: { designation: number | { id: number } } | [designation:
         })
     
     destroy.form = destroyForm
-const DesignationController = { index, store, update, destroy }
+const DesignationController = { options, index, store, update, destroy }
 
 export default DesignationController
