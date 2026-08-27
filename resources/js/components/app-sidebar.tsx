@@ -5,6 +5,7 @@ import {
     KeyRound,
     LayoutGrid,
     ShieldCheck,
+    Users,
 } from 'lucide-react';
 import AppLogo from '@/components/app-logo';
 import { NavFooter } from '@/components/nav-footer';
@@ -23,6 +24,7 @@ import { useCan } from '@/hooks/use-can';
 import { dashboard } from '@/routes';
 import { index as permissionsIndex } from '@/routes/admin/permissions';
 import { index as rolesIndex } from '@/routes/admin/roles';
+import { index as usersIndex } from '@/routes/admin/users';
 import type { NavItem } from '@/types';
 
 const mainNavItems: NavItem[] = [
@@ -49,11 +51,15 @@ const footerNavItems: NavItem[] = [
 export function AppSidebar() {
     // Hiding a link is convenience, not authorization — the routes are gated by
     // the `permission:` middleware and the module's policies.
+    const canViewUsers = useCan('admin.users.view');
     const canViewRoles = useCan('admin.roles.view');
     const canViewPermissions = useCan('admin.permissions.view');
 
     // Admin surfaces live in their own group, not alongside Platform.
     const adminNavItems: NavItem[] = [
+        ...(canViewUsers
+            ? [{ title: 'Users', href: usersIndex(), icon: Users }]
+            : []),
         ...(canViewRoles
             ? [{ title: 'Roles', href: rolesIndex(), icon: ShieldCheck }]
             : []),

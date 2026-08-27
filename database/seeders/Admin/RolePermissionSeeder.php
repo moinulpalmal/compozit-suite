@@ -26,7 +26,7 @@ class RolePermissionSeeder extends Seeder
      * @var array<string, list<string>>
      */
     protected const array CATALOGUE = [
-        'admin.users' => ['view', 'create', 'update', 'delete'],
+        'admin.users' => ['view', 'create', 'update', 'delete', 'restore', 'force-delete', 'reset-password', 'assign-roles'],
         'admin.roles' => ['view', 'create', 'update', 'delete'],
         'admin.permissions' => ['view', 'create', 'update', 'delete'],
         'admin.buyers' => ['view', 'create', 'update', 'delete'],

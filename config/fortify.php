@@ -45,7 +45,7 @@ return [
     |
     */
 
-    'username' => 'email',
+    'username' => 'employee_id',
 
     'email' => 'email',
 
@@ -58,9 +58,13 @@ return [
     | them in the database, as some database system string fields are case
     | sensitive. You may disable this for your application if necessary.
     |
+    | Disabled here: the username is `employee_id`, which may contain uppercase
+    | letters and is stored exactly as HR issued it. Lowercasing the submitted
+    | value would make any uppercase ID impossible to log in with.
+    |
     */
 
-    'lowercase_usernames' => true,
+    'lowercase_usernames' => false,
 
     /*
     |--------------------------------------------------------------------------

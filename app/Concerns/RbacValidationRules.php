@@ -9,6 +9,8 @@ use Illuminate\Validation\Rule;
 
 trait RbacValidationRules
 {
+    use RoleAssignmentRules;
+
     /**
      * Role names are kebab-case slugs: `production-manager`.
      */
@@ -66,19 +68,6 @@ trait RbacValidationRules
     }
 
     /**
-     * Get the validation rules used to validate a list of role names.
-     *
-     * @return array<string, array<int, ValidationRule|array<mixed>|string>>
-     */
-    protected function roleListRules(): array
-    {
-        return [
-            'roles' => ['sometimes', 'array'],
-            'roles.*' => ['string', Rule::exists(Role::class, 'name')],
-        ];
-    }
-
-    /**
      * The submitted permission names, validated by `permissionListRules()`.
      *
      * @return list<string>
@@ -86,16 +75,6 @@ trait RbacValidationRules
     public function submittedPermissions(): array
     {
         return array_values(array_filter($this->array('permissions'), is_string(...)));
-    }
-
-    /**
-     * The submitted role names, validated by `roleListRules()`.
-     *
-     * @return list<string>
-     */
-    public function submittedRoles(): array
-    {
-        return array_values(array_filter($this->array('roles'), is_string(...)));
     }
 
     /**

@@ -26,7 +26,7 @@ database, five functional modules plus a dashboard.
 | --- | --- | --- | --- |
 | Runtime | PHP | 8.4 (`^8.3` required) | `D:\Projects\laragon\bin\php\php-8.4.12-nts-Win32-vs17-x64` — not on the bash `PATH` |
 | Framework | Laravel | `^13.17` | |
-| Auth | Laravel Fortify | `^1.37` | Headless auth backend; routes registered by the package |
+| Auth | Laravel Fortify | `^1.37` | Headless auth backend; routes registered by the package. **Login identifier is `employee_id`**, not email — see [§9.6](#96-authentication-identity) |
 | RBAC | spatie/laravel-permission | `^8.3` | Published and wired, teams off — see [§9.1](#91-rbac-roles--permissions) |
 | Adapter | Inertia.js (Laravel) | `^3.0` | v3 — no Axios, `Inertia::optional()` not `lazy()` |
 | Typed routes | Laravel Wayfinder | `^0.1` | Generates TS from routes/controllers |
@@ -37,7 +37,13 @@ database, five functional modules plus a dashboard.
 | Static analysis | Larastan / PHPStan | `^3.9` | |
 | Format | Pint (PHP), Prettier + ESLint (TS) | | |
 
-Database: SQLite at `database/database.sqlite` for local development.
+Database: **MySQL** (`compozitsuite` on `127.0.0.1:3306` via Laragon) for local development —
+`.env` sets `DB_CONNECTION=mysql`. Tests run against in-memory SQLite (`phpunit.xml`).
+
+> This line previously said SQLite at `database/database.sqlite`; the disk disagreed, so the line
+> was wrong. The split matters when writing migrations: InnoDB indexes foreign key columns
+> automatically and SQLite does not, and `->change()` rebuilds the table on SQLite. Write migrations
+> that are correct on both.
 
 ---
 
@@ -64,6 +70,7 @@ compozit-suite/
 │   │   ├── Middleware/      App-wide middleware
 │   │   └── Requests/        Form requests, grouped by module
 │   ├── Models/              Eloquent models, grouped by module
+│   ├── Observers/           Model observers — see §9.3
 │   ├── Policies/            Authorization policies, grouped by module
 │   ├── Providers/           Service providers
 │   ├── Services/            Domain/business services, grouped by module
@@ -74,6 +81,7 @@ compozit-suite/
 │   └── providers.php        Registered service providers
 │
 ├── config/                  Laravel config
+├── documentation/           Per-module reference docs — one `{module}.md` each; see §14
 ├── database/
 │   ├── factories/           Grouped by module (mirrors app/Models/)
 │   ├── migrations/          FLAT — chronological, never nested
@@ -145,7 +153,7 @@ exception — see [§6.4](#64-frontend-pages).
 | # | Module | Namespace segment | Route file | Name prefix | URL prefix | Pages root | Status |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | 0 | Dashboard | `Dashboard` | `routes/web.php` | `dashboard` | `/dashboard` | `pages/dashboard.tsx` | ✅ built (placeholder content) |
-| 1 | Admin | `Admin` | `routes/admin.php` | `admin.` | `/admin` | `pages/admin/` | 🟡 RBAC built, rest scaffolded |
+| 1 | Admin | `Admin` | `routes/admin.php` | `admin.` | `/admin` | `pages/admin/` | 🟡 users + RBAC built, rest scaffolded |
 | 2 | Settings | `Settings` | `routes/settings.php` | *(see note)* | `/settings` | `pages/settings/` | ✅ partly built |
 | 3 | Merchandising | `Merchandising` | `routes/merchandising.php` | `merchandising.` | `/merchandising` | `pages/merchandising/` | 🟡 scaffolded |
 | 4 | Production | `Production` | `routes/production.php` | `production.` | `/production` | `pages/production/` | 🟡 scaffolded |
@@ -177,7 +185,7 @@ dashboard tile needs a query, that query belongs in the owning module's service.
 
 | Sub-area | Backend home | Pages | Status |
 | --- | --- | --- | --- |
-| a. User management | `Admin\UserController` | `pages/admin/users/` | 🟡 |
+| a. User management | `Admin\UserController` | `pages/admin/users/` | ✅ |
 | b. RBAC (roles & permissions) | `Admin\RoleController`, `Admin\PermissionController` | `pages/admin/roles/`, `pages/admin/permissions/` | ✅ |
 | c. Buyer-wise user access control | `Admin\BuyerAccessController` | `pages/admin/buyer-access/` | 🟡 |
 | d. Buyer setup & management | `Admin\BuyerController` | `pages/admin/buyers/` | 🟡 |
@@ -192,6 +200,20 @@ Both RBAC screens follow the module's standard path: resource routes (`show` exc
 per-action by `permission:` middleware, a `{Model}Service` for the write path, form requests that
 enforce the name formats, and `pages/admin/{roles,permissions}/{index,create,edit}.tsx`. Shared
 form pieces live in `resources/js/components/admin/`.
+
+**User management deliberately diverges from that page pattern.** It is a *single* page —
+`pages/admin/users/index.tsx` — where create, edit, role assignment, password reset, soft delete,
+restore and permanent delete all happen in modals, and where the active and historical (soft-deleted)
+lists are two tabs driven by a `?filter=active|trashed` query parameter rather than a second route.
+It is also the module's **data-table reference**: sortable headers, gender and status filters, a
+field-scoped prefix search and pagination, all carried in the query string and validated by
+`UserIndexRequest` against allow-lists on the model. Copy that shape for the next list surface.
+This is a decision, not drift: the owner asked for one screen. Roles and permissions keep their
+`index/create/edit` pages; do not "harmonise" one into the other without a new decision.
+
+Every destructive action is confirmed through `components/admin/confirm-action-dialog.tsx` (built on
+the existing `components/ui/dialog.tsx` — a native `<dialog>` styled with daisyUI — not a
+third-party alert library) and reports its outcome through the shared `sonner` toast.
 
 Admin is the only module allowed to write to roles, permissions, buyer-access assignments, and
 audit log records.
@@ -280,6 +302,46 @@ curly braces always, PHPDoc over inline comments, `TitleCase` enum cases.
 subdirectories by default, so never nest them. Table names are snake_case plural and carry a
 module hint where collision is plausible: `buyers`, `audit_logs`, `tech_packs`,
 `purchase_orders`, `fabric_bookings`, `production_lines`.
+
+#### Indexing
+
+An index is not a property of a column, it is a property of a **query**. Find the query first.
+
+- **Index what a query filters, joins or sorts on — nothing else.** An index that no `where`,
+  `join` or `order by` touches is pure write cost: every insert and update maintains a B-tree that
+  no select will ever read.
+- **A `unique` constraint already *is* an index.** Never add a second one over the same column.
+- **Don't index low-cardinality flags.** A boolean or a three-value enum is not selective enough to
+  beat a scan. If such a column must be indexed, it belongs *inside a composite*, behind a
+  selective leading column — never on its own.
+- **Composites are ordered, and the order is the whole point.** `(deleted_at, name)` serves
+  `where deleted_at … order by name`; `(name, deleted_at)` does not. Only an equality on the
+  leading column lets the rest of the index supply sort order — a *range* on it (`is not null`,
+  `>`, `between`) forces a filesort.
+- **Foreign keys: InnoDB indexes them automatically, SQLite does not.** Development runs on MySQL
+  and tests on SQLite ([§2](#2-stack)), so do not add an explicit index for a `constrained()`
+  column — on MySQL it is a duplicate.
+- **`LIKE '%term%'` cannot use a B-tree**, ever. The leading wildcard defeats it. Accept the scan,
+  switch to prefix matching (`term%`, which an index *can* serve), or use `FULLTEXT` — and if
+  `FULLTEXT`, guard the migration by driver, because Laravel's SQLite grammar has no
+  `compileFullText` and the migration will throw under test.
+- **`OR` across several columns defeats indexing too.** One search box matching a term against six
+  columns forces an unreliable index merge, or makes the optimizer pick one index and filter the
+  rest — so indexes built for the other five are never used. Prefer a **field-scoped** search (a
+  "search in [column]" selector) so every query is a single-column range scan. `admin/users` is the
+  worked example.
+- **A `unique` index already serves `ORDER BY`,** not just lookups. With a `LIMIT`, MySQL walks it in
+  order and stops early, so a `(deleted_at, that_column)` composite for sorting is usually redundant.
+  Two such "obvious" composites were measured and rejected on `users`.
+- **Selectivity decides whether an index gets used at all.** A prefix matching a seventh of the
+  table will rightly be served by a scan; the same column with a selective prefix wins by 20×.
+  Benchmark the query someone will actually run, not a broad one.
+- **Verify with `EXPLAIN`; do not guess.** MySQL 8+/9 returns tree format. You want the index named
+  in the plan, and `Covering index` where the query only needs indexed columns. A `Sort:` line above
+  a range scan means the index is not supplying order.
+
+Worked example, including what was deliberately *not* indexed and why:
+[`documentation/admin.md` §2.1](documentation/admin.md).
 
 ### 6.4 Frontend pages
 
@@ -386,6 +448,12 @@ presentation only — the route's `permission:` middleware is what actually deni
 ### 8.4 Inertia v3 notes
 
 - **No Axios.** Use the built-in XHR client or the `useHttp` hook.
+- `useHttp` owns *form state* — data, errors, `processing`. For a plain JSON **read** that has no
+  form behind it (a live availability check, a typeahead), use `fetch` with an `AbortController`
+  instead: `useHttp` returns a new object every render, so driving it from an effect means either
+  a ref written during render or a dependency loop, both of which the React Compiler lint rules
+  reject. `hooks/use-availability.ts` is the reference implementation. This is not licence to reach
+  for Axios — the ban stands.
 - `Inertia::optional()` — `Inertia::lazy()` / `LazyProp` are removed.
 - Deferred props must render a pulsing skeleton as their empty state.
 - Event renames: `invalid` → `httpException`, `exception` → `networkError`;
@@ -419,6 +487,17 @@ Rules:
   and the "you may not edit this role" guards have something to name.
 - Route-level gating uses spatie's `permission:` middleware; record-level gating uses the module's
   policy in `app/Policies/{Module}/`.
+- **A guard that must also bind a super admin does not belong in a policy.** `Gate::before` grants a
+  super admin every ability, so a policy denial is bypassed for exactly the account the guard is
+  usually protecting against. Such rules live in the module's service — see
+  `Admin\UserService::roleAssignmentBlocker()` / `deletionBlocker()`, which stop a user editing their
+  own roles, deleting their own account from Admin, or removing the last super admin — or in the form
+  request, as `Concerns\RoleAssignmentRules::assignableRoleRule()` does for granting `super-admin`.
+  `Admin\RoleController`'s super-admin guard is the original instance of this pattern.
+- User administration is gated by eight permissions: `admin.users.` `view`, `create`, `update`,
+  `delete` (soft delete), `restore`, `force-delete` (permanent), `reset-password` and `assign-roles`.
+  `assign-roles` is separate from `update` on purpose, so editing a profile does not imply the power
+  to widen someone's access.
 - **Teams are deliberately off.** Buyer scoping ([§9.2](#92-buyer-scoped-access-control)) is
   row-level data filtering, not per-team roles; spatie's teams feature does not solve it and would
   add a `team_id` to every pivot for nothing.
@@ -439,9 +518,17 @@ chosen must be applied uniformly, because a single unscoped query is a data leak
 
 ### 9.3 Audit logging
 
-Every mutation to a buyer-owned or administrative record is auditable. The mechanism is not yet
-chosen. ⬜ Model observers in `app/Observers/` are the likely home; create that directory when the
-first observer is written and note it here.
+Every mutation to a buyer-owned or administrative record is auditable. The general mechanism — what
+gets written to `audit_logs`, and by what — is still undecided. ⬜
+
+**Actor stamping is decided and built.** `app/Observers/` exists and holds `UserObserver`, which
+sets `users.inserted_by` on create and `users.last_updated_by` on update from `Auth::id()`. Both are
+nullable foreign keys to `users.id` with `nullOnDelete`, and both stay null for writes with no
+authenticated actor (seeders, migrations, console). Neither column is mass-assignable — the observer
+is the only writer, so every write path is stamped identically.
+
+Observers are registered with the `#[ObservedBy]` attribute on the model, not in a service provider.
+When the full audit-log mechanism is chosen, it belongs here alongside this.
 
 ### 9.4 Master data
 
@@ -453,6 +540,23 @@ label into another table. Seed it via `database/seeders/Settings/`.
 `app/Http/Middleware/HandleInertiaRequests.php` shares `name`, `auth.user`, `sidebarOpen`, and
 `theme` with every page. Anything added there is paid for on **every** request — prefer per-page
 props, and use `Inertia::optional()` for anything expensive.
+
+### 9.6 Authentication identity
+
+**Users log in with `employee_id`, not email.** `config/fortify.php` sets
+`'username' => 'employee_id'`, so the login form posts `employee_id` and the login rate limiter keys
+on it automatically.
+
+- `lowercase_usernames` is **`false`**. Employee IDs may contain uppercase letters
+  (`/^[A-Za-z0-9-]{3,10}$/`) and are stored exactly as HR issued them; lowercasing the submitted
+  value would make any uppercase ID impossible to log in with. Matching is therefore case-sensitive.
+- **Password reset stays keyed on `email`** (`config('fortify.email')`). Laravel's password broker
+  and the `password_reset_tokens` table are both email-keyed, and the link has to be emailed
+  regardless — so the forgot-password form still asks for the email address. `email` remains required
+  and unique on `users`.
+- `users` uses `SoftDeletes`, so a deleted user cannot authenticate: the default user provider
+  applies the global scope. Their `employee_id` and `email` stay reserved by the unique indexes,
+  which is intentional — reusing one is refused with a message pointing at the Historical tab.
 
 ---
 
@@ -517,6 +621,8 @@ is expected to change as the project's needs become clearer.
 | A dependency that shapes the architecture is added or upgraded | [§2](#2-stack) |
 | `app.tsx` layout resolution changes | [§8.1](#81-layout-resolution--resourcesjsapptsx) |
 | A status marker becomes true (🟡 → ✅) | the relevant table |
+| A module's surfaces change in a way its reference doc describes | `documentation/{module}.md` — see [§14](#14-module-reference-documentation) |
+| A table is created, or a query pattern against one changes | Nothing here — but apply [§6.3 Indexing](#63-migrations) and record the `EXPLAIN` reasoning in the module's doc |
 
 **Do not** update it for ordinary feature work that follows the existing conventions — a new
 controller inside an existing module is not a structural change.
@@ -562,3 +668,24 @@ php artisan wayfinder:generate
 Local URL is **http://localhost:8000** (port 8080 is the Laragon landing page, not this app).
 PHP is not on the bash `PATH`; invoke it via
 `D:\Projects\laragon\bin\php\php-8.4.12-nts-Win32-vs17-x64\php.exe` or use PowerShell.
+
+---
+
+## 14. Module reference documentation
+
+`documentation/` holds one `{module}.md` per module — currently
+[`documentation/admin.md`](documentation/admin.md).
+
+**These files and this one do different jobs. Do not let them overlap.**
+
+| | `ARCHITECTURE.md` | `documentation/{module}.md` |
+| --- | --- | --- |
+| Answers | *Where* does this go, *what* is it called | *What* does this surface do, and *why* is it built this way |
+| Scope | The whole repository | One module |
+| Read it | Before planning or writing any code | When working inside that module |
+
+When the two would say the same thing, the module doc **links to the section here** rather than
+restating it. Two copies of a decision means one of them is silently wrong later.
+
+A module doc is updated in the same change as the module surface it describes — the same standing
+obligation as [§12](#12-keeping-this-file-in-sync), though the `PostToolUse` hook does not check it.

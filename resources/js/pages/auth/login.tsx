@@ -30,18 +30,19 @@ export default function Login({ status, canResetPassword }: Props) {
                     <>
                         <div className="grid gap-6">
                             <div className="grid gap-2">
-                                <Label htmlFor="email">Email address</Label>
+                                <Label htmlFor="employee_id">Employee ID</Label>
                                 <Input
-                                    id="email"
-                                    type="email"
-                                    name="email"
+                                    id="employee_id"
+                                    type="text"
+                                    name="employee_id"
                                     required
                                     autoFocus
                                     tabIndex={1}
-                                    autoComplete="email"
-                                    placeholder="email@example.com"
+                                    maxLength={10}
+                                    autoComplete="username"
+                                    placeholder="15868"
                                 />
-                                <InputError message={errors.email} />
+                                <InputError message={errors.employee_id} />
                             </div>
 
                             <div className="grid gap-2">
@@ -107,5 +108,5 @@ export default function Login({ status, canResetPassword }: Props) {
  * themselves from login.
  */
 Login.layout = {
-    description: 'Enter your email and password below to log in',
+    description: 'Enter your employee ID and password below to log in',
 };

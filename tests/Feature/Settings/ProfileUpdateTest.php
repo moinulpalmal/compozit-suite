@@ -64,7 +64,12 @@ test('user can delete their account', function () {
         ->assertRedirect(route('home'));
 
     $this->assertGuest();
-    expect($user->fresh())->toBeNull();
+
+    // `users` soft-deletes, so the row survives for the Admin history. The
+    // account is nevertheless gone everywhere it counts: ordinary queries and
+    // the auth user provider both apply the soft-delete scope.
+    $this->assertSoftDeleted($user);
+    expect(User::query()->whereKey($user->id)->exists())->toBeFalse();
 });
 
 test('correct password must be provided to delete account', function () {
