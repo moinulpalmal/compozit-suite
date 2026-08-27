@@ -19,7 +19,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import type { AvailabilityState } from '@/hooks/use-availability';
 import { useAvailability } from '@/hooks/use-availability';
-import type { GenderOption, UserListItem } from '@/types';
+import type { DesignationOption, GenderOption, UserListItem } from '@/types';
 import type { RouteFormDefinition } from '@/wayfinder';
 
 /** `/^[A-Za-z0-9-]{3,10}$/` — kept in step with `EmployeeValidationRules`. */
@@ -38,6 +38,7 @@ const MOBILE_PATTERN = /^01[3-9][0-9]{8}$/;
 export default function UserFormDialog({
     submit,
     genders,
+    designations,
     roles,
     user,
     title,
@@ -47,6 +48,11 @@ export default function UserFormDialog({
 }: {
     submit: RouteFormDefinition<'post'>;
     genders: GenderOption[];
+    /**
+     * Active designations, plus any retired one a row on this page still
+     * holds — see `DesignationService::assignableOptions()`.
+     */
+    designations: DesignationOption[];
     /** Assignable role names — only offered when creating. */
     roles?: string[];
     user?: UserListItem;
@@ -195,6 +201,42 @@ export default function UserFormDialog({
                                                 value={gender.value}
                                             >
                                                 {gender.label}
+                                            </option>
+                                        ))}
+                                    </select>
+                                </Field>
+
+                                <Field
+                                    label="Designation"
+                                    htmlFor="designation_id"
+                                    error={errors.designation_id}
+                                >
+                                    <select
+                                        id="designation_id"
+                                        name="designation_id"
+                                        defaultValue={
+                                            user?.designation_id ?? ''
+                                        }
+                                        required
+                                        className="select w-full"
+                                        data-test="designation-select"
+                                    >
+                                        {/* No default guess — the admin has to
+                                            choose, and an existing user with no
+                                            designation must not silently keep
+                                            whichever title sorts first. */}
+                                        <option value="" disabled>
+                                            Choose a designation
+                                        </option>
+
+                                        {designations.map((designation) => (
+                                            <option
+                                                key={designation.value}
+                                                value={designation.value}
+                                            >
+                                                {designation.label}
+                                                {designation.status === 'I' &&
+                                                    ' (deactivated)'}
                                             </option>
                                         ))}
                                     </select>

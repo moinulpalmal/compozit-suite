@@ -10,6 +10,7 @@ use App\Http\Requests\Admin\UserRoleUpdateRequest;
 use App\Http\Requests\Admin\UserStoreRequest;
 use App\Http\Requests\Admin\UserUpdateRequest;
 use App\Models\User;
+use App\Services\Admin\DesignationService;
 use App\Services\Admin\UserService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
@@ -24,7 +25,10 @@ class UserController extends Controller
      */
     protected const int PER_PAGE = 25;
 
-    public function __construct(protected UserService $users) {}
+    public function __construct(
+        protected UserService $users,
+        protected DesignationService $designations,
+    ) {}
 
     /**
      * List users, either the active ones or the soft-deleted history.
@@ -39,8 +43,9 @@ class UserController extends Controller
         $users = User::query()
             ->when($filters['filter'] === 'trashed', fn ($query) => $query->onlyTrashed())
             ->when($filters['gender'] !== '', fn ($query) => $query->where('gender', $filters['gender']))
+            ->when($filters['designation'] !== '', fn ($query) => $query->where('designation_id', $filters['designation']))
             ->when($filters['status'] !== '', fn ($query) => $query->where('approved', $filters['status'] === 'active'))
-            ->with(['roles:id,name', 'insertedBy:id,name', 'lastUpdatedBy:id,name'])
+            ->with(['roles:id,name', 'designation:id,name,short_form', 'insertedBy:id,name', 'lastUpdatedBy:id,name'])
             ->search($filters['search_field'], $filters['search'])
             ->sortBy($filters['sort'], $filters['direction'])
             ->paginate(self::PER_PAGE)
@@ -51,6 +56,17 @@ class UserController extends Controller
             'users' => $users,
             'roles' => $this->users->assignableRoleNames(),
             'genders' => Gender::options(),
+            /*
+             * Two different lists on purpose. The edit modal may only offer
+             * active designations — plus whichever retired ones this page's
+             * rows already hold, so nobody's title is silently blanked. The
+             * filter, by contrast, lists every designation: a deactivated
+             * title still has holders and an admin has to be able to find them.
+             */
+            'designations' => $this->designations->assignableOptions(
+                $users->getCollection()->pluck('designation_id')->all(),
+            ),
+            'designationFilters' => $this->designations->filterOptions(),
             'sortable' => User::SORTABLE,
             'searchable' => User::SEARCHABLE,
             'filters' => $filters,
@@ -227,6 +243,8 @@ class UserController extends Controller
             'official_mobile_no' => $user->official_mobile_no,
             'official_extension_no' => $user->official_extension_no,
             'gender' => $user->gender->value,
+            'designation_id' => $user->designation_id,
+            'designation' => $user->designation?->name,
             'approved' => $user->approved,
             'approval_authority' => $user->approval_authority,
             'roles' => $user->roles->pluck('name'),

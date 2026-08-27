@@ -32,6 +32,7 @@ database, five functional modules plus a dashboard.
 | Typed routes | Laravel Wayfinder | `^0.1` | Generates TS from routes/controllers |
 | UI | React | `19.2` | React Compiler enabled via Babel |
 | Styling | Tailwind CSS + daisyUI | `4.x` / `5.x` | daisyUI supplies the theme tokens |
+| Combobox | downshift | `^9.4` | Headless ARIA combobox behind `components/ui/combobox.tsx` — see [§8.5](#85-selects-are-comboboxes). The **only** third-party UI behaviour library; everything else is built on native elements + daisyUI |
 | Build | Vite | `8.x` | |
 | Tests | Pest | `^5.1` | |
 | Static analysis | Larastan / PHPStan | `^3.9` | |
@@ -153,7 +154,7 @@ exception — see [§6.4](#64-frontend-pages).
 | # | Module | Namespace segment | Route file | Name prefix | URL prefix | Pages root | Status |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | 0 | Dashboard | `Dashboard` | `routes/web.php` | `dashboard` | `/dashboard` | `pages/dashboard.tsx` | ✅ built (placeholder content) |
-| 1 | Admin | `Admin` | `routes/admin.php` | `admin.` | `/admin` | `pages/admin/` | 🟡 users + RBAC built, rest scaffolded |
+| 1 | Admin | `Admin` | `routes/admin.php` | `admin.` | `/admin` | `pages/admin/` | 🟡 users + RBAC + designations built, rest scaffolded |
 | 2 | Settings | `Settings` | `routes/settings.php` | *(see note)* | `/settings` | `pages/settings/` | ✅ partly built |
 | 3 | Merchandising | `Merchandising` | `routes/merchandising.php` | `merchandising.` | `/merchandising` | `pages/merchandising/` | 🟡 scaffolded |
 | 4 | Production | `Production` | `routes/production.php` | `production.` | `/production` | `pages/production/` | 🟡 scaffolded |
@@ -190,8 +191,9 @@ dashboard tile needs a query, that query belongs in the owning module's service.
 | c. Buyer-wise user access control | `Admin\BuyerAccessController` | `pages/admin/buyer-access/` | 🟡 |
 | d. Buyer setup & management | `Admin\BuyerController` | `pages/admin/buyers/` | 🟡 |
 | e. Audit logging | `Admin\AuditLogController` | `pages/admin/audit-logs/` | 🟡 |
+| f. Designations (HR job titles) | `Admin\DesignationController` | `pages/admin/designations/` | ✅ |
 
-Models live in `app/Models/Admin/` (`Role`, `Permission`, `Buyer`, `AuditLog`, …). `Role` and
+Models live in `app/Models/Admin/` (`Role`, `Permission`, `Designation`, `Buyer`, `AuditLog`, …). `Role` and
 `Permission` extend spatie's models so RBAC data is Admin-owned like everything else — see
 [§9.1](#91-rbac-roles--permissions). `User` stays at `app/Models/User.php` — it is an
 authentication concern shared by the whole app, not an Admin-owned model.
@@ -211,6 +213,16 @@ field-scoped prefix search and pagination, all carried in the query string and v
 This is a decision, not drift: the owner asked for one screen. Roles and permissions keep their
 `index/create/edit` pages; do not "harmonise" one into the other without a new decision.
 
+**Designations follow the user-management shape, not the RBAC one** — one page,
+`pages/admin/designations/index.tsx`, with create, edit and delete in modals. A designation is a
+*descriptive* HR job title: it grants nothing, and must never appear in an authorization check
+(permissions do that — [§9.1](#91-rbac-roles--permissions)). It is retired by setting its `status`
+to `I`, which removes it from the user form's picker; deleting it is a real delete and is **refused
+by `Admin\DesignationService::deletionBlocker()` while any user — soft-deleted ones included —
+still holds it**. Note the consequence: on this screen *deactivate* and *delete* are two different
+verbs, unlike `users`, where the historical tab is `deleted_at`. The reasoning behind the `status`
+char is in [`documentation/admin.md`](documentation/admin.md).
+
 Every destructive action is confirmed through `components/admin/confirm-action-dialog.tsx` (built on
 the existing `components/ui/dialog.tsx` — a native `<dialog>` styled with daisyUI — not a
 third-party alert library) and reports its outcome through the shared `sonner` toast.
@@ -225,11 +237,15 @@ Two distinct halves, deliberately separated:
 | Half | What it holds | Backend | Pages |
 | --- | --- | --- | --- |
 | Account settings | The signed-in user's own profile, security, appearance | `app/Http/Controllers/Settings/` ✅ | `pages/settings/{profile,security,appearance}.tsx` ✅ |
-| Master data | Org-wide reference tables: colors, sizes, UOM, seasons, fabric & trim types, departments, machine types, process stages | `app/Http/Controllers/Settings/` 🟡 | `pages/settings/master-data/` 🟡 |
+| Master data | Product/process reference tables: colors, sizes, UOM, seasons, fabric & trim types, machine types, process stages | `app/Http/Controllers/Settings/` 🟡 | `pages/settings/master-data/` 🟡 |
 | App configuration | Optional app-level toggles and defaults | 🟡 | `pages/settings/application/` 🟡 |
 
-Master data models go in `app/Models/Settings/`. Every other module *reads* master data and none
-of them write it — that write path belongs to Settings alone.
+Master data models go in `app/Models/Settings/`. Every other module *reads* them and none of them
+write them — that write path belongs to Settings alone.
+
+**Departments are not here.** HR/org-structure reference data (designations, departments) is
+Admin-owned; only product and process reference data is Settings-owned. The split and its reason
+are in [§9.4](#94-master-data).
 
 ### Module 3 — Merchandising
 
@@ -459,6 +475,43 @@ presentation only — the route's `permission:` middleware is what actually deni
 - Event renames: `invalid` → `httpException`, `exception` → `networkError`;
   `router.cancel()` → `router.cancelAll()`.
 
+### 8.5 Selects are comboboxes
+
+**There are no native `<select>` elements in this application.** Every one is
+`components/ui/combobox.tsx`, a searchable listbox built on `downshift`.
+
+- **One component, not two idioms.** It renders a plain listbox below
+  `SEARCH_THRESHOLD` (10) options and reveals the search input above it, so a three-option Gender
+  select stays one click while a long designation list is typeable. Call sites never choose.
+- **It submits through a hidden `<input>`.** Every form here is an uncontrolled
+  `<Form {...submit}>` reading `name=` off native elements; a `<div role="combobox">` submits
+  nothing. Any new control that replaces a native form element must do the same.
+- **`multiple` renders removable chips** and emits one hidden `name[]` input per selection, so the
+  server sees exactly what a checkbox list would have sent.
+- **Why a dependency at all**, when `dropdown-menu.tsx` deliberately replaced Radix by hand: that
+  file's docblock states the rule — hand-roll the simple primitive, buy the complicated one.
+  `aria-activedescendant`, roving virtual focus and filtered-result announcements are the
+  complicated one. downshift is headless, so every class name is still ours.
+- Placement for both is `lib/anchored-position.ts`.
+
+#### Options endpoints — the async source
+
+A combobox given `searchUrl` fetches its options per keystroke instead of filtering locally. Use it
+when a list outgrows being shipped to the browser whole. The convention:
+
+```php
+Route::get('{resource}/options', [{Resource}Controller::class, 'options'])
+    ->name('{resource}.options')
+    ->middleware('permission:{module}.{resource}.view');
+```
+
+Takes `?q=`, returns `{"data": [{"value": …, "label": …, "hint": …}]}`, and **caps its result set** —
+shipping fewer rows is the entire point. Match `q` as a **prefix** so the query stays indexable
+([§6.3](#63-migrations)). `admin.designations.options` is the worked example; the client half is
+`hooks/use-option-search.ts`, which follows `use-availability.ts` including its
+`X-Requested-With` header — omit that and Laravel records the JSON URL as the session's previous
+URL, sending every later `back()` to it.
+
 ---
 
 ## 9. Cross-cutting concerns
@@ -521,19 +574,42 @@ chosen must be applied uniformly, because a single unscoped query is a data leak
 Every mutation to a buyer-owned or administrative record is auditable. The general mechanism — what
 gets written to `audit_logs`, and by what — is still undecided. ⬜
 
-**Actor stamping is decided and built.** `app/Observers/` exists and holds `UserObserver`, which
-sets `users.inserted_by` on create and `users.last_updated_by` on update from `Auth::id()`. Both are
-nullable foreign keys to `users.id` with `nullOnDelete`, and both stay null for writes with no
-authenticated actor (seeders, migrations, console). Neither column is mass-assignable — the observer
+**Actor stamping is decided and built.** `app/Observers/` holds a single `ActorObserver`, which sets
+`inserted_by` on create and `last_updated_by` on update from `Auth::id()` for **every** model that
+carries those two columns — currently `User` and `Admin\Designation`. Both columns are nullable
+foreign keys to `users.id` with `nullOnDelete`, and both stay null for writes with no authenticated
+actor (seeders, migrations, console). Neither is mass-assignable on any stamped model — the observer
 is the only writer, so every write path is stamped identically.
+
+It is *one shared observer typed against `Model`*, not one per model. That was previously
+`UserObserver`, renamed and generalised when `designations` became the second stamped table: the
+guarantee above ("every write path is stamped identically") is exactly what a second hand-copied
+observer stops being able to make. A model opts in by carrying the two columns and the attribute —
+there is nothing else to write.
 
 Observers are registered with the `#[ObservedBy]` attribute on the model, not in a service provider.
 When the full audit-log mechanism is chosen, it belongs here alongside this.
 
 ### 9.4 Master data
 
-Owned by Settings, read by everyone. Reference master data by foreign key, never by copying its
-label into another table. Seed it via `database/seeders/Settings/`.
+Reference master data by foreign key, never by copying its label into another table.
+
+**Ownership splits in two, by subject matter:**
+
+| Kind | Owner | Examples | Models | Seeders |
+| --- | --- | --- | --- | --- |
+| **Product / process** reference data | Settings | colors, sizes, UOM, seasons, fabric & trim types, machine types, process stages | `app/Models/Settings/` | `database/seeders/Settings/` |
+| **HR / org-structure** reference data | Admin | designations ✅, departments | `app/Models/Admin/` | `database/seeders/Admin/` |
+
+Everyone else *reads* both and writes neither.
+
+> This section previously said master data was Settings-owned without exception, and listed
+> departments among the Settings tables. The owner decided otherwise when `designations` was built:
+> HR reference data is administered next to the users who hold it, on the same screen family and
+> behind the same `admin.*` permissions, not on a Settings page beside colors and sizes. The split
+> is by *subject*, not by table shape — the test is "does an Admin administering people need this?"
+> **Departments move to Admin when they are built**; the §5 Module 2 row still lists them and is
+> the line to correct at that point.
 
 ### 9.5 Shared props
 

@@ -2,7 +2,11 @@ import { Search } from 'lucide-react';
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import type { GenderOption, UserFilters } from '@/types';
+import type {
+    DesignationFilterOption,
+    GenderOption,
+    UserFilters,
+} from '@/types';
 
 /** Human labels for the searchable column names the server allow-lists. */
 const SEARCH_LABELS: Record<string, string> = {
@@ -26,11 +30,14 @@ export default function UsersTableToolbar({
     filters,
     searchable,
     genders,
+    designations,
     onChange,
 }: {
     filters: UserFilters;
     searchable: string[];
     genders: GenderOption[];
+    /** Every designation, retired ones included. */
+    designations: DesignationFilterOption[];
     onChange: (next: Partial<UserFilters>) => void;
 }) {
     const [term, setTerm] = useState(filters.search);
@@ -52,6 +59,33 @@ export default function UsersTableToolbar({
                     {genders.map((gender) => (
                         <option key={gender.value} value={gender.value}>
                             {gender.label}
+                        </option>
+                    ))}
+                </select>
+            </label>
+
+            <label className="grid gap-1">
+                <span className="text-xs text-base-content/60">
+                    Designation
+                </span>
+                <select
+                    className="select select-sm"
+                    value={filters.designation}
+                    onChange={(event) =>
+                        onChange({ designation: event.target.value })
+                    }
+                    aria-label="Filter by designation"
+                    data-test="designation-filter"
+                >
+                    {/* Deactivated designations are listed too: a retired title
+                        still has holders and they have to be findable. */}
+                    <option value="">All designations</option>
+                    {designations.map((designation) => (
+                        <option
+                            key={designation.value}
+                            value={String(designation.value)}
+                        >
+                            {designation.label}
                         </option>
                     ))}
                 </select>
@@ -115,6 +149,7 @@ export default function UsersTableToolbar({
 
                 {(filters.search !== '' ||
                     filters.gender !== '' ||
+                    filters.designation !== '' ||
                     filters.status !== '') && (
                     <Button
                         type="button"
@@ -122,7 +157,12 @@ export default function UsersTableToolbar({
                         variant="ghost"
                         onClick={() => {
                             setTerm('');
-                            onChange({ search: '', gender: '', status: '' });
+                            onChange({
+                                search: '',
+                                gender: '',
+                                designation: '',
+                                status: '',
+                            });
                         }}
                     >
                         Clear

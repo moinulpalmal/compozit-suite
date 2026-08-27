@@ -1,6 +1,7 @@
 import { Link } from '@inertiajs/react';
 import {
     BookOpen,
+    BriefcaseBusiness,
     FolderGit2,
     KeyRound,
     LayoutGrid,
@@ -22,6 +23,7 @@ import {
 } from '@/components/ui/sidebar';
 import { useCan } from '@/hooks/use-can';
 import { dashboard } from '@/routes';
+import { index as designationsIndex } from '@/routes/admin/designations';
 import { index as permissionsIndex } from '@/routes/admin/permissions';
 import { index as rolesIndex } from '@/routes/admin/roles';
 import { index as usersIndex } from '@/routes/admin/users';
@@ -54,11 +56,21 @@ export function AppSidebar() {
     const canViewUsers = useCan('admin.users.view');
     const canViewRoles = useCan('admin.roles.view');
     const canViewPermissions = useCan('admin.permissions.view');
+    const canViewDesignations = useCan('admin.designations.view');
 
     // Admin surfaces live in their own group, not alongside Platform.
     const adminNavItems: NavItem[] = [
         ...(canViewUsers
             ? [{ title: 'Users', href: usersIndex(), icon: Users }]
+            : []),
+        ...(canViewDesignations
+            ? [
+                  {
+                      title: 'Designations',
+                      href: designationsIndex(),
+                      icon: BriefcaseBusiness,
+                  },
+              ]
             : []),
         ...(canViewRoles
             ? [{ title: 'Roles', href: rolesIndex(), icon: ShieldCheck }]

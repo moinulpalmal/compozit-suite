@@ -29,6 +29,7 @@ class RolePermissionSeeder extends Seeder
         'admin.users' => ['view', 'create', 'update', 'delete', 'restore', 'force-delete', 'reset-password', 'assign-roles'],
         'admin.roles' => ['view', 'create', 'update', 'delete'],
         'admin.permissions' => ['view', 'create', 'update', 'delete'],
+        'admin.designations' => ['view', 'create', 'update', 'delete'],
         'admin.buyers' => ['view', 'create', 'update', 'delete'],
         'admin.buyer-access' => ['view', 'update'],
         'admin.audit-logs' => ['view'],

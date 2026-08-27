@@ -5,7 +5,8 @@ namespace App\Models;
 // use Illuminate\Contracts\Auth\MustVerifyEmail;
 use App\Enums\Admin\Gender;
 use App\Enums\Theme;
-use App\Observers\UserObserver;
+use App\Models\Admin\Designation;
+use App\Observers\ActorObserver;
 use Database\Factories\UserFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Hidden;
@@ -27,6 +28,7 @@ use Spatie\Permission\Traits\HasRoles;
  * @property string|null $official_mobile_no
  * @property string|null $official_extension_no
  * @property Gender $gender
+ * @property int|null $designation_id
  * @property bool $approved
  * @property bool $approval_authority
  * @property int|null $inserted_by
@@ -44,8 +46,9 @@ use Spatie\Permission\Traits\HasRoles;
  * @property Carbon|null $deleted_at
  * @property-read User|null $insertedBy
  * @property-read User|null $lastUpdatedBy
+ * @property-read Designation|null $designation
  */
-#[ObservedBy(UserObserver::class)]
+#[ObservedBy(ActorObserver::class)]
 #[Fillable([
     'name',
     'employee_id',
@@ -53,6 +56,7 @@ use Spatie\Permission\Traits\HasRoles;
     'official_mobile_no',
     'official_extension_no',
     'gender',
+    'designation_id',
     'approved',
     'approval_authority',
     'email',
@@ -80,6 +84,21 @@ class User extends Authenticatable
             'approved' => 'boolean',
             'approval_authority' => 'boolean',
         ];
+    }
+
+    /**
+     * The job title this user holds.
+     *
+     * Descriptive only — never consult it in an authorization check. Nullable
+     * because the column predates the requirement: rows created before
+     * designations existed have none, while the form requests make it
+     * mandatory for every user created or edited since.
+     *
+     * @return BelongsTo<Designation, $this>
+     */
+    public function designation(): BelongsTo
+    {
+        return $this->belongsTo(Designation::class);
     }
 
     /**

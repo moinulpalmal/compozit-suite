@@ -47,6 +47,44 @@ export type GenderOption = {
     label: string;
 };
 
+/** A status option as `DesignationStatus::options()` serialises it. */
+export type StatusOption = {
+    value: string;
+    label: string;
+};
+
+export type DesignationListItem = {
+    id: number;
+    name: string;
+    short_form: string | null;
+    /** `'A'` active, `'I'` retired from the pickers. Not a soft delete. */
+    status: string;
+    /** Holders, soft-deleted users included. */
+    users_count: number;
+    /** False while anybody holds it — the server refuses the delete too. */
+    is_deletable: boolean;
+};
+
+/**
+ * A designation the user form may offer.
+ *
+ * The list includes an inactive designation when a row on the current page
+ * still holds it, so nobody's title is silently blanked on save. `status` is
+ * what lets the select label that option.
+ */
+export type DesignationOption = {
+    value: number;
+    label: string;
+    short_form: string | null;
+    status: string;
+};
+
+/** A designation as the users-list filter dropdown renders it. */
+export type DesignationFilterOption = {
+    value: number;
+    label: string;
+};
+
 export type UserListItem = {
     id: number;
     name: string;
@@ -56,6 +94,9 @@ export type UserListItem = {
     official_mobile_no: string | null;
     official_extension_no: string | null;
     gender: string;
+    designation_id: number | null;
+    /** Null on rows created before designations existed. */
+    designation: string | null;
     approved: boolean;
     approval_authority: boolean;
     roles: string[];
@@ -79,6 +120,8 @@ export type UserFilters = {
     /** Matched as a **prefix** — "158" finds 15868, "868" does not. */
     search: string;
     gender: string;
+    /** A designation id as a string, or '' for all. */
+    designation: string;
     status: '' | 'active' | 'inactive';
 };
 

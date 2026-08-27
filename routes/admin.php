@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Admin\DesignationController;
 use App\Http\Controllers\Admin\PermissionController;
 use App\Http\Controllers\Admin\RoleController;
 use App\Http\Controllers\Admin\UserController;
@@ -56,6 +57,23 @@ Route::middleware(['auth', 'auth.session', 'verified'])
         Route::put('users/{user}/roles', [UserController::class, 'updateRoles'])
             ->name('users.roles')
             ->middleware('permission:admin.users.assign-roles');
+
+        /*
+         * Designations — HR job titles. One page with modals, like users.
+         * There is no `show`, and no restore/force-delete pair: a designation
+         * is retired by setting its status, and deleting one anybody holds is
+         * refused by the service.
+         *
+         * Activating and deactivating is part of `update` on purpose. Unlike
+         * `admin.users.assign-roles`, toggling a descriptive label grants
+         * nobody any power, so it needs no permission of its own.
+         */
+        Route::resource('designations', DesignationController::class)
+            ->only(['index', 'store', 'update', 'destroy'])
+            ->middlewareFor(['index'], 'permission:admin.designations.view')
+            ->middlewareFor(['store'], 'permission:admin.designations.create')
+            ->middlewareFor(['update'], 'permission:admin.designations.update')
+            ->middlewareFor(['destroy'], 'permission:admin.designations.delete');
 
         Route::resource('roles', RoleController::class)
             ->except('show')

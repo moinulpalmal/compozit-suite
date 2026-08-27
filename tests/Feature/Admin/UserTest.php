@@ -1,5 +1,6 @@
 <?php
 
+use App\Models\Admin\Designation;
 use App\Models\Admin\Role;
 use App\Models\User;
 use Illuminate\Support\Facades\Hash;
@@ -466,6 +467,116 @@ test('seeded users are stamped with nobody', function () {
     expect(User::factory()->create()->inserted_by)->toBeNull();
 });
 
+/*
+|--------------------------------------------------------------------------
+| Designations on the user surface
+|--------------------------------------------------------------------------
+|
+| `designation_id` is nullable in the database and required in the form
+| requests. Both halves of that split are pinned below: an old row with no
+| designation must still load, and a new one must not be creatable without.
+|
+*/
+
+test('a user cannot be created without a designation', function () {
+    $this->actingAs(userWithPermissions('admin.users.create'));
+
+    $this->from(route('admin.users.index'))
+        ->post(route('admin.users.store'), userPayload(except: ['designation_id']))
+        ->assertSessionHasErrors('designation_id');
+});
+
+test('a deactivated designation cannot be assigned to a new user', function () {
+    $this->actingAs(userWithPermissions('admin.users.create'));
+
+    $retired = Designation::factory()->inactive()->create();
+
+    $this->from(route('admin.users.index'))
+        ->post(route('admin.users.store'), userPayload(['designation_id' => $retired->id]))
+        ->assertSessionHasErrors('designation_id');
+});
+
+test('a user keeps a designation that was deactivated after they were given it', function () {
+    $this->actingAs(userWithPermissions('admin.users.update'));
+
+    $retired = Designation::factory()->inactive()->create();
+    $user = User::factory()->create(['designation_id' => $retired->id]);
+
+    // Editing anything else must not be blocked by a value the admin never
+    // touched — the rule grants the user's own current designation.
+    $this->put(route('admin.users.update', $user), userPayload(
+        [
+            'name' => 'Renamed Person',
+            'employee_id' => $user->employee_id,
+            'email' => $user->email,
+            'designation_id' => $retired->id,
+        ],
+        except: ['password', 'password_confirmation'],
+    ))->assertSessionHasNoErrors();
+
+    expect($user->refresh()->designation_id)->toBe($retired->id);
+});
+
+test('a user with no designation still loads on the list', function () {
+    $this->actingAs(userWithPermissions('admin.users.view'));
+
+    User::factory()->create(['name' => 'Legacy Person', 'designation_id' => null]);
+
+    $this->get(route('admin.users.index', ['search_field' => 'name', 'search' => 'Legacy']))
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page
+            ->has('users.data', 1)
+            ->where('users.data.0.designation', null));
+});
+
+test('the list filters by designation', function () {
+    $this->actingAs(userWithPermissions('admin.users.view'));
+
+    $merchandiser = Designation::factory()->create(['name' => 'Merchandiser']);
+    $cutter = Designation::factory()->create(['name' => 'Cutter']);
+
+    User::factory()->create(['name' => 'Ayesha', 'designation_id' => $merchandiser->id]);
+    User::factory()->create(['name' => 'Bilal', 'designation_id' => $cutter->id]);
+
+    $this->get(route('admin.users.index', ['designation' => $merchandiser->id]))
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page
+            ->has('users.data', 1)
+            ->where('users.data.0.name', 'Ayesha')
+            ->where('users.data.0.designation', 'Merchandiser')
+            ->where('filters.designation', (string) $merchandiser->id));
+});
+
+test('an unknown designation filter is rejected', function () {
+    $this->actingAs(userWithPermissions('admin.users.view'));
+
+    $this->from(route('admin.users.index'))
+        ->get(route('admin.users.index', ['designation' => 999999]))
+        ->assertSessionHasErrors('designation');
+});
+
+test('the edit picker offers a deactivated designation this page still holds', function () {
+    $this->actingAs(userWithPermissions('admin.users.view'));
+
+    $retired = Designation::factory()->inactive()->create(['name' => 'Retired Title']);
+    $unused = Designation::factory()->inactive()->create(['name' => 'Never Used']);
+    Designation::factory()->create(['name' => 'Current Title']);
+
+    User::factory()->create(['designation_id' => $retired->id]);
+
+    $this->get(route('admin.users.index'))
+        ->assertOk()
+        ->assertInertia(function ($page) {
+            $offered = collect($page->toArray()['props']['designations'])->pluck('label');
+
+            // The retired title a row holds is offered so saving that row does
+            // not blank it; the retired title nobody holds is not.
+            expect($offered)->toContain('Current Title')
+                ->toContain('Retired Title')
+                ->not->toContain('Never Used');
+        });
+});
+
 /**
  * A valid user payload, with overrides applied and keys removed.
  *
@@ -483,6 +594,11 @@ function userPayload(array $overrides = [], array $except = []): array
         'official_mobile_no' => null,
         'official_extension_no' => '204',
         'gender' => 'F',
+        // Required by the form requests even though the column is nullable —
+        // reuse the first active designation so repeated calls in one test do
+        // not litter the table.
+        'designation_id' => (Designation::query()->active()->first()
+            ?? Designation::factory()->create())->id,
         'approved' => 1,
         'approval_authority' => 0,
         'password' => 'Str0ng-Pass!word',

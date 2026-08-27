@@ -23,6 +23,8 @@ import { Button } from '@/components/ui/button';
 import { useCan } from '@/hooks/use-can';
 import { index } from '@/routes/admin/users';
 import type {
+    DesignationFilterOption,
+    DesignationOption,
     GenderOption,
     Paginated,
     UserFilters,
@@ -33,6 +35,10 @@ type Props = {
     users: Paginated<UserListItem>;
     roles: string[];
     genders: GenderOption[];
+    /** What the create/edit modal may offer. */
+    designations: DesignationOption[];
+    /** What the filter dropdown lists — retired designations included. */
+    designationFilters: DesignationFilterOption[];
     sortable: string[];
     searchable: string[];
     filters: UserFilters;
@@ -43,6 +49,8 @@ export default function UsersIndex({
     users,
     roles,
     genders,
+    designations,
+    designationFilters,
     sortable,
     searchable,
     filters,
@@ -99,6 +107,7 @@ export default function UsersIndex({
                         <UserFormDialog
                             submit={UserController.store.form()}
                             genders={genders}
+                            designations={designations}
                             roles={roles}
                             title="New user"
                             description="The employee ID is the login name. The user is not emailed — hand the password over yourself."
@@ -144,6 +153,7 @@ export default function UsersIndex({
                     filters={filters}
                     searchable={searchable}
                     genders={genders}
+                    designations={designationFilters}
                     onChange={visit}
                 />
 
@@ -157,12 +167,18 @@ export default function UsersIndex({
                                 <SortableHeader {...sortProps('name')}>
                                     Name
                                 </SortableHeader>
+                                {/* Not sortable: ordering by designation means
+                                    ordering by a joined column, a query shape
+                                    this list does not have. Filter instead. */}
+                                <th className="hidden lg:table-cell">
+                                    Designation
+                                </th>
                                 <th className="hidden md:table-cell">
                                     Contact
                                 </th>
                                 <th>Roles</th>
                                 <th>{isHistorical ? 'Deleted' : 'Status'}</th>
-                                {/* Seven columns plus four action buttons
+                                {/* Eight columns plus four action buttons
                                     overflow a laptop viewport; the least
                                     identifying ones give way first. */}
                                 <SortableHeader
@@ -178,7 +194,7 @@ export default function UsersIndex({
                             {users.data.length === 0 && (
                                 <tr>
                                     <td
-                                        colSpan={7}
+                                        colSpan={8}
                                         className="text-center text-base-content/60"
                                     >
                                         {isHistorical
@@ -206,6 +222,14 @@ export default function UsersIndex({
                                         <div className="text-xs text-base-content/60">
                                             {user.email}
                                         </div>
+                                    </td>
+
+                                    <td className="hidden text-xs lg:table-cell">
+                                        {user.designation ?? (
+                                            <span className="text-base-content/50">
+                                                —
+                                            </span>
+                                        )}
                                     </td>
 
                                     <td className="hidden text-xs text-base-content/70 md:table-cell">
@@ -320,6 +344,9 @@ export default function UsersIndex({
                                                                 user.id,
                                                             )}
                                                             genders={genders}
+                                                            designations={
+                                                                designations
+                                                            }
                                                             user={user}
                                                             title={`Edit ${user.name}`}
                                                             description="Roles and passwords are changed with their own actions."

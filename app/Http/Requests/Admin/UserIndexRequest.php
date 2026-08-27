@@ -3,6 +3,7 @@
 namespace App\Http\Requests\Admin;
 
 use App\Enums\Admin\Gender;
+use App\Models\Admin\Designation;
 use App\Models\User;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
@@ -32,6 +33,7 @@ class UserIndexRequest extends FormRequest
             'search_field' => ['sometimes', Rule::in(User::SEARCHABLE)],
             'search' => ['sometimes', 'nullable', 'string', 'max:100'],
             'gender' => ['sometimes', 'nullable', Rule::enum(Gender::class)],
+            'designation' => ['sometimes', 'nullable', 'integer', Rule::exists(Designation::class, 'id')],
             'status' => ['sometimes', 'nullable', 'in:active,inactive'],
             'page' => ['sometimes', 'integer', 'min:1'],
         ];
@@ -40,7 +42,7 @@ class UserIndexRequest extends FormRequest
     /**
      * The list's filter state, with every default applied.
      *
-     * @return array{filter: string, sort: string, direction: string, search_field: string, search: string, gender: string, status: string}
+     * @return array{filter: string, sort: string, direction: string, search_field: string, search: string, gender: string, designation: string, status: string}
      */
     public function filters(): array
     {
@@ -51,6 +53,7 @@ class UserIndexRequest extends FormRequest
             'search_field' => $this->filled('search_field') ? $this->string('search_field')->value() : 'name',
             'search' => $this->string('search')->value(),
             'gender' => $this->string('gender')->value(),
+            'designation' => $this->string('designation')->value(),
             'status' => $this->string('status')->value(),
         ];
     }

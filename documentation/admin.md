@@ -17,10 +17,16 @@
 | c. Buyer-wise user access control | `Admin\BuyerAccessController` | `pages/admin/buyer-access/` | 🟡 scaffolded |
 | d. Buyer setup & management | `Admin\BuyerController` | `pages/admin/buyers/` | 🟡 scaffolded |
 | e. Audit logging | `Admin\AuditLogController` | `pages/admin/audit-logs/` | 🟡 scaffolded |
+| f. Designations | `Admin\DesignationController` | `pages/admin/designations/index.tsx` | ✅ built |
 
-Admin is the only module allowed to write roles, permissions, buyer-access assignments and audit
-records. `User` lives at `app/Models/User.php`, not `app/Models/Admin/` — authentication is a
-whole-app concern that Admin happens to administer.
+Admin is the only module allowed to write roles, permissions, buyer-access assignments, designations
+and audit records. `User` lives at `app/Models/User.php`, not `app/Models/Admin/` — authentication is
+a whole-app concern that Admin happens to administer.
+
+Designations are **HR reference data**, and HR reference data is Admin-owned even though product
+reference data (colors, sizes, UOM…) belongs to Settings. That split, and why it overrode the
+original "all master data is Settings-owned" rule, is recorded in
+[ARCHITECTURE.md §9.4](../ARCHITECTURE.md#94-master-data).
 
 ---
 
@@ -42,10 +48,11 @@ Built by `0001_01_01_000000_create_users_table`, then
 | `official_mobile_no` | `string(11)`, nullable | Same rule. |
 | `official_extension_no` | `string(4)`, nullable | Up to four digits. |
 | `gender` | `string(1)`, default `'M'` | Cast to `App\Enums\Admin\Gender` — `M` / `F` / `O`. |
+| `designation_id` | FK → `designations.id`, **nullable**, `nullOnDelete` | Required by the form requests, not by the column. See [§8](#8-designations). |
 | `approved` | `boolean`, default `true` | Active/inactive switch surfaced in the edit modal. |
 | `approval_authority` | `boolean`, default `false` | **Parked.** See [§2.2](#22-approval-authority-is-not-wired-to-anything). |
-| `inserted_by` | FK → `users.id`, nullable, `nullOnDelete` | Written only by `UserObserver`. |
-| `last_updated_by` | FK → `users.id`, nullable, `nullOnDelete` | Written only by `UserObserver`. |
+| `inserted_by` | FK → `users.id`, nullable, `nullOnDelete` | Written only by `ActorObserver`. |
+| `last_updated_by` | FK → `users.id`, nullable, `nullOnDelete` | Written only by `ActorObserver`. |
 | `email` | `string`, unique | Still required — the password-reset broker is keyed on it. |
 | `email_verified_at` | `timestamp`, nullable | Set to `now()` for admin-created accounts. |
 | `password` | `string` | `hashed` cast; never assign a pre-hashed value. |
@@ -66,7 +73,7 @@ Built by `0001_01_01_000000_create_users_table`, then
 
 ### 2.1.1 Indexes — every one of them measured
 
-`users` carries eleven indexes. **Each was justified by a measurement, not a guess**, and several
+`users` carries twelve indexes. **Each was justified by a measurement, not a guess**, and several
 plausible-looking candidates were rejected because the numbers said no. The general rule is
 [ARCHITECTURE.md §6.3 Indexing](../ARCHITECTURE.md#63-migrations); the tool is
 [§2.1.3](#213-the-benchmark).
@@ -84,6 +91,7 @@ plausible-looking candidates were rejected because the numbers said no. The gene
 | `users_deleted_at_official_mobile_index` | mobile prefix search | same |
 | `users_deleted_at_extension_index` | extension prefix search | same |
 | `users_deleted_at_approved_name_index` | status filter + default sort | same |
+| `users_designation_id_foreign` | FK integrity **and** the designation filter | InnoDB, automatic |
 
 Every composite leads with `deleted_at` because every query on this table has it — the soft-delete
 scope is always applied.
@@ -104,6 +112,15 @@ scope is always applied.
 | `(deleted_at, employee_id)` | Sorting by employee ID was **slower** with it: 0.42 ms → 0.95 ms. MySQL already walks `users_employee_id_unique` in order and stops at the page limit. |
 | `(deleted_at, email)` | Same story via `users_email_unique`; 0.56 ms → 0.47 ms is inside the noise. |
 | `(deleted_at, gender, name)` | Gender has three values — not selective. Both plans sub-millisecond (0.35 ms → 0.29 ms). |
+| `(deleted_at, designation_id, name)` | **The planner never chose it.** With the composite installed, the rare-designation filter still planned on `users_designation_id_foreign + filesort` at 1.58 ms — indistinguishable from the 1.29–1.66 ms it runs at without. The FK index `constrained()` already creates is enough, exactly as [§6.3](../ARCHITECTURE.md#63-migrations) predicts. |
+
+`designation_id` was expected to be the case where a composite finally earned its place — it has far
+more distinct values than `gender`, which was rejected for low cardinality. It did not. The reason is
+the FK index: unlike `gender`, `designation_id` already *has* an index, so the only thing a composite
+could add is the `ORDER BY name`, and MySQL preferred filtering through the FK index and sorting 25
+rows over walking a wider composite. The **common** designation — a third of the table — is scanned
+via `users_deleted_at_name_index` at ~1 ms either way, which is the right plan for a filter that
+selective. Two different reasons, same verdict: measure, don't reason by analogy.
 
 Two lessons worth keeping:
 
@@ -225,11 +242,16 @@ the UI never offers what the server would refuse.
 
 ### 2.6 Actor stamping
 
-`app/Observers/UserObserver.php` sets `inserted_by` on create and `last_updated_by` on update from
+`app/Observers/ActorObserver.php` sets `inserted_by` on create and `last_updated_by` on update from
 `Auth::id()`. Neither column is in the model's `#[Fillable]` list, so the observer is the only
 writer and *every* path — Admin screens, account settings, console — is stamped identically. This is
 narrower than the audit-log mechanism, which is still undecided
 ([ARCHITECTURE.md §9.3](../ARCHITECTURE.md#93-audit-logging)).
+
+It is **one shared observer**, typed against `Model` and attached with `#[ObservedBy]` to every model
+carrying the two columns — `User` and `Admin\Designation` today. It was `UserObserver` until
+designations became the second stamped table; a hand-copied second observer is precisely what would
+break the "stamped identically" guarantee the first paragraph makes.
 
 ### 2.7 Validation
 
@@ -377,6 +399,9 @@ something to name.
 7. `UserFactory`, then a test in `tests/Feature/Admin/UserTest.php`.
 8. Update the table in [§2.1](#21-the-users-table).
 
+Step 3 is the one people miss. `designation_id` went through it, which is why the "choose a
+designation" message reads like a person wrote it.
+
 ### Adding an `admin.users.*` permission
 
 1. Add the action to `RolePermissionSeeder::CATALOGUE` under `'admin.users'`.
@@ -407,3 +432,99 @@ Two suites outside this module depend on decisions made here and must be kept in
 built from it) and `tests/Feature/Settings/ProfileUpdateTest.php` (account deletion is now a soft
 delete — note that `$model->fresh()` bypasses the soft-delete scope, so assert with
 `assertSoftDeleted()` or a scoped query).
+
+`tests/Feature/Admin/DesignationTest.php` covers the designation surface. Note that
+`userPayload()` in `UserTest.php` now supplies a `designation_id`, because the form requests require
+one — that helper is the single seam every user-creating test goes through.
+
+---
+
+## 8. Designations
+
+A designation is a **job title**. `Admin\Designation` (`app/Models/Admin/Designation.php`), one page
+at `pages/admin/designations/index.tsx` with create/edit/delete in modals, gated by
+`admin.designations.{view,create,update,delete}`.
+
+**A designation grants nothing.** Permissions come from roles ([§5](#5-rbac-surfaces)) and approval
+power from `approval_authority`. Never branch on a designation in an authorization check — if you
+find yourself wanting to, the thing you want is a permission.
+
+### 8.1 The `designations` table
+
+Built by `2026_08_27_105912_create_designations_table`.
+
+| Column | Type | Notes |
+| --- | --- | --- |
+| `id` | `id` | |
+| `name` | `string(100)`, **unique, not null** | The title. |
+| `short_form` | `string(50)`, nullable, **unique when present** | A unique index permits repeated `NULL`s on MySQL *and* SQLite, so "no code yet" stays legal while duplicate codes are refused. |
+| `status` | `string(1)`, default `'A'` | Cast to `App\Enums\Admin\DesignationStatus` — `A` / `I`. |
+| `inserted_by` | FK → `users.id`, nullable, `nullOnDelete` | `ActorObserver`, as on `users`. |
+| `last_updated_by` | FK → `users.id`, nullable, `nullOnDelete` | Same. |
+
+**No index beyond the two unique constraints.** A unique constraint already *is* an index, the table
+holds tens of rows, and `status` has two values — far too low in cardinality to index alone
+([ARCHITECTURE.md §6.3](../ARCHITECTURE.md#63-migrations)).
+
+The proposed schema had `name` and `short_form` both nullable with no unique constraint, and
+`inserted_by`/`last_updated_by` as bare `bigInteger` columns. All four were tightened: a nameless or
+duplicated designation is a data bug the table should refuse, and unconstrained actor columns would
+have diverged from `users` and had no observer path.
+
+### 8.2 `status` is a char, and it is not `deleted_at`
+
+`designations.status` (`'A'`/`'I'`) and `users.approved` (boolean) say the same thing two different
+ways. **This is a deliberate owner decision**, not drift — the char flag matches the HR system the
+data comes from. Do not "harmonise" it into a boolean, and equally **do not copy it onto a third
+table** on the assumption that it is now the house style. `users.approved` remains the precedent for
+anything without that HR lineage.
+
+The consequence is that this screen has **two verbs where `users` has one**:
+
+| Verb | Effect |
+| --- | --- |
+| **Deactivate** (`status = 'I'`, part of `update`) | Removed from the user form's picker. Existing holders keep it. Still listed on this screen and in the users-list filter. |
+| **Delete** (`destroy`) | Row is gone. **Refused while anybody holds it**, soft-deleted users included. |
+
+Activating and deactivating is part of `admin.designations.update`, not a permission of its own —
+unlike `assign-roles`, toggling a descriptive label grants nobody any power.
+
+`DesignationService::deletionBlocker()` is what refuses the delete, and it counts holders
+`withTrashed()`: a user on the Historical tab still carries the title, and deleting it underneath
+them would silently blank the field if they were ever restored. The refusal surfaces as an error
+toast, not a 403 — it is a fact about the record, not about the actor, which is the same reasoning
+that puts the user guards in `UserService` ([§2.5](#25-the-four-escalation-guards)).
+
+### 8.3 The picker excludes inactive designations — with one exception
+
+`DesignationService::assignableOptions(array $keep)` returns active designations **plus any id in
+`$keep`**. `UserController::index()` passes the designations its current page of rows already holds.
+
+Without that exception, opening the edit modal for someone holding a since-retired title would show
+a select that does not contain their value — blanking the field on save, or failing validation on
+something the admin never touched. `EmployeeValidationRules::designationRules($userId)` grants the
+same exception server-side, per user. **The two must agree**: if you change one, change the other.
+
+`DesignationService::filterOptions()` is deliberately different — it lists *every* designation,
+retired ones included, because a retired title still has holders and an admin has to be able to find
+them.
+
+### 8.4 `users.designation_id` is nullable in the database and required in the form
+
+The column is nullable; `EmployeeValidationRules::employeeRules()` makes it `required`.
+
+`users` already had rows when designations arrived. Backfilling them would have meant inventing an
+"Unassigned" designation that exists only to satisfy a constraint and then shows up in every picker
+and filter forever. Instead, pre-existing rows keep a null title and render as "—", while every user
+created or edited since must be given one — and the omission is reported as a field error rather
+than a driver exception. Both halves are pinned by tests.
+
+The designation column on the user list is **not sortable**. Ordering by it means ordering by a
+joined column, a query shape this list does not have; filter instead. The index reasoning for that
+filter is in [§2.1.1](#211-indexes--every-one-of-them-measured) — the answer was "no new index".
+
+### 8.5 Seeding
+
+`Database\Seeders\Admin\DesignationSeeder` ships a **placeholder** list of garments-manufacturing
+titles and is called from `DatabaseSeeder`. It is idempotent (`firstOrCreate` on the unique name), so
+it will not overwrite a title renamed through the UI. **Replace the array with the real HR list.**

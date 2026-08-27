@@ -2,6 +2,7 @@
 
 namespace App\Console\Commands;
 
+use App\Models\Admin\Designation;
 use App\Models\User;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\App;
@@ -40,6 +41,14 @@ class BenchmarkUsersCommand extends Command
         'bench_deleted_extension' => ['deleted_at', 'official_extension_no'],
         'bench_deleted_approved_name' => ['deleted_at', 'approved', 'name'],
         'bench_deleted_gender_name' => ['deleted_at', 'gender', 'name'],
+
+        /*
+         * The designation filter. `constrained()` already gave MySQL an index
+         * on `designation_id` alone, so the open question is only whether a
+         * composite is needed to supply the `ORDER BY name` as well, or
+         * whether the filesort over one designation's slice is cheap enough.
+         */
+        'bench_deleted_designation_name' => ['deleted_at', 'designation_id', 'name'],
     ];
 
     /**
@@ -112,7 +121,37 @@ class BenchmarkUsersCommand extends Command
         User::query()->whereIn('id', $trashed)->delete();
         User::query()->whereIn('id', $inactive)->update(['approved' => false]);
 
+        $this->spreadDesignations($seeded);
+
         return $seeded;
+    }
+
+    /**
+     * Give the seeded users designations, in the lopsided way a real org has.
+     *
+     * An even spread would make every designation equally selective and hide
+     * the case that decides the index: one common title holding a large slice
+     * of the table. Here the first designation takes roughly a third of the
+     * rows and the rest split what is left.
+     *
+     * @param  list<int>  $seeded
+     */
+    protected function spreadDesignations(array $seeded): void
+    {
+        $ids = Designation::query()->orderBy('id')->pluck('id')->all();
+
+        if ($ids === []) {
+            $ids = Designation::factory()->count(12)->create()->pluck('id')->all();
+        }
+
+        $bulk = array_slice($seeded, 0, (int) (count($seeded) / 3));
+        User::query()->whereIn('id', $bulk)->update(['designation_id' => $ids[0]]);
+
+        foreach (array_chunk(array_slice($seeded, count($bulk)), 200) as $i => $chunk) {
+            User::query()
+                ->whereIn('id', $chunk)
+                ->update(['designation_id' => $ids[($i + 1) % count($ids)]]);
+        }
     }
 
     /**
@@ -170,6 +209,8 @@ class BenchmarkUsersCommand extends Command
             'search mobile (broad)' => "{$base} AND personal_mobile_no LIKE '017%' ORDER BY name LIMIT 25",
             'search extension (selective)' => "{$base} AND official_extension_no LIKE '{$sample['official_extension_no']}%' ORDER BY name LIMIT 25",
             'filter gender' => "{$base} AND gender = 'F' ORDER BY name LIMIT 25",
+            'filter designation (common)' => "{$base} AND designation_id = {$sample['designation_common']} ORDER BY name LIMIT 25",
+            'filter designation (rare)' => "{$base} AND designation_id = {$sample['designation_rare']} ORDER BY name LIMIT 25",
             'filter inactive' => "{$base} AND approved = 0 ORDER BY name LIMIT 25",
             'historical tab' => 'SELECT * FROM users WHERE deleted_at IS NOT NULL ORDER BY name LIMIT 25',
             'deep page (offset 2000)' => "{$base} ORDER BY name ASC LIMIT 25 OFFSET 2000",
@@ -177,19 +218,34 @@ class BenchmarkUsersCommand extends Command
     }
 
     /**
-     * Selective search prefixes taken from a real row.
+     * Selective search prefixes taken from a real row, plus the two
+     * designations at either end of the distribution.
      *
-     * @return array{employee_id: string, personal_mobile_no: string, official_extension_no: string}
+     * Both ends are measured because selectivity is what decides whether an
+     * index is used at all: the common title matches a third of the table and
+     * will rightly be scanned, the rare one is the case an index can win.
+     *
+     * @return array{employee_id: string, personal_mobile_no: string, official_extension_no: string, designation_common: int, designation_rare: int}
      */
     protected function sample(): array
     {
         $user = User::query()->whereNotNull('personal_mobile_no')->firstOrFail();
+
+        $byPopularity = User::query()
+            ->whereNotNull('designation_id')
+            ->selectRaw('designation_id, COUNT(*) AS holders')
+            ->groupBy('designation_id')
+            ->orderByDesc('holders')
+            ->pluck('designation_id')
+            ->all();
 
         return [
             // Long enough to identify one person, as a real lookup would be.
             'employee_id' => substr((string) $user->employee_id, 0, 4),
             'personal_mobile_no' => substr((string) $user->personal_mobile_no, 0, 8),
             'official_extension_no' => (string) $user->official_extension_no,
+            'designation_common' => (int) ($byPopularity[0] ?? 0),
+            'designation_rare' => (int) (end($byPopularity) ?: 0),
         ];
     }
 
