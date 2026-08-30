@@ -20,13 +20,14 @@ import {
     SidebarMenuItem,
 } from '@/components/ui/sidebar';
 import { useCan } from '@/hooks/use-can';
+import { useNavGroups } from '@/hooks/use-nav-groups';
 import { dashboard } from '@/routes';
 import { index as buyersIndex } from '@/routes/admin/buyers';
 import { index as designationsIndex } from '@/routes/admin/designations';
 import { index as permissionsIndex } from '@/routes/admin/permissions';
 import { index as rolesIndex } from '@/routes/admin/roles';
 import { index as usersIndex } from '@/routes/admin/users';
-import type { NavItem } from '@/types';
+import type { NavGroup, NavItem } from '@/types';
 
 const mainNavItems: NavItem[] = [
     {
@@ -76,6 +77,16 @@ export function AppSidebar() {
             : []),
     ];
 
+    // A group whose items are all hidden is not rendered at all, so it never
+    // reaches the collapse state either.
+    const navGroups: NavGroup[] = [
+        { label: 'Platform', items: mainNavItems },
+        { label: 'Admin', items: adminNavItems },
+    ].filter((group) => group.items.length > 0);
+
+    // Called once: this is the only place that knows every group and its links.
+    const { isExpanded, toggle } = useNavGroups(navGroups);
+
     return (
         <Sidebar collapsible="icon" variant="inset">
             <SidebarHeader>
@@ -91,11 +102,15 @@ export function AppSidebar() {
             </SidebarHeader>
 
             <SidebarContent>
-                <NavMain items={mainNavItems} />
-
-                {adminNavItems.length > 0 && (
-                    <NavMain items={adminNavItems} label="Admin" />
-                )}
+                {navGroups.map((group) => (
+                    <NavMain
+                        key={group.label}
+                        items={group.items}
+                        label={group.label}
+                        expanded={isExpanded(group.label)}
+                        onToggle={() => toggle(group.label)}
+                    />
+                ))}
             </SidebarContent>
 
             {/* No footer nav: the starter kit's Repository and Documentation

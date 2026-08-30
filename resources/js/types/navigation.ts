@@ -12,3 +12,12 @@ export type NavItem = {
     icon?: LucideIcon | null;
     isActive?: boolean;
 };
+
+/**
+ * One module's sidebar links. `label` is both the group heading and the key its
+ * collapsed state is remembered under — see ARCHITECTURE.md §8.3.
+ */
+export type NavGroup = {
+    label: string;
+    items: NavItem[];
+};

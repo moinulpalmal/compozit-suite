@@ -16,10 +16,12 @@ import type { FlashToast } from '@/types/ui';
  *    and an inline `<Alert>` are the same green and both follow the theme into
  *    dark mode. Enabling `richColors` without that override would ship sonner's
  *    own green next to daisyUI's.
- * 2. **Nothing auto-dismisses.** `duration: Infinity` plus `closeButton`: a toast
- *    stays until it is closed, the same rule modals follow in `dialog.tsx`. The
- *    cost is deliberate — a burst of saves stacks up, and sonner drops the oldest
- *    past `visibleToasts`.
+ * 2. **Everything auto-dismisses after five seconds.** A toast reports an outcome,
+ *    not work in progress — `dialog.tsx` refuses light dismissal because a modal
+ *    holds typed input, and there is none here, so that rule does not carry over.
+ *    sonner pauses the timer while the pointer is over a toast and while the
+ *    window is unfocused, so five seconds is five seconds of attention.
+ *    `closeButton` stays, for dismissing one early.
  */
 
 /** daisyUI colour tokens, which happen to share sonner's type names exactly. */
@@ -49,7 +51,7 @@ function Toaster({ ...props }: ToasterProps) {
             position="bottom-right"
             richColors
             closeButton
-            duration={Infinity}
+            duration={5000}
             // lucide, so toasts share the icon vocabulary of every other surface
             // rather than bringing sonner's second one.
             icons={{

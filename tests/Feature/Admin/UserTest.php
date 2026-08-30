@@ -1,6 +1,7 @@
 <?php
 
 use App\Enums\RecordStatus;
+use App\Http\Requests\ListRequest;
 use App\Models\Admin\Designation;
 use App\Models\Admin\Role;
 use App\Models\User;
@@ -180,7 +181,7 @@ test('the list is paginated and keeps its filters across pages', function () {
 
     $this->get(route('admin.users.index', ['filter' => ['gender' => 'F']]))
         ->assertInertia(fn ($page) => $page
-            ->has('users.data', 25)
+            ->has('users.data', ListRequest::DEFAULT_PER_PAGE)
             ->where('users.total', 30)
             ->where('users.current_page', 1));
 

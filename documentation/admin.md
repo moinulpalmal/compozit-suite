@@ -335,7 +335,7 @@ shareable URL:
 | `sort` | `name` (default), `employee_id`, `email`, `created_at` — `User::SORTABLE` |
 | `direction` | `asc` (default) / `desc` |
 | `filter[…]` | one key per `User::FILTERABLE` column, max 100 chars each |
-| `per_page` | `10` / `25` (default) / `50` / `100` |
+| `per_page` | `10` (default) / `25` / `50` / `100` |
 | `page` | paginator page |
 
 The tab is **`view`, not `filter`**. It was `filter=active|trashed` until the filter row arrived and

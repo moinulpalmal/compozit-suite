@@ -46,8 +46,33 @@ class HandleInertiaRequests extends Middleware
                 'permissions' => $this->permissionsFor($request->user()),
             ],
             'sidebarOpen' => ! $request->hasCookie('sidebar_state') || $request->cookie('sidebar_state') === 'true',
+            'collapsedNavGroups' => $this->collapsedNavGroups($request),
             'theme' => Theme::forRequest($request)->value,
         ];
+    }
+
+    /**
+     * The sidebar groups the user has collapsed, by label.
+     *
+     * Read server-side rather than from `localStorage` so the sidebar is right
+     * on first paint instead of snapping shut after hydration. The cookie is
+     * written by the browser and must stay out of `encryptCookies` — see
+     * `bootstrap/app.php`.
+     *
+     * @return list<string>
+     */
+    private function collapsedNavGroups(Request $request): array
+    {
+        $cookie = $request->cookie('sidebar_groups');
+
+        if (! is_string($cookie) || $cookie === '') {
+            return [];
+        }
+
+        return array_values(array_filter(
+            array_map(trim(...), explode(',', $cookie)),
+            fn (string $label): bool => $label !== '',
+        ));
     }
 
     /**

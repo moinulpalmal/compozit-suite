@@ -85,7 +85,7 @@ function surfaces(): array
 
 dataset('list surfaces', fn () => surfaces());
 
-test('every list is paginated at 25 rows by default', function (
+test('every list is paginated at 10 rows by default', function (
     string $route,
     string $prop,
     string $permission,
@@ -101,7 +101,7 @@ test('every list is paginated at 25 rows by default', function (
     $this->get(route($route))
         ->assertOk()
         ->assertInertia(fn ($page) => $page
-            ->has("{$prop}.data", 25)
+            ->has("{$prop}.data", ListRequest::DEFAULT_PER_PAGE)
             ->where("{$prop}.current_page", 1)
             ->where("{$prop}.per_page", ListRequest::DEFAULT_PER_PAGE));
 })->with('list surfaces');
@@ -135,13 +135,18 @@ test('every list honours an allow-listed page size', function (
 
     $seed(30);
 
-    $this->get(route($route, ['per_page' => 10]))
+    /*
+     * The probe must not be `DEFAULT_PER_PAGE`, or the test passes even when
+     * `per_page` is ignored entirely. 50 is the smallest option that is not the
+     * default and still holds the whole seeded set on one page.
+     */
+    $this->get(route($route, ['per_page' => 50]))
         ->assertOk()
         ->assertSessionHasNoErrors()
         ->assertInertia(fn ($page) => $page
-            ->has("{$prop}.data", 10)
-            ->where("{$prop}.per_page", 10)
-            ->where('filters.per_page', 10));
+            ->where("{$prop}.per_page", 50)
+            ->where('filters.per_page', 50)
+            ->where("{$prop}.last_page", 1));
 })->with('list surfaces');
 
 test('every list refuses a page size outside the allow-list', function (
@@ -222,21 +227,25 @@ test('every list keeps its sort and page size across pages', function (
 
     $seed(30);
 
-    // `withQueryString()` is what carries these onto the paginator links;
-    // without it page 2 silently reverts to the defaults.
+    /*
+     * `withQueryString()` is what carries these onto the paginator links;
+     * without it page 2 silently reverts to the defaults. 25 rather than
+     * `DEFAULT_PER_PAGE`, so a reverted page size is visible here.
+     */
     $this->get(route($route, [
         'sort' => 'name',
         'direction' => 'desc',
-        'per_page' => 10,
+        'per_page' => 25,
         'page' => 2,
     ]))
         ->assertOk()
         ->assertInertia(fn ($page) => $page
             ->where('filters.sort', 'name')
             ->where('filters.direction', 'desc')
-            ->where('filters.per_page', 10)
+            ->where('filters.per_page', 25)
+            ->where("{$prop}.per_page", 25)
             ->where("{$prop}.current_page", 2)
-            ->has("{$prop}.data", 10));
+            ->has("{$prop}.data"));
 })->with('list surfaces');
 
 test('every list has a contains column that matches mid-string', function (

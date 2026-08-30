@@ -44,7 +44,7 @@ abstract class ListRequest extends FormRequest
     /**
      * The page size a list uses when none is chosen.
      */
-    public const int DEFAULT_PER_PAGE = 25;
+    public const int DEFAULT_PER_PAGE = 10;
 
     /**
      * The columns this surface may be sorted by.

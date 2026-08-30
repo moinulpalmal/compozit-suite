@@ -489,6 +489,35 @@ one per module — `mainNavItems` under the default "Platform" label, `adminNavI
 and so on as modules land. A module's links never join another module's group. A group whose items
 are all hidden is not rendered at all.
 
+**Every group collapses, and the state is remembered.** With five modules landing, five
+permanently-expanded blocks is not a sidebar anyone can use. The `SidebarGroupLabel` is the toggle;
+the links stay flat and top-level. Rules that come with it:
+
+- **The label toggles, it does not become a parent row.** `SidebarMenuSub` /
+  `SidebarMenuSubButton` exist in `sidebar.tsx` and are deliberately **unused** — the indented-
+  submenu shape was considered and declined, because in the icon rail those parts are
+  `display: none` and a module would become an icon that leads nowhere.
+- **The icon rail always renders groups expanded.** `SidebarGroupLabel` is `opacity-0
+  pointer-events-none` at 3rem, so a collapsed group there would hide its icons with no reachable
+  way to bring them back. `NavMain` overrides the stored state whenever `useSidebar().state` is
+  `collapsed` and the viewport is not mobile.
+- **Collapsed groups live in the `sidebar_groups` cookie**, comma-joined labels, read by
+  `HandleInertiaRequests` into the `collapsedNavGroups` prop — the same treatment `sidebar_state`
+  gets, and for the same reason: read server-side, the sidebar is correct on first paint.
+  `localStorage` was declined for the flash of wrong state on every load. The cookie is in
+  `encryptCookies(except:)`; without that the browser's value is discarded as tampered and the
+  preference silently never persists.
+- **Navigating into a collapsed group opens it, and that counts as opening it** — the label is
+  removed from the cookie, not merely overridden for one render. One invariant, rather than a
+  precedence puzzle between what the cookie says and where the user is. Note that `AppLayout`
+  persists across Inertia visits, so `NavMain` does *not* remount: seeding this at mount is not
+  enough, it has to react to the URL changing.
+- **`useNavGroups` is called once**, in `app-sidebar.tsx`, which is the only place that knows every
+  group and its items; `NavMain` is presentational and takes `expanded` / `onToggle`. Two hook
+  instances would each hold half the collapsed set and overwrite each other's cookie.
+- Group identity is the **label string**. Renaming a group orphans its cookie entry, which reads as
+  the group being expanded once — harmless, and the stale entry is dropped on the next write.
+
 Entries for permission-gated surfaces are appended conditionally with `useCan()` (see
 [§9.1](#91-rbac-roles--permissions)), so a user never sees a link they cannot open. That is
 presentation only — the route's `permission:` middleware is what actually denies access.
@@ -629,7 +658,7 @@ One trap worth knowing in `combobox.tsx`: downshift's reducer treats a click on 
 `isOpen: !isOpen`, which closed the menu when the user clicked the search box *inside* it. Every
 `useCombobox` there needs a `stateReducer` holding `isOpen` steady for `InputClick`.
 
-### 8.8 Toasts carry severity, and they wait
+### 8.8 Toasts carry severity, and they clear themselves
 
 Every outcome message is `Inertia::flash('toast', ['type' => …, 'message' => …])`, rendered by
 `components/ui/sonner.tsx` through `hooks/use-flash-toast.ts`. There is no other notification
@@ -645,9 +674,15 @@ surface.
   `--{type}-bg/-text/-border` variables is overridden with daisyUI's `alert-soft` `color-mix`
   formula, so a toast and an inline `<Alert>` are the same colour and both follow the theme into
   dark mode. Enabling `richColors` alone ships a second palette.
-- **Nothing auto-dismisses.** `duration: Infinity` with `closeButton`, matching
-  [§8.7](#87-modals-never-light-dismiss-menus-always-do) — a message is closed by the person who
-  read it.
+- **Everything auto-dismisses after 5s**, `closeButton` still on for dismissing one early. This
+  line previously read "nothing auto-dismisses", `duration: Infinity`, justified by analogy to
+  [§8.7](#87-modals-never-light-dismiss-menus-always-do). **The owner reversed it**: the analogy
+  does not hold. A modal refuses dismissal because it holds *typed work* that a stray click would
+  destroy; a toast holds a *report of something already finished*, and nothing is lost by its
+  going. What the rule actually produced was litter — every save left a card the user had to sweep
+  up by hand. sonner pauses the timer on hover and on window blur, so 5s is 5s of attention, not
+  wall clock. Do not restore `Infinity` for the `warning`/`error` types either; that was
+  considered and declined.
 - `error` messages are wrapped in `role="alert"` so they interrupt; everything else is
   `role="status"`. sonner announces through one polite live region, and this is the only lever it
   exposes.
@@ -821,9 +856,13 @@ Everyone else *reads* both and writes neither.
 
 ### 9.5 Shared props
 
-`app/Http/Middleware/HandleInertiaRequests.php` shares `name`, `auth.user`, `sidebarOpen`, and
-`theme` with every page. Anything added there is paid for on **every** request — prefer per-page
-props, and use `Inertia::optional()` for anything expensive.
+`app/Http/Middleware/HandleInertiaRequests.php` shares `name`, `auth.user`, `sidebarOpen`,
+`collapsedNavGroups` and `theme` with every page. Anything added there is paid for on **every**
+request — prefer per-page props, and use `Inertia::optional()` for anything expensive.
+
+The last three are all cookie reads rather than queries, which is what makes them affordable here:
+each is a preference the *first paint* needs, so deferring it to the client would trade a byte on
+the wire for a visible flicker. That is the bar for adding a fourth — not "it is small".
 
 ### 9.6 Authentication identity
 
