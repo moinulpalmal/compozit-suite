@@ -44,7 +44,7 @@ export type FilterCell =
     | { type: 'none'; className?: string };
 
 /**
- * The row of filter cells under an Admin list's headers.
+ * The row of filter cells under a list's headers.
  *
  * Each cell filters its own column and the cells are `AND`-ed, which is the
  * shape a database can actually serve — `OR`-ing one term across every column

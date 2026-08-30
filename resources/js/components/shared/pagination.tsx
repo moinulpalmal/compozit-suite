@@ -15,9 +15,9 @@ const WINDOW = 2;
  * entities (`&laquo; Previous`) and bake previous/next into the same list, which
  * is a worse fit than deriving the window.
  *
- * Lives in `components/admin/` because Admin is currently its only consumer —
- * move it to `components/shared/` the moment a second module imports it, per
- * ARCHITECTURE.md §6.5.
+ * Lived in `components/admin/` while Admin was its only consumer, and moved
+ * here when the Settings master-data list became the second — ARCHITECTURE.md
+ * §6.5.
  */
 export default function Pagination<T>({ page }: { page: Paginated<T> }) {
     if (page.total === 0) {

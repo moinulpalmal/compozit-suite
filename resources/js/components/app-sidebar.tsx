@@ -3,6 +3,7 @@ import {
     BriefcaseBusiness,
     KeyRound,
     LayoutGrid,
+    Palette,
     ShieldCheck,
     Store,
     Users,
@@ -27,6 +28,7 @@ import { index as designationsIndex } from '@/routes/admin/designations';
 import { index as permissionsIndex } from '@/routes/admin/permissions';
 import { index as rolesIndex } from '@/routes/admin/roles';
 import { index as usersIndex } from '@/routes/admin/users';
+import { index as notificationColorsIndex } from '@/routes/settings/master-data/notification-colors';
 import type { NavGroup, NavItem } from '@/types';
 
 const mainNavItems: NavItem[] = [
@@ -45,6 +47,10 @@ export function AppSidebar() {
     const canViewPermissions = useCan('admin.permissions.view');
     const canViewDesignations = useCan('admin.designations.view');
     const canViewBuyers = useCan('admin.buyers.view');
+
+    // One bucket gates every master-data table, so this same check will grow to
+    // cover colours, sizes and UOM without a permission per screen.
+    const canViewMasterData = useCan('settings.master-data.view');
 
     // Admin surfaces live in their own group, not alongside Platform.
     const adminNavItems: NavItem[] = [
@@ -77,11 +83,27 @@ export function AppSidebar() {
             : []),
     ];
 
+    // Master data and app configuration. The *account* settings pages
+    // (profile, security, appearance) are not here — they are reached from the
+    // user menu and live under their own layout, see ARCHITECTURE.md §8.1.
+    const settingsNavItems: NavItem[] = [
+        ...(canViewMasterData
+            ? [
+                  {
+                      title: 'Notification colours',
+                      href: notificationColorsIndex(),
+                      icon: Palette,
+                  },
+              ]
+            : []),
+    ];
+
     // A group whose items are all hidden is not rendered at all, so it never
     // reaches the collapse state either.
     const navGroups: NavGroup[] = [
         { label: 'Platform', items: mainNavItems },
         { label: 'Admin', items: adminNavItems },
+        { label: 'Settings', items: settingsNavItems },
     ].filter((group) => group.items.length > 0);
 
     // Called once: this is the only place that knows every group and its links.

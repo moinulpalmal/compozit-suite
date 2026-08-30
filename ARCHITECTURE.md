@@ -168,7 +168,7 @@ Legend: ✅ built · 🟡 directories exist, no implementation · ⬜ planned, n
 > **Settings name-prefix note:** the existing account routes (`profile.edit`, `security.edit`,
 > `appearance.edit`, `user-password.update`) are unprefixed because Fortify and the starter kit
 > reference them by those names. **Do not rename them.** All *new* Settings routes use the
-> `settings.` prefix — e.g. `settings.master-data.colors.index`.
+> `settings.` prefix — `settings.master-data.notification-colors.index` is the shipped example.
 
 ### Module 0 — Dashboard
 
@@ -254,11 +254,22 @@ Two distinct halves, deliberately separated:
 | Half | What it holds | Backend | Pages |
 | --- | --- | --- | --- |
 | Account settings | The signed-in user's own profile, security, appearance | `app/Http/Controllers/Settings/` ✅ | `pages/settings/{profile,security,appearance}.tsx` ✅ |
-| Master data | Product/process reference tables: colors, sizes, UOM, seasons, fabric & trim types, machine types, process stages | `app/Http/Controllers/Settings/` 🟡 | `pages/settings/master-data/` 🟡 |
+| Master data | Product/process reference tables: notification colors ✅, then colors, sizes, UOM, seasons, fabric & trim types, machine types, process stages | `app/Http/Controllers/Settings/` 🟡 | `pages/settings/master-data/` 🟡 |
 | App configuration | Optional app-level toggles and defaults | 🟡 | `pages/settings/application/` 🟡 |
 
 Master data models go in `app/Models/Settings/`. Every other module *reads* them and none of them
 write them — that write path belongs to Settings alone.
+
+**The two halves no longer share a layout.** `SettingsLayout` is the account-settings shell and
+nothing else; master data renders under plain `AppLayout` like the Admin lists. See
+[§8.1](#81-layout-resolution--resourcesjsapptsx), which is where the rule was narrowed and why.
+
+**Notification colours are the first master-data surface**, and they set the shape the rest follow:
+one page with modals, `status` rather than `deleted_at`, the shared list apparatus, and the whole
+`settings.master-data.*` permission bucket rather than a permission per table — so a second master
+table adds no seeder entry and no role change. `documentation/settings.md` holds the reasoning,
+including the one thing deliberately left undone: **there is no deletion guard**, because nothing
+references a colour until `notifications` is built.
 
 **Departments are not here.** HR/org-structure reference data (designations, departments) is
 Admin-owned; only product and process reference data is Settings-owned. The split and its reason
@@ -416,6 +427,15 @@ Promotion rule: a component starts in `components/{module}/`. The moment a **sec
 imports it, move it to `components/shared/` in the same change. Check for an existing component
 before writing a new one.
 
+**The list apparatus has been promoted, and it is the worked example.** `column-filter-row`,
+`list-toolbar`, `pagination`, `sortable-header`, `confirm-action-dialog` and `confirm-delete-dialog`
+all lived in `components/admin/` while Admin was the only module with a list. The Settings
+master-data screen was the second importer, so all six moved to `components/shared/` in that change.
+Both dialogs moved together even though only one was imported directly: `confirm-delete-dialog` is a
+thin preset over `confirm-action-dialog`, and promoting the wrapper alone would have left a shared
+component importing out of `components/admin/` — which is the coupling the rule exists to remove.
+The `*-form-dialog.tsx` files stayed put; they know their module's fields and have one caller each.
+
 File names are kebab-case; the exported component is PascalCase.
 
 ### 6.6 TypeScript types
@@ -464,11 +484,29 @@ Layouts are assigned centrally by page-name prefix, not per page:
 | Page name matches | Layout |
 | --- | --- |
 | `auth/*` | `AuthLayout` |
-| `settings/*` | `[AppLayout, SettingsLayout]` |
-| everything else | `AppLayout` |
+| exactly `settings/profile`, `settings/security`, `settings/appearance` | `[AppLayout, SettingsLayout]` |
+| everything else — **including the rest of `settings/`** | `AppLayout` |
 
 **New modules need no change here** — they fall through to `AppLayout`. Only edit `app.tsx` if a
-module needs its own sub-layout (the way Settings does), and record that decision in this file.
+module needs its own sub-layout, and record that decision in this file.
+
+**This rule previously read `settings/*` → `[AppLayout, SettingsLayout]`, and that was wrong.** It
+conflated a URL prefix with a layout. `SettingsLayout` is not a Settings shell; it is the *account
+settings* shell — a fixed three-item nav (Profile, Security, Appearance), a heading that says
+"Manage your profile and account settings", and a `max-w-xl` content column sized for a short form.
+The first master-data screen is a paginated table with a filter row, and it cannot render in that
+column at all. The three account pages are therefore named explicitly, in a
+`ACCOUNT_SETTINGS_PAGES` array, and everything else under `settings/` falls through to `AppLayout`
+and looks like the Admin lists it is a sibling of.
+
+Two consequences worth keeping in mind:
+
+- **The match is exact, not a prefix.** A fourth account page has to be added to that array — which
+  is the intent: joining the account shell should be a decision, not something a filename does by
+  accident.
+- **`SettingsLayout` itself was left untouched.** Teaching it a second nav section and a conditional
+  width was the alternative, and it makes one component serve two unrelated jobs that every future
+  master table then edits. Narrowing the resolver is the smaller and more reversible half.
 
 ### 8.2 Wayfinder — generated, never edited
 
@@ -476,8 +514,16 @@ module needs its own sub-layout (the way Settings does), and record that decisio
 
 - Never hand-edit them, and never hand-write a URL string in a page.
 - Import controller actions from `@/actions/...` and named routes from `@/routes/...`.
-- They regenerate on `npm run dev` / `npm run build`, or via `php artisan wayfinder:generate`.
+- They regenerate on `npm run dev` / `npm run build`, or via
+  **`php artisan wayfinder:generate --with-form`**.
 - After adding routes, regenerate before writing the page that links to them.
+- **`--with-form` is not optional.** `vite.config.ts` configures the plugin with
+  `formVariants: true`, and every `<Form {...submit}>` in this application is built on the
+  `.form()` variant that flag emits. Running the bare command regenerates the same files *without*
+  those variants — roughly 3,500 lines vanish, and `npm run types:check` then fails across pages
+  nobody touched. This line previously omitted the flag and that is exactly what happened; if a
+  routine `types:check` suddenly reports `Property 'form' does not exist` in `auth/login.tsx`, this
+  is the cause, and the fix is to regenerate with the flag rather than to change any page.
 
 ### 8.3 Navigation
 
@@ -549,6 +595,12 @@ presentation only — the route's `permission:` middleware is what actually deni
   nothing. Any new control that replaces a native form element must do the same.
 - **`multiple` renders removable chips** and emits one hidden `name[]` input per selection, so the
   server sees exactly what a checkbox list would have sent.
+- **The hidden-input contract binds every compound control, not just this one.**
+  `components/ui/color-input.tsx` is the second: a native `<input type="color">` for picking and a
+  text `<Input>` for typing the same hex, of which **only the text field carries `name`** — the
+  colour swatch is an unnamed visual control that writes into it. Two named inputs would submit the
+  field twice and the last one would win, which is a bug that looks like nothing until the values
+  disagree. Any further control built from more than one element does the same.
 - **Why a dependency at all**, when `dropdown-menu.tsx` deliberately replaced Radix by hand: that
   file's docblock states the rule — hand-roll the simple primitive, buy the complicated one.
   `aria-activedescendant`, roving virtual focus and filtered-result announcements are the
@@ -575,19 +627,23 @@ URL, sending every later `back()` to it.
 
 ### 8.6 Every list is paginated, sortable and filtered per column
 
-**A list screen is never a bare `->get()`.** All four Admin lists — users, designations, roles,
-permissions — go through one apparatus, and a new one inherits it rather than re-implementing it:
+**A list screen is never a bare `->get()`.** All six lists — the five Admin ones and Settings'
+notification colours — go through one apparatus, and a new one inherits it rather than
+re-implementing it:
 
 | Piece | Job |
 | --- | --- |
 | `app/Enums/FilterType` | `Contains` / `Prefix` / `Equals` / `Scope` — how one cell matches |
 | `app/Concerns/Listable` | `scopeFilterColumns()` and `scopeSortBy()`. The model declares `FILTERABLE` and `SORTABLE` |
 | `app/Http/Requests/ListRequest` | Abstract base validating `sort` / `direction` / `per_page` / `filter[…]` / `page`. Subclasses add anything else through `filterRules()` and `filterValues()` |
-| `components/admin/column-filter-row.tsx` | The row of filter cells under the headers |
+| `components/shared/column-filter-row.tsx` | The row of filter cells under the headers |
 | `hooks/use-list-filters.ts` | The 400 ms debounce, page reset, and one-visit clear |
-| `components/admin/list-toolbar.tsx` | The thin bar above: page size, Clear filters, surface extras |
-| `components/admin/sortable-header.tsx` | Clickable `<th>`, and `nextSort()` |
-| `components/admin/pagination.tsx` | Numbered pages with prev/next and "Showing x–y of z" |
+| `components/shared/list-toolbar.tsx` | The thin bar above: page size, Clear filters, surface extras |
+| `components/shared/sortable-header.tsx` | Clickable `<th>`, and `nextSort()` |
+| `components/shared/pagination.tsx` | Numbered pages with prev/next and "Showing x–y of z" |
+
+These six front-end files sat in `components/admin/` until Settings became the second module with a
+list — see [§6.5](#65-components) for the promotion.
 
 The wire format is `?filter[name]=man&sort=name&direction=asc&per_page=50&page=2`.
 
@@ -624,8 +680,11 @@ Rules that come with it:
 `ListRequest` sits at the root of `app/Http/Requests/` rather than a module folder, because it
 belongs to no module — a deliberate exception to [§6.1](#61-backend-classes).
 
-The contract is tested once for every surface in `tests/Feature/Admin/ListBehaviourTest.php`. **Add
-a new list to its `surfaces()` dataset** and it inherits the whole set.
+The contract is tested once for every surface in `tests/Feature/ListBehaviourTest.php`. **Add a new
+list to its `surfaces()` dataset** and it inherits the whole set. It sits at the root of
+`tests/Feature/` rather than under a module directory, for the same reason `ListRequest` sits at the
+root of `app/Http/Requests/`: it tests apparatus that belongs to no module, and it stopped being an
+Admin file the moment a Settings surface joined its dataset.
 
 ### 8.7 Modals never light-dismiss; menus always do
 
@@ -841,7 +900,7 @@ Reference master data by foreign key, never by copying its label into another ta
 
 | Kind | Owner | Examples | Models | Seeders |
 | --- | --- | --- | --- | --- |
-| **Product / process** reference data | Settings | colors, sizes, UOM, seasons, fabric & trim types, machine types, process stages | `app/Models/Settings/` | `database/seeders/Settings/` |
+| **Product / process** reference data | Settings | notification colors ✅, colors, sizes, UOM, seasons, fabric & trim types, machine types, process stages | `app/Models/Settings/` | `database/seeders/Settings/` |
 | **HR / org-structure** reference data | Admin | designations ✅, departments | `app/Models/Admin/` | `database/seeders/Admin/` |
 
 Everyone else *reads* both and writes neither.
@@ -896,7 +955,9 @@ The end-to-end path, in order:
    is multi-step.
 6. **Controller** — `php artisan make:controller Merchandising/TechPackController --resource`.
 7. **Routes** — add to `routes/merchandising.php` inside the existing prefixed group.
-8. **Regenerate Wayfinder** — `php artisan wayfinder:generate` (or just run the dev server).
+8. **Regenerate Wayfinder** — `php artisan wayfinder:generate --with-form` (or just run the dev
+   server). The flag is required; [§8.2](#82-wayfinder--generated-never-edited) says what breaks
+   without it.
 9. **Pages** — `resources/js/pages/merchandising/tech-packs/{index,create,edit}.tsx`.
 10. **Test** — `php artisan make:test --pest Merchandising/TechPackTest`, then
     `php artisan test --compact --filter=TechPack`.
@@ -985,7 +1046,7 @@ npm run types:check                      # tsc --noEmit
 # Discovery
 php artisan route:list --except-vendor
 php artisan route:list --path=merchandising
-php artisan wayfinder:generate
+php artisan wayfinder:generate --with-form   # the flag is required — see §8.2
 ```
 
 Local URL is **http://localhost:8000** (port 8080 is the Laragon landing page, not this app).
@@ -1030,7 +1091,8 @@ pass.
 ## 14. Module reference documentation
 
 `documentation/` holds one `{module}.md` per module — currently
-[`documentation/admin.md`](documentation/admin.md).
+[`documentation/admin.md`](documentation/admin.md) and
+[`documentation/settings.md`](documentation/settings.md).
 
 **These files and this one do different jobs. Do not let them overlap.**
 

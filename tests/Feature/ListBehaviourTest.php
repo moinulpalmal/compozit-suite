@@ -6,6 +6,7 @@ use App\Models\Admin\Buyer;
 use App\Models\Admin\Designation;
 use App\Models\Admin\Permission;
 use App\Models\Admin\Role;
+use App\Models\Settings\NotificationColor;
 use App\Models\User;
 
 /*
@@ -13,14 +14,19 @@ use App\Models\User;
 | The shared list apparatus
 |--------------------------------------------------------------------------
 |
-| Every Admin list is paginated, sortable, and filtered by a row of cells under
-| its headers, through `App\Concerns\Listable` and
-| `App\Http\Requests\ListRequest` (ARCHITECTURE.md §8.6). The point of this file
-| is that the *contract* is tested once, over every surface, rather than four
-| times with drift between the copies. Surface-specific behaviour stays in that
-| surface's own test.
+| Every list is paginated, sortable, and filtered by a row of cells under its
+| headers, through `App\Concerns\Listable` and `App\Http\Requests\ListRequest`
+| (ARCHITECTURE.md §8.6). The point of this file is that the *contract* is
+| tested once, over every surface, rather than six times with drift between the
+| copies. Surface-specific behaviour stays in that surface's own test.
 |
 | A new list is added to `surfaces()` below and inherits the whole set.
+|
+| **This file sits at the root of `tests/Feature/` rather than under a module
+| directory**, for the same reason `ListRequest` sits at the root of
+| `app/Http/Requests/`: it tests apparatus that belongs to no module. It lived
+| in `tests/Feature/Admin/` while every surface was an Admin one, and moved when
+| Settings' notification colours joined the dataset.
 |
 | The last two tests are deliberately single-surface: prefix matching and
 | combining two cells need a surface that actually has a prefix column and a
@@ -79,6 +85,18 @@ function surfaces(): array
                 fn (int $i) => Permission::findOrCreate("listing.things.act-{$i}", 'web'),
             ),
             fn (string $name) => Permission::findOrCreate($name, 'web'),
+        ],
+        /*
+         * The only non-Admin surface, and the reason this file is no longer an
+         * Admin one. It is also the surface proving `settings.master-data.view`
+         * gates a list the same way an `admin.*` permission does.
+         */
+        'notification colours' => [
+            'settings.master-data.notification-colors.index',
+            'notificationColors',
+            'settings.master-data.view',
+            fn (int $count) => NotificationColor::factory()->count($count)->create(),
+            fn (string $name) => NotificationColor::factory()->create(['name' => $name]),
         ],
     ];
 }

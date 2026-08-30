@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button';
 import Combobox from '@/components/ui/combobox';
 
 /**
- * The thin bar above an Admin list.
+ * The thin bar above a list.
  *
  * It used to hold the search box and every dropdown filter. Those are now cells
  * in `ColumnFilterRow`, under the header of the column they filter, so what is

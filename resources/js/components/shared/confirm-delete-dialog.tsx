@@ -1,5 +1,5 @@
 import { Trash2 } from 'lucide-react';
-import ConfirmActionDialog from '@/components/admin/confirm-action-dialog';
+import ConfirmActionDialog from '@/components/shared/confirm-action-dialog';
 import { Button } from '@/components/ui/button';
 import type { RouteFormDefinition } from '@/wayfinder';
 

@@ -1,13 +1,13 @@
 import { Head } from '@inertiajs/react';
 import { Pencil, Plus, Trash2 } from 'lucide-react';
 import DesignationController from '@/actions/App/Http/Controllers/Admin/DesignationController';
-import ColumnFilterRow from '@/components/admin/column-filter-row';
-import ConfirmActionDialog from '@/components/admin/confirm-action-dialog';
 import DesignationFormDialog from '@/components/admin/designation-form-dialog';
-import ListToolbar from '@/components/admin/list-toolbar';
-import Pagination from '@/components/admin/pagination';
-import SortableHeader, { nextSort } from '@/components/admin/sortable-header';
 import Heading from '@/components/heading';
+import ColumnFilterRow from '@/components/shared/column-filter-row';
+import ConfirmActionDialog from '@/components/shared/confirm-action-dialog';
+import ListToolbar from '@/components/shared/list-toolbar';
+import Pagination from '@/components/shared/pagination';
+import SortableHeader, { nextSort } from '@/components/shared/sortable-header';
 import { Button } from '@/components/ui/button';
 import { useCan } from '@/hooks/use-can';
 import { useListFilters } from '@/hooks/use-list-filters';

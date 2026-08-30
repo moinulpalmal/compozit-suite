@@ -1,5 +1,13 @@
+import type { ListFilters } from '@/types/ui';
+
 /**
  * Admin module types — RBAC surfaces. Re-exported from `@/types`.
+ *
+ * The list apparatus's own types — `ListFilters`, `Filterable`, `FilterMatch`,
+ * `Paginated`, `StatusOption` — used to live here, and moved to `types/ui.ts`
+ * when the apparatus itself moved to `components/shared/` (ARCHITECTURE.md
+ * §6.5). They describe a mechanism, not an Admin surface. Nothing outside
+ * `types/` imported them by path, so `@/types` consumers saw no change.
  */
 
 export type PermissionOption = {
@@ -43,12 +51,6 @@ export type PermissionDetail = {
 
 /** A gender option as `Gender::options()` serialises it. */
 export type GenderOption = {
-    value: string;
-    label: string;
-};
-
-/** A status option as `RecordStatus::options()` serialises it. */
-export type StatusOption = {
     value: string;
     label: string;
 };
@@ -146,35 +148,6 @@ export type UserListItem = {
     buyers?: BuyerOption[];
 };
 
-/**
- * How one column's filter cell matches, mirroring `App\Enums\FilterType`.
- *
- * `contains` finds mid-string and cannot use an index; `prefix` is indexable and
- * is why "868" does not find employee 15868. The page shows the difference in
- * each cell's placeholder rather than leaving people to guess.
- */
-export type FilterMatch = 'contains' | 'prefix' | 'equals' | 'scope';
-
-/** A model's `FILTERABLE` map, as the controller ships it. */
-export type Filterable = Record<string, FilterMatch>;
-
-/**
- * The query state every Admin list screen carries, as `ListRequest::filters()`
- * serialises it. Surface-specific keys extend this.
- */
-export type ListFilters = {
-    /** Allow-listed column name; anything else is rejected server-side. */
-    sort: string;
-    direction: 'asc' | 'desc';
-    /** One of `perPageOptions`; anything else is rejected server-side. */
-    per_page: number;
-    /**
-     * The filter row's values, keyed by column. Every filterable column is
-     * present, blank when unfiltered, so the row renders from this alone.
-     */
-    filter: Record<string, string>;
-};
-
 export type UserFilters = ListFilters & {
     /**
      * Which record set is listed. Not a column filter — it chooses between the
@@ -191,17 +164,3 @@ export type BuyerFilters = ListFilters;
 export type RoleFilters = ListFilters;
 
 export type PermissionFilters = ListFilters;
-
-/** One page of a Laravel paginator, as Inertia serialises it. */
-export type Paginated<T> = {
-    data: T[];
-    current_page: number;
-    last_page: number;
-    per_page: number;
-    from: number | null;
-    to: number | null;
-    total: number;
-    links: { url: string | null; label: string; active: boolean }[];
-    prev_page_url: string | null;
-    next_page_url: string | null;
-};

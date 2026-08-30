@@ -9,16 +9,16 @@ import {
     Trash2,
 } from 'lucide-react';
 import UserController from '@/actions/App/Http/Controllers/Admin/UserController';
-import ColumnFilterRow from '@/components/admin/column-filter-row';
-import ConfirmActionDialog from '@/components/admin/confirm-action-dialog';
-import ListToolbar from '@/components/admin/list-toolbar';
-import Pagination from '@/components/admin/pagination';
-import SortableHeader, { nextSort } from '@/components/admin/sortable-header';
 import UserBuyerAccessDialog from '@/components/admin/user-buyer-access-dialog';
 import UserFormDialog from '@/components/admin/user-form-dialog';
 import UserPasswordDialog from '@/components/admin/user-password-dialog';
 import UserRoleDialog from '@/components/admin/user-role-dialog';
 import Heading from '@/components/heading';
+import ColumnFilterRow from '@/components/shared/column-filter-row';
+import ConfirmActionDialog from '@/components/shared/confirm-action-dialog';
+import ListToolbar from '@/components/shared/list-toolbar';
+import Pagination from '@/components/shared/pagination';
+import SortableHeader, { nextSort } from '@/components/shared/sortable-header';
 import { Button } from '@/components/ui/button';
 import { useCan } from '@/hooks/use-can';
 import { useListFilters } from '@/hooks/use-list-filters';

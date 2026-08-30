@@ -7,9 +7,10 @@ import type { ListFilters } from '@/types';
  * allow-listed by the server.
  *
  * Extracted from `pages/admin/users/index.tsx` when every Admin list became
- * sortable — see ARCHITECTURE.md §8.6. It stays in `components/admin/` rather
- * than moving to `shared/`: §6.5's promotion rule triggers on a second *module*
- * importing it, not a second surface.
+ * sortable — see ARCHITECTURE.md §8.6. It stayed in `components/admin/` while
+ * only Admin surfaces used it, because §6.5's promotion rule triggers on a
+ * second *module* importing it and not on a second surface; Settings
+ * master-data was that second module.
  */
 export default function SortableHeader({
     column,
