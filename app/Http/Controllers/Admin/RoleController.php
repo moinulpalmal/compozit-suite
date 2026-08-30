@@ -112,16 +112,17 @@ class RoleController extends Controller
 
     /**
      * Delete the given role.
+     *
+     * The two refusals are different severities. A role still held by users is a
+     * *warning* — the actor can reassign them and try again. The super-admin role
+     * is an *error*: no amount of work by the actor makes it deletable.
      */
     public function destroy(Role $role): RedirectResponse
     {
         if (! $this->roles->isDeletable($role)) {
-            Inertia::flash('toast', [
-                'type' => 'error',
-                'message' => $role->isSuperAdmin()
-                    ? __('The super-admin role cannot be deleted.')
-                    : __('This role is still assigned to users.'),
-            ]);
+            Inertia::flash('toast', $role->isSuperAdmin()
+                ? ['type' => 'error', 'message' => __('The super-admin role cannot be deleted.')]
+                : ['type' => 'warning', 'message' => __('This role is still assigned to users.')]);
 
             return back();
         }

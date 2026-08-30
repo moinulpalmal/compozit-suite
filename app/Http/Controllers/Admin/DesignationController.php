@@ -102,15 +102,20 @@ class DesignationController extends Controller
      * Delete the given designation.
      *
      * Refused while anybody holds it. That refusal is a fact about the record,
-     * not about the actor, so it surfaces as an error toast rather than a 403 —
-     * the same shape as `UserController::refuse()`.
+     * not about the actor, so it surfaces as a toast rather than a 403 — the
+     * same shape as `UserController::refuse()`.
+     *
+     * It is a *warning*, not an error: nothing is broken and the actor can clear
+     * the blocker themselves by reassigning the holders. `UserController` keeps
+     * `error` because its refusals — the last super admin, your own account —
+     * are rules no reassignment lifts.
      */
     public function destroy(Designation $designation): RedirectResponse
     {
         $blocker = $this->designations->deletionBlocker($designation);
 
         if ($blocker !== null) {
-            Inertia::flash('toast', ['type' => 'error', 'message' => $blocker]);
+            Inertia::flash('toast', ['type' => 'warning', 'message' => $blocker]);
 
             return back();
         }

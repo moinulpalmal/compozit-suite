@@ -147,8 +147,10 @@ test('a designation nobody holds is deleted', function () {
 
     $designation = Designation::factory()->create();
 
-    $this->delete(route('admin.designations.destroy', $designation))
+    $response = $this->delete(route('admin.designations.destroy', $designation))
         ->assertSessionHasNoErrors();
+
+    assertToast($response, 'success');
 
     expect(Designation::query()->whereKey($designation->id)->exists())->toBeFalse();
 });
@@ -159,8 +161,11 @@ test('a designation a user holds is not deleted', function () {
     $designation = Designation::factory()->create();
     $holder = User::factory()->create(['designation_id' => $designation->id]);
 
-    $this->from(route('admin.designations.index'))
+    $response = $this->from(route('admin.designations.index'))
         ->delete(route('admin.designations.destroy', $designation));
+
+    // A warning, not an error: reassigning the holder clears the refusal.
+    assertToast($response, 'warning');
 
     expect(Designation::query()->whereKey($designation->id)->exists())->toBeTrue()
         ->and($holder->refresh()->designation_id)->toBe($designation->id);

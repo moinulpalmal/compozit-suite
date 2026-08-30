@@ -104,11 +104,29 @@ test('a role still assigned to a user is kept', function () {
     $role = Role::findOrCreate('merchandiser', 'web');
     User::factory()->create()->assignRole($role);
 
-    $this->from(route('admin.roles.index'))
+    $response = $this->from(route('admin.roles.index'))
         ->delete(route('admin.roles.destroy', $role))
         ->assertRedirect(route('admin.roles.index'));
 
+    // Reassigning the holders clears this one, so it is a warning.
+    assertToast($response, 'warning');
+
     expect(Role::whereName('merchandiser')->exists())->toBeTrue();
+});
+
+test('the super-admin role reports an error rather than a warning', function () {
+    $this->actingAs(userWithPermissions('admin.roles.delete'));
+
+    $role = Role::findOrCreate(Role::SUPER_ADMIN, 'web');
+
+    // Nothing the actor can do makes this role deletable, which is what
+    // separates it from a role that merely still has holders.
+    $response = $this->from(route('admin.roles.index'))
+        ->delete(route('admin.roles.destroy', $role));
+
+    assertToast($response, 'error');
+
+    expect(Role::whereName(Role::SUPER_ADMIN)->exists())->toBeTrue();
 });
 
 test('the delete permission does not grant the update permission', function () {

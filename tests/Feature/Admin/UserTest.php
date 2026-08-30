@@ -408,9 +408,13 @@ test('the last super admin cannot be deleted', function () {
     $actor = userWithPermissions('admin.users.delete');
     $target = superAdmin();
 
-    $this->actingAs($actor)
+    $response = $this->actingAs($actor)
         ->from(route('admin.users.index'))
         ->delete(route('admin.users.destroy', $target));
+
+    // An error, not a warning: unlike a designation with holders, there is no
+    // action the actor can take that would make this delete succeed.
+    assertToast($response, 'error');
 
     $this->assertNotSoftDeleted($target);
 });

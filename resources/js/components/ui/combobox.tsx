@@ -32,6 +32,14 @@ import { cn } from '@/lib/utils';
  *    one constant, no per-call-site judgement.
  * 3. **`searchUrl` is opt-in.** Without it every option is filtered in the
  *    browser, which is right until a list outgrows being shipped whole.
+ * 4. **`InputClick` is suppressed, in both variants.** downshift's own reducer
+ *    treats a click on the input as `isOpen: !isOpen`, which is right when the
+ *    input *is* the control and wrong here, where it lives inside the open menu:
+ *    clicking the search box to type in it closed the menu. Every `useCombobox`
+ *    below therefore needs a `stateReducer` holding `isOpen` steady for that one
+ *    action type. Clicking the toggle button still closes the menu, and outside
+ *    click and Escape still dismiss it — a menu holds no typed work, so it is
+ *    deliberately not covered by the modal rule in `dialog.tsx`.
  */
 
 /** Below this many options, no search input is rendered. */
@@ -155,6 +163,10 @@ function SingleCombobox({
 
             onChange?.(next);
         },
+        stateReducer: (state, { changes, type }) =>
+            type === useCombobox.stateChangeTypes.InputClick
+                ? { ...changes, isOpen: state.isOpen }
+                : changes,
     });
 
     const { anchorRef, menuRef } = useAnchoredMenu(isOpen);
@@ -320,11 +332,16 @@ function MultiCombobox({
 
             commit([...selectedValues, selectedItem.value]);
         },
-        stateReducer: (_state, { changes, type }) =>
-            type === useCombobox.stateChangeTypes.ItemClick ||
-            type === useCombobox.stateChangeTypes.InputKeyDownEnter
+        stateReducer: (state, { changes, type }) => {
+            if (type === useCombobox.stateChangeTypes.InputClick) {
+                return { ...changes, isOpen: state.isOpen };
+            }
+
+            return type === useCombobox.stateChangeTypes.ItemClick ||
+                type === useCombobox.stateChangeTypes.InputKeyDownEnter
                 ? { ...changes, isOpen: true, inputValue: '' }
-                : changes,
+                : changes;
+        },
     });
 
     const { anchorRef, menuRef } = useAnchoredMenu(isOpen);

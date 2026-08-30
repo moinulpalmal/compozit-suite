@@ -581,6 +581,62 @@ belongs to no module — a deliberate exception to [§6.1](#61-backend-classes).
 The contract is tested once for every surface in `tests/Feature/Admin/ListBehaviourTest.php`. **Add
 a new list to its `surfaces()` dataset** and it inherits the whole set.
 
+### 8.7 Modals never light-dismiss; menus always do
+
+**A dialog closes only when the user says so.** `components/ui/dialog.tsx` refuses both of the
+browser's escape routes: there is no `.modal-backdrop` form, so clicking outside does nothing, and
+`cancel` is `preventDefault()`ed, so Escape does nothing. Every dialog in this application holds
+typed work or a destructive confirmation, and a stray click outside one was discarding it.
+
+- **Escape is refused twice, not forever.** Chrome's close watcher permits a page to cancel only a
+  short run of close requests before forcing one through: the first two Escapes do nothing, the
+  third closes the panel, and a click inside the panel does not reset the count. This was measured
+  in the browser, not assumed, and no script can disable it — it is Chrome guaranteeing that a user
+  is never trapped. What the rule buys is that a single reflexive Escape no longer discards a form.
+- **The close button is not optional.** With both dismissal paths gone it is the only way out, so
+  `showCloseButton` no longer exists — `DialogContent` always renders it. `sidebar.tsx` used to
+  pass `showCloseButton={false}` for the mobile drawer; under this rule that would have been a
+  trap with no exit, and it now shows the X like everything else.
+- **`Sheet` inherits it**, being the same primitive with a different placement. The mobile
+  navigation drawer therefore closes by its X, not by tapping the page behind it.
+- **Menus are the opposite case and keep light dismiss.** `dropdown-menu.tsx` keeps
+  `popover="auto"` — the browser's dismissal *and* its focus restoration — and `combobox.tsx`
+  keeps downshift's outside-click and Escape handling. A menu holds no work, so there is nothing
+  to protect and a user who opens one by accident must be able to leave. Do not extend the modal
+  rule to them.
+- `.modal-box` is `position: static` in daisyUI, so `DialogContent` adds `relative`; without it
+  the close button anchors to `.modal` (`position: fixed; inset: 0`) and lands in the viewport
+  corner rather than the panel's.
+
+One trap worth knowing in `combobox.tsx`: downshift's reducer treats a click on its input as
+`isOpen: !isOpen`, which closed the menu when the user clicked the search box *inside* it. Every
+`useCombobox` there needs a `stateReducer` holding `isOpen` steady for `InputClick`.
+
+### 8.8 Toasts carry severity, and they wait
+
+Every outcome message is `Inertia::flash('toast', ['type' => …, 'message' => …])`, rendered by
+`components/ui/sonner.tsx` through `hooks/use-flash-toast.ts`. There is no other notification
+surface.
+
+- **The four types mean something.** `success` — it worked. `warning` — refused because another
+  record's state blocks it and **the actor can clear that themselves**, e.g. a designation still
+  held by users (`DesignationController::destroy`) or a role still assigned to some
+  (`RoleController::destroy`). `error` — refused by a rule no amount of work lifts, e.g. the last
+  super admin or your own account (`UserController::refuse()`), and the super-admin role. `info` —
+  something happened that the user did not ask for.
+- **Colour comes from daisyUI, not from sonner.** `richColors` is on, but every one of its
+  `--{type}-bg/-text/-border` variables is overridden with daisyUI's `alert-soft` `color-mix`
+  formula, so a toast and an inline `<Alert>` are the same colour and both follow the theme into
+  dark mode. Enabling `richColors` alone ships a second palette.
+- **Nothing auto-dismisses.** `duration: Infinity` with `closeButton`, matching
+  [§8.7](#87-modals-never-light-dismiss-menus-always-do) — a message is closed by the person who
+  read it.
+- `error` messages are wrapped in `role="alert"` so they interrupt; everything else is
+  `role="status"`. sonner announces through one polite live region, and this is the only lever it
+  exposes.
+- **Severity is asserted, not assumed.** `assertToast($response, 'warning')` in `tests/Pest.php`
+  reaches into the `inertia.flash_data` session key; use it on both sides of every guard.
+
 ---
 
 ## 9. Cross-cutting concerns

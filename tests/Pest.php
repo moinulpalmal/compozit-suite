@@ -4,6 +4,7 @@ use App\Models\Admin\Permission;
 use App\Models\Admin\Role;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Testing\TestResponse;
 use Spatie\Permission\PermissionRegistrar;
 use Tests\TestCase;
 
@@ -72,6 +73,19 @@ function userWithPermissions(string ...$permissions): User
     app(PermissionRegistrar::class)->forgetCachedPermissions();
 
     return $user;
+}
+
+/**
+ * Assert the response flashed a toast of the given severity.
+ *
+ * `Inertia::flash()` writes everything under one session key, so the assertion
+ * reaches into it rather than looking for a `toast` key of its own. Severity is
+ * what the user sees — a colour and, for `error`, an assertive announcement — so
+ * it is asserted rather than left to the controller.
+ */
+function assertToast(TestResponse $response, string $type): TestResponse
+{
+    return $response->assertSessionHas('inertia.flash_data.toast.type', $type);
 }
 
 /**

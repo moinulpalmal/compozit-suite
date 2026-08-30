@@ -217,8 +217,13 @@ class UserController extends Controller
      * Flash a refusal and send the user back to the page they came from.
      *
      * Guard failures are not validation errors — they depend on who is asking
-     * and on the target's current state, so they surface as an error toast the
-     * same way `RoleController::destroy` reports an undeletable role.
+     * and on the target's current state, so they surface as a toast rather than
+     * a 403.
+     *
+     * They stay `error` rather than `warning`: every blocker here — your own
+     * account, the last super admin — is a rule the actor cannot work around,
+     * unlike `DesignationController::destroy`, where reassigning the holders
+     * clears the refusal.
      */
     protected function refuse(string $message): RedirectResponse
     {
