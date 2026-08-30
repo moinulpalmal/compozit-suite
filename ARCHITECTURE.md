@@ -946,7 +946,8 @@ on it automatically.
 
 The end-to-end path, in order:
 
-1. **Migration** — `php artisan make:migration create_tech_packs_table` (stays flat).
+1. **Migration** — `php artisan make:migration create_tech_packs_table` (stays flat), then
+   **`php artisan migrate`**. Writing it is not running it — see the warning below.
 2. **Model** — `php artisan make:model Merchandising/TechPack -f` (`-f` puts the factory in
    `database/factories/Merchandising/` automatically).
 3. **Policy** — `php artisan make:policy Merchandising/TechPackPolicy --model=Merchandising/TechPack`.
@@ -965,6 +966,28 @@ The end-to-end path, in order:
 12. **Update this file** if the change was structural.
 
 Pass `--no-interaction` to every `make:` command.
+
+### A green suite does not mean the feature runs
+
+**Step 1's `php artisan migrate` is the one step the test suite cannot remind you about**, and
+forgetting it produces the most misleading failure in this project.
+
+Tests run against in-memory SQLite and `RefreshDatabase` builds the schema from the migration files
+on every run, so a brand-new table exists in every test whether or not it exists in MySQL.
+Development runs against MySQL ([§2](#2-stack)), where it exists only once someone has migrated. The
+result: the full suite passes, `types:check` passes, the build passes — and the first browser request
+dies with `SQLSTATE[42S02]: Base table or view not found`. Nothing in the automated gate can catch
+it, because every part of that gate builds its own schema.
+
+Two habits close it:
+
+- Run `php artisan migrate` in the same breath as writing the migration, not at the end.
+- Treat `php artisan migrate:status` as part of finishing a feature that added a table. One line of
+  output tells you whether the thing you just tested actually exists where the app will look for it.
+
+This is also the reason a feature is not "verified" until it has been opened in a browser — the same
+point [§13.1](#131-never-run-the-suite-with-a-cached-config--and-it-can-no-longer-happen) makes about
+form controls, arriving from a different direction.
 
 ---
 
@@ -1027,6 +1050,12 @@ Do not append a contradicting note that leaves both readings live.
 ```bash
 # Run everything (server :8000 + queue + vite) — the app is only live while this runs
 composer run dev
+
+# Migrations — against the MySQL development database. The suite never runs these
+# for you; it builds its own SQLite schema (see §10).
+php artisan migrate
+php artisan migrate:status
+php artisan db:table tech_packs          # confirm what actually landed on MySQL
 
 # Tests
 php artisan test --compact
