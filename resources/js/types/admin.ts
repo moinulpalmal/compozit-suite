@@ -85,6 +85,26 @@ export type DesignationFilterOption = {
     label: string;
 };
 
+export type BuyerListItem = {
+    id: number;
+    name: string;
+    code: string | null;
+    /** `'A'` active, `'I'` retired from the pickers. Not a soft delete. */
+    status: string;
+    /**
+     * Users granted this buyer explicitly. **Not** the number of people who can
+     * see it: anyone with `all_buyer_access` has no pivot row and sees it anyway.
+     */
+    users_count: number;
+};
+
+/** A buyer as the access picker renders it — `hint` is the code. */
+export type BuyerOption = {
+    value: number;
+    label: string;
+    hint: string | null;
+};
+
 /** A module segment, as the permission list's filter renders it. */
 export type ModuleOption = {
     value: string;
@@ -115,6 +135,15 @@ export type UserListItem = {
     /** The signed-in user's own row — several actions are refused on it. */
     is_self: boolean;
     is_last_super_admin: boolean;
+    /**
+     * Present only when the viewer holds `admin.buyer-access.view` — the
+     * controller does not load the relation otherwise, and a `0` would be a lie
+     * rather than an absence.
+     */
+    all_buyer_access?: boolean;
+    /** Explicit grants. Always 0 when `all_buyer_access` is true — the flag replaces them. */
+    buyers_count?: number;
+    buyers?: BuyerOption[];
 };
 
 /**
@@ -156,6 +185,8 @@ export type UserFilters = ListFilters & {
 };
 
 export type DesignationFilters = ListFilters;
+
+export type BuyerFilters = ListFilters;
 
 export type RoleFilters = ListFilters;
 

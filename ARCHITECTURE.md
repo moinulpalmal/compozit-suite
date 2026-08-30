@@ -39,7 +39,9 @@ database, five functional modules plus a dashboard.
 | Format | Pint (PHP), Prettier + ESLint (TS) | | |
 
 Database: **MySQL** (`compozitsuite` on `127.0.0.1:3306` via Laragon) for local development —
-`.env` sets `DB_CONNECTION=mysql`. Tests run against in-memory SQLite (`phpunit.xml`).
+`.env` sets `DB_CONNECTION=mysql`. Tests run against in-memory SQLite (`phpunit.xml`) — *provided no
+cached config is present*, which is a destructive trap and is now guarded; see
+[§13.1](#131-never-run-the-suite-with-a-cached-config--and-it-can-no-longer-happen).
 
 > This line previously said SQLite at `database/database.sqlite`; the disk disagreed, so the line
 > was wrong. The split matters when writing migrations: InnoDB indexes foreign key columns
@@ -71,6 +73,7 @@ compozit-suite/
 │   │   ├── Middleware/      App-wide middleware
 │   │   └── Requests/        Form requests, grouped by module
 │   ├── Models/              Eloquent models, grouped by module
+│   │   └── Scopes/          Global query scopes — currently `BuyerScope`, see §9.2
 │   ├── Observers/           Model observers — see §9.3
 │   ├── Policies/            Authorization policies, grouped by module
 │   ├── Providers/           Service providers
@@ -188,8 +191,8 @@ dashboard tile needs a query, that query belongs in the owning module's service.
 | --- | --- | --- | --- |
 | a. User management | `Admin\UserController` | `pages/admin/users/` | ✅ |
 | b. RBAC (roles & permissions) | `Admin\RoleController`, `Admin\PermissionController` | `pages/admin/roles/`, `pages/admin/permissions/` | ✅ |
-| c. Buyer-wise user access control | `Admin\BuyerAccessController` | `pages/admin/buyer-access/` | 🟡 |
-| d. Buyer setup & management | `Admin\BuyerController` | `pages/admin/buyers/` | 🟡 |
+| c. Buyer-wise user access control | `Admin\UserController::updateBuyerAccess`, `Admin\BuyerAccessService` | a dialog on `pages/admin/users/` | ✅ |
+| d. Buyer setup & management | `Admin\BuyerController` | `pages/admin/buyers/` | ✅ |
 | e. Audit logging | `Admin\AuditLogController` | `pages/admin/audit-logs/` | 🟡 |
 | f. Designations (HR job titles) | `Admin\DesignationController` | `pages/admin/designations/` | ✅ |
 
@@ -222,6 +225,20 @@ by `Admin\DesignationService::deletionBlocker()` while any user — soft-deleted
 still holds it**. Note the consequence: on this screen *deactivate* and *delete* are two different
 verbs, unlike `users`, where the historical tab is `deleted_at`. The reasoning behind the `status`
 char is in [`documentation/admin.md`](documentation/admin.md).
+
+**Buyers follow the designation shape too** — one page, `pages/admin/buyers/index.tsx`, create/edit/
+delete in modals, retired with `status` rather than soft-deleted. A buyer is the unit
+[§9.2](#92-buyer-scoped-access-control) scopes every buyer-owned row by, so deleting one is refused
+by `Admin\BuyerService::deletionBlocker()` once anything factual references it; access grants are not
+facts and cascade.
+
+**There is no buyer-access page.** Sub-area (c) was planned as `pages/admin/buyer-access/` with its
+own controller; the owner decided a user's buyer access is edited where the user is — a dialog on
+`admin/users`, beside the roles dialog, writing to `admin.users.buyer-access`. Two surfaces editing
+one fact is how they drift, and the per-buyer question ("who can see Zara?") has no screen because
+nothing asked it. `admin.buyer-access.view` gates whether the users list carries buyer data at all;
+`admin.buyer-access.update` gates changing it. If a per-buyer screen is ever wanted, it reuses
+`Admin\BuyerAccessService` rather than growing a second write path.
 
 Every destructive action is confirmed through `components/admin/confirm-action-dialog.tsx` (built on
 the existing `components/ui/dialog.tsx` — a native `<dialog>` styled with daisyUI — not a
@@ -690,9 +707,53 @@ A user is granted access to a set of buyers, and every buyer-owned record must b
 set. This is a **data-scoping** concern that is separate from RBAC: a permission says *what* a user
 may do, buyer scope says *which rows* they may do it to.
 
-The mechanism is not yet chosen. ⬜ Record the decision here when it is made — the candidates are a
-global scope on buyer-owned models, or an explicit query scope applied in services. Whichever is
-chosen must be applied uniformly, because a single unscoped query is a data leak across buyers.
+**The mechanism is a global scope.** The shape:
+
+| Piece | Where |
+| --- | --- |
+| Buyers | `App\Models\Admin\Buyer`, table `buyers` |
+| Per-user grants | `buyer_user`, both keys cascading |
+| The wildcard | `users.all_buyer_access` |
+| The one question | `App\Models\User::seesAllBuyers()` |
+| The scope | `App\Models\Scopes\BuyerScope` |
+| Opting a model in | `use App\Concerns\BuyerScoped;` — that is the whole registration |
+| Editing access | `Admin\BuyerAccessService`, from the users screen |
+
+Rules, each of which is a decision rather than an accident:
+
+- **A model opts in with one `use`, and the scope is then unavoidable.** The alternative — an
+  explicit `->visibleTo($user)` in each service — was rejected because forgetting it once is a
+  cross-buyer data leak that no test would fail on. Escape it deliberately with
+  `->withoutBuyerScope()`, which reads as the exception it is.
+- **The column is `buyer_id`, on the buyer-owned table itself.** A model that reaches its buyer
+  through a parent cannot use this scope as written; give it its own `buyer_id` rather than teaching
+  the scope to join.
+- **"All buyer access" is a flag, never materialised rows.** A user carrying it has *no* `buyer_user`
+  rows and needs none, so a buyer created a second from now is visible with nothing to synchronise.
+  Copying each new buyer into a row per all-access user — the original request — was rejected: it
+  makes revocation lossy, since a row granted by the wildcard is indistinguishable from one granted
+  deliberately; it needs a second job for the symmetric case (a user newly granted the wildcard); and
+  its failure mode is silent invisibility that reads as a permissions bug. `BuyerAccessService::assign()`
+  clears the pivot when the flag goes on, so the two representations can never disagree.
+- **A super admin is exempt through the same method.** `seesAllBuyers()` is the flag *or*
+  `Role::SUPER_ADMIN` — `Gate::before` grants abilities and does nothing for row scoping, so without
+  this a newly promoted super admin would see an empty application. This is the [§9.1](#91-rbac-roles--permissions)
+  exception that permits naming the role.
+- **With no authenticated actor the scope does not filter.** Seeders, queue jobs, the scheduler and
+  console commands are system context; failing closed there would make them silently no-op, and every
+  web path is behind `auth` already. **This is deliberate and pinned by a test** — do not "fix" it.
+- **`status` is not in the scope.** Deactivating a buyer retires it from the pickers; its orders stay
+  visible, per [§9.3.1](#931-activeinactive-status).
+- **Zero buyers is a valid state** — a new hire pending assignment. Buyer-scoped lists render
+  `components/shared/no-buyer-access.tsx` rather than an empty table, so "no access" never reads as
+  "no data".
+- **The id list is memoised on the `User` instance.** A global scope runs on *every* query; a fresh
+  `buyer_user` round trip per query is not affordable.
+
+The scope ships with no buyer-owned models — `purchase_orders`, `tech_packs` and the rest do not
+exist yet — so it is proven against a throwaway model declared inside
+`tests/Feature/Admin/BuyerScopeTest.php`. The first real buyer-owned table adds `use BuyerScoped;`
+and inherits tested behaviour.
 
 ### 9.3 Audit logging
 
@@ -733,7 +794,9 @@ When the full audit-log mechanism is chosen, it belongs here alongside this.
   have both.
 - **Do not add a second boolean active flag.** `users.approved` was one, and was migrated to
   `users.status` when this became the convention. A boolean like `approval_authority` is fine when it
-  means something else — that one is a *power* flag, not an active flag.
+  means something else — that one is a *power* flag, not an active flag. `users.all_buyer_access`
+  ([§9.2](#92-buyer-scoped-access-control)) is the second power flag and follows the same reasoning:
+  it widens what its holder may see, and says nothing about whether the account is live.
 
 ### 9.4 Master data
 
@@ -889,6 +952,39 @@ php artisan wayfinder:generate
 Local URL is **http://localhost:8000** (port 8080 is the Laragon landing page, not this app).
 PHP is not on the bash `PATH`; invoke it via
 `D:\Projects\laragon\bin\php\php-8.4.12-nts-Win32-vs17-x64\php.exe` or use PowerShell.
+
+### 13.1 Never run the suite with a cached config — and it can no longer happen
+
+`bootstrap/cache/config.php` is not merely stale in a test run, it is **destructive**.
+`LoadConfiguration` short-circuits on it and never builds config from the environment, so every
+`<env>` entry in `phpunit.xml` becomes inert — `DB_CONNECTION=sqlite` and `DB_DATABASE=:memory:`
+included. `RefreshDatabase` then runs `migrate:fresh` against whatever the cache names, which here
+is the **MySQL development database**. This has happened: every table in `compozitsuite` was dropped,
+twice, silently.
+
+The same file bakes `app.env => local`, so `$app->runningUnitTests()` is false and
+`PreventRequestForgery` answers every non-GET request with **419**. That is what the failure looks
+like from the outside — dozens of unrelated auth, settings and admin tests failing on a status code
+— and it looks like anything but a caching problem. Recognise it by the 419s.
+
+Two guards now close it, and neither is optional:
+
+| Guard | Where | Does |
+| --- | --- | --- |
+| Removes the hazard | `tests/Pest.php`, above `pest()->extend()` | Deletes `bootstrap/cache/{config.php,routes-v7.php}` before the framework boots, and says so on STDERR |
+| Refuses a real database | `Tests\TestCase::createApplication()` | Throws unless the connection is `sqlite` / `:memory:`, from a hook that runs **before** `setUpTraits()` boots `RefreshDatabase` |
+
+Deleting rather than refusing is deliberate: a cached config is invalid for a test run by definition
+— `composer.json`'s `test` script has always begun with `config:clear` — so there is nothing to
+preserve. What was missing is that **`php artisan test`, the command this file and `CLAUDE.md` tell
+everyone to run, had no such protection**; the guard puts it on every entry point instead of one.
+
+⬜ **No DOM-level test harness exists.** A `<Combobox multiple name="buyers[]">` shipped emitting
+`buyers[][]`, which no submit could have survived, while the feature tests stayed green because they
+post arrays straight to the controller. It was caught by driving a browser by hand. Adding
+`pestphp/pest-plugin-browser` would close the gap and is a dependency decision the owner has not yet
+made; until then, **a change to a form control is not proven by the PHP suite** and needs a manual
+pass.
 
 ---
 

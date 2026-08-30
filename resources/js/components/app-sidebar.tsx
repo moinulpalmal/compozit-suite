@@ -4,6 +4,7 @@ import {
     KeyRound,
     LayoutGrid,
     ShieldCheck,
+    Store,
     Users,
 } from 'lucide-react';
 import AppLogo from '@/components/app-logo';
@@ -20,6 +21,7 @@ import {
 } from '@/components/ui/sidebar';
 import { useCan } from '@/hooks/use-can';
 import { dashboard } from '@/routes';
+import { index as buyersIndex } from '@/routes/admin/buyers';
 import { index as designationsIndex } from '@/routes/admin/designations';
 import { index as permissionsIndex } from '@/routes/admin/permissions';
 import { index as rolesIndex } from '@/routes/admin/roles';
@@ -41,6 +43,7 @@ export function AppSidebar() {
     const canViewRoles = useCan('admin.roles.view');
     const canViewPermissions = useCan('admin.permissions.view');
     const canViewDesignations = useCan('admin.designations.view');
+    const canViewBuyers = useCan('admin.buyers.view');
 
     // Admin surfaces live in their own group, not alongside Platform.
     const adminNavItems: NavItem[] = [
@@ -55,6 +58,9 @@ export function AppSidebar() {
                       icon: BriefcaseBusiness,
                   },
               ]
+            : []),
+        ...(canViewBuyers
+            ? [{ title: 'Buyers', href: buyersIndex(), icon: Store }]
             : []),
         ...(canViewRoles
             ? [{ title: 'Roles', href: rolesIndex(), icon: ShieldCheck }]

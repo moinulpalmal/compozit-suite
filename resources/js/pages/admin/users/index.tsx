@@ -5,6 +5,7 @@ import {
     Plus,
     RotateCcw,
     ShieldCheck,
+    Store,
     Trash2,
 } from 'lucide-react';
 import UserController from '@/actions/App/Http/Controllers/Admin/UserController';
@@ -13,6 +14,7 @@ import ConfirmActionDialog from '@/components/admin/confirm-action-dialog';
 import ListToolbar from '@/components/admin/list-toolbar';
 import Pagination from '@/components/admin/pagination';
 import SortableHeader, { nextSort } from '@/components/admin/sortable-header';
+import UserBuyerAccessDialog from '@/components/admin/user-buyer-access-dialog';
 import UserFormDialog from '@/components/admin/user-form-dialog';
 import UserPasswordDialog from '@/components/admin/user-password-dialog';
 import UserRoleDialog from '@/components/admin/user-role-dialog';
@@ -69,6 +71,10 @@ export default function UsersIndex({
     const canForceDelete = useCan('admin.users.force-delete');
     const canResetPassword = useCan('admin.users.reset-password');
     const canAssignRoles = useCan('admin.users.assign-roles');
+    // The controller ships buyer data on the same permission; without it the
+    // column would render zeroes for everybody.
+    const canViewBuyerAccess = useCan('admin.buyer-access.view');
+    const canAssignBuyers = useCan('admin.buyer-access.update');
 
     const isHistorical = filters.view === 'trashed';
 
@@ -178,6 +184,14 @@ export default function UsersIndex({
                                     Contact
                                 </th>
                                 <th>Roles</th>
+                                {/* Not sortable and not filterable: it is a
+                                    `withCount` aggregate over a pivot, and the
+                                    all-access flag is not a column of it. */}
+                                {canViewBuyerAccess && (
+                                    <th className="hidden lg:table-cell">
+                                        Buyers
+                                    </th>
+                                )}
                                 <th>{isHistorical ? 'Deleted' : 'Status'}</th>
                                 {/* Eight columns plus four action buttons
                                     overflow a laptop viewport; the least
@@ -188,7 +202,7 @@ export default function UsersIndex({
                                 >
                                     Added
                                 </SortableHeader>
-                                <th className="w-40" />
+                                <th className="w-48" />
                             </tr>
 
                             <ColumnFilterRow
@@ -269,6 +283,15 @@ export default function UsersIndex({
                                         ],
                                     },
                                     { type: 'none' },
+                                    ...(canViewBuyerAccess
+                                        ? [
+                                              {
+                                                  type: 'none' as const,
+                                                  className:
+                                                      'hidden lg:table-cell',
+                                              },
+                                          ]
+                                        : []),
                                     /* The column itself becomes "Deleted" on
                                        the historical tab, where a status filter
                                        would sit under a heading it does not
@@ -297,7 +320,7 @@ export default function UsersIndex({
                             {users.data.length === 0 && (
                                 <tr>
                                     <td
-                                        colSpan={8}
+                                        colSpan={canViewBuyerAccess ? 9 : 8}
                                         className="text-center text-base-content/60"
                                     >
                                         {isHistorical
@@ -363,6 +386,31 @@ export default function UsersIndex({
                                             ))}
                                         </div>
                                     </td>
+
+                                    {canViewBuyerAccess && (
+                                        <td className="hidden lg:table-cell">
+                                            {user.all_buyer_access ? (
+                                                <span
+                                                    className="badge badge-sm badge-info"
+                                                    title="Every buyer, including ones added later"
+                                                >
+                                                    All
+                                                </span>
+                                            ) : (user.buyers_count ?? 0) ===
+                                              0 ? (
+                                                <span
+                                                    className="text-xs text-base-content/50"
+                                                    title="Sees no buyer-owned records at all"
+                                                >
+                                                    — none —
+                                                </span>
+                                            ) : (
+                                                <span className="text-xs text-base-content/70">
+                                                    {user.buyers_count}
+                                                </span>
+                                            )}
+                                        </td>
+                                    )}
 
                                     <td>
                                         {isHistorical ? (
@@ -488,6 +536,28 @@ export default function UsersIndex({
                                                             </Button>
                                                         </UserRoleDialog>
                                                     )}
+
+                                                    {canAssignBuyers &&
+                                                        canViewBuyerAccess && (
+                                                            <UserBuyerAccessDialog
+                                                                submit={UserController.updateBuyerAccess.form(
+                                                                    user.id,
+                                                                )}
+                                                                user={user}
+                                                            >
+                                                                <Button
+                                                                    variant="ghost"
+                                                                    size="icon"
+                                                                    disabled={
+                                                                        user.is_self
+                                                                    }
+                                                                    aria-label={`Buyer access for ${user.name}`}
+                                                                    data-test="user-buyer-access"
+                                                                >
+                                                                    <Store />
+                                                                </Button>
+                                                            </UserBuyerAccessDialog>
+                                                        )}
 
                                                     {canResetPassword && (
                                                         <UserPasswordDialog

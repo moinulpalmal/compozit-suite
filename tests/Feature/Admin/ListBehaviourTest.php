@@ -2,6 +2,7 @@
 
 use App\Enums\RecordStatus;
 use App\Http\Requests\ListRequest;
+use App\Models\Admin\Buyer;
 use App\Models\Admin\Designation;
 use App\Models\Admin\Permission;
 use App\Models\Admin\Role;
@@ -53,6 +54,13 @@ function surfaces(): array
             'admin.designations.view',
             fn (int $count) => Designation::factory()->count($count)->create(),
             fn (string $name) => Designation::factory()->create(['name' => $name]),
+        ],
+        'buyers' => [
+            'admin.buyers.index',
+            'buyers',
+            'admin.buyers.view',
+            fn (int $count) => Buyer::factory()->count($count)->create(),
+            fn (string $name) => Buyer::factory()->create(['name' => $name]),
         ],
         'roles' => [
             'admin.roles.index',

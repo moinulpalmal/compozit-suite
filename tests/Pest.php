@@ -10,6 +10,55 @@ use Tests\TestCase;
 
 /*
 |--------------------------------------------------------------------------
+| Cached bootstrap artifacts are removed before anything boots
+|--------------------------------------------------------------------------
+|
+| A cached config is not merely unhelpful here, it is destructive.
+| `LoadConfiguration` short-circuits on `bootstrap/cache/config.php` and never
+| builds config from the environment, so **every `<env>` entry in `phpunit.xml`
+| becomes inert** — `DB_CONNECTION=sqlite` and `DB_DATABASE=:memory:` included.
+| `RefreshDatabase` then runs `migrate:fresh` against whatever the cache names,
+| which in this project is the MySQL development database. It has happened: every
+| table in `compozitsuite` was dropped, twice, with no warning.
+|
+| The same file bakes `app.env => local`, so `$app->runningUnitTests()` is false
+| and `PreventRequestForgery` answers every non-GET request with 419 — which is
+| what the failure looks like from the outside, and it looks like anything but a
+| caching problem.
+|
+| The route cache is removed for the same reason: `optimize` writes both, and
+| cached routes hide newly added ones from the suite.
+|
+| Deleting rather than refusing is deliberate: a cached config is invalid for a
+| test run *by definition* — `composer.json`'s `test` script already begins with
+| `config:clear` — so there is nothing to preserve and no reason to block the
+| run. `TestCase::createApplication()` is the backstop if this ever misses one.
+|
+*/
+
+$cachedArtifacts = [
+    'config' => $_ENV['APP_CONFIG_CACHE'] ?? __DIR__.'/../bootstrap/cache/config.php',
+    'route' => __DIR__.'/../bootstrap/cache/routes-v7.php',
+];
+
+foreach ($cachedArtifacts as $kind => $cachedPath) {
+    if (! is_file($cachedPath)) {
+        continue;
+    }
+
+    unlink($cachedPath);
+
+    // STDERR, so the notice never lands in `--compact`'s JSON on stdout.
+    fwrite(STDERR, sprintf(
+        '[tests] Removed a cached %s file (%s). It would have made phpunit.xml inert.%s',
+        $kind,
+        basename($cachedPath),
+        PHP_EOL,
+    ));
+}
+
+/*
+|--------------------------------------------------------------------------
 | Test Case
 |--------------------------------------------------------------------------
 |

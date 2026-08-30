@@ -14,8 +14,8 @@
 | --- | --- | --- | --- |
 | a. User management | `Admin\UserController` | `pages/admin/users/index.tsx` | ✅ built |
 | b. RBAC — roles & permissions | `Admin\RoleController`, `Admin\PermissionController` | `pages/admin/{roles,permissions}/` | ✅ built |
-| c. Buyer-wise user access control | `Admin\BuyerAccessController` | `pages/admin/buyer-access/` | 🟡 scaffolded |
-| d. Buyer setup & management | `Admin\BuyerController` | `pages/admin/buyers/` | 🟡 scaffolded |
+| c. Buyer-wise user access control | `Admin\UserController::updateBuyerAccess`, `Admin\BuyerAccessService` | a dialog on `pages/admin/users/index.tsx` | ✅ built |
+| d. Buyer setup & management | `Admin\BuyerController` | `pages/admin/buyers/index.tsx` | ✅ built |
 | e. Audit logging | `Admin\AuditLogController` | `pages/admin/audit-logs/` | 🟡 scaffolded |
 | f. Designations | `Admin\DesignationController` | `pages/admin/designations/index.tsx` | ✅ built |
 
@@ -721,3 +721,74 @@ It sits in the same fieldset and is not the same kind of thing. `status` says wh
 be used; `approval_authority` says what its holder may do. Merging them would conflate "disabled"
 with "cannot approve", which are independent. See
 [§2.2](#22-approval_authority-is-not-wired-to-anything) — it is still wired to nothing.
+
+`users.all_buyer_access` ([§10](#10-buyers-and-buyer-scoped-access)) is the second such flag, and
+unlike `approval_authority` it *is* wired to something: the buyer scope reads it on every query.
+
+---
+
+## 10. Buyers and buyer-scoped access
+
+The mechanism, its rules and the reasoning behind each one live in
+[ARCHITECTURE.md §9.2](../ARCHITECTURE.md#92-buyer-scoped-access-control). This section covers only
+what the *surfaces* do.
+
+### 10.1 The requirement asked for a background job, and it was not built
+
+The original request was: a `buyers` table, per-user buyer access, an "all buyer access" state, and a
+background action that copies each newly created buyer into an access row for every all-access user.
+
+The first three shipped. **The fourth was removed** — deliberately, not by omission:
+
+- **Revocation becomes lossy.** Once the wildcard is materialised, a row it created is
+  indistinguishable from one an administrator chose. Revoking all-access can no longer tell which
+  rows to keep, so it either destroys deliberate grants or leaves rows nobody intended.
+- **It needs a second job to be correct.** New buyer → existing all-access users is only half of it;
+  a user *newly granted* all-access needs the mirror-image backfill, and the two must agree forever.
+- **Its failure mode is invisible.** `QUEUE_CONNECTION=database`, and the worker only runs while
+  `composer run dev` does. A missed job produces a buyer that exists but that nobody can see, which
+  reads as a permissions bug and is diagnosed as one.
+- **It buys nothing.** A flag the scope short-circuits on gives the same visible behaviour with no
+  job, no backfill, no reconciliation and no worker to monitor.
+
+So `users.all_buyer_access` is the grant, `BuyerAccessService::assign()` clears the pivot when it goes
+on, and a buyer created a second from now is visible immediately because nothing had to happen.
+
+### 10.2 The buyers screen
+
+`pages/admin/buyers/index.tsx`, the designation shape: one page, create/edit/delete in modals, no
+Active/Historical tabs. `name` is unique and required; `code` is unique *when present* and optional,
+because rows carried over from the old system arrive without one. `name` filters as `Contains` and
+`code` as `Prefix` — [ARCHITECTURE.md §6.3](../ARCHITECTURE.md#63-migrations) governs which is which.
+
+The **Granted** column counts pivot rows, so it deliberately excludes all-access users, who hold
+none. It is labelled "Granted" rather than "Users" for exactly that reason, and its tooltip says so.
+
+`BuyerService::deletionBlocker()` currently returns `null`: no buyer-owned table exists yet. Access
+rows do **not** block a delete — they cascade, being derived permissions rather than history. Every
+table that records a *fact* about a buyer adds its check there as Merchandising and Production land.
+
+### 10.3 Access is edited on the users screen
+
+There is no buyer-access page. `admin/users` gains a Buyers column (`All` / a count / `— none —`) and
+a dialog beside the roles one, posting to `admin.users.buyer-access`.
+
+- The column and the dialog's data are gated by `admin.buyer-access.view`; the write by
+  `admin.buyer-access.update`. The users list eager-loads `buyers` and `withCount` **only** for
+  viewers holding the former, so the props are absent rather than zero for everyone else — a `0` from
+  a relation that was never loaded is a lie.
+- Two guards, in `BuyerAccessService` rather than a policy for the reason
+  [§2.5](#25-the-four-escalation-guards) already records — `Gate::before` bypasses a policy for
+  exactly the account a privilege guard binds:
+  **you cannot edit your own buyer access**, and **you cannot grant access you do not hold yourself**
+  (neither the wildcard, nor a buyer you cannot see).
+- Ticking **All buyers** disables the picker rather than ignoring it, because the server clears the
+  pivot in that case and a picker that appears to still matter would be lying.
+
+### 10.4 Zero buyers is a valid state
+
+A user with no grants and no flag sees nothing, which is correct for a new hire pending assignment.
+Buyer-scoped lists render `components/shared/no-buyer-access.tsx` — "no buyers assigned, contact an
+administrator" — instead of an empty table, so "you have no access" never reads as "there is no
+data". That component exists before its first consumer on purpose: the alternative is each new list
+inventing its own empty state.

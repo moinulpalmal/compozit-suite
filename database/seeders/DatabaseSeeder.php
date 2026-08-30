@@ -5,6 +5,7 @@ namespace Database\Seeders;
 use App\Models\Admin\Designation;
 use App\Models\Admin\Role;
 use App\Models\User;
+use Database\Seeders\Admin\BuyerSeeder;
 use Database\Seeders\Admin\DesignationSeeder;
 use Database\Seeders\Admin\RolePermissionSeeder;
 use Illuminate\Database\Console\Seeds\WithoutModelEvents;
@@ -21,6 +22,7 @@ class DatabaseSeeder extends Seeder
     {
         $this->call(RolePermissionSeeder::class);
         $this->call(DesignationSeeder::class);
+        $this->call(BuyerSeeder::class);
 
         User::factory()->create([
             'name' => 'Test User',

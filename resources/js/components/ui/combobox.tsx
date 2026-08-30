@@ -106,6 +106,10 @@ function SingleCombobox({
     value,
     defaultValue = null,
     onChange,
+    // Destructured only to keep it out of `rest`: it is the discriminant, not a
+    // DOM attribute, and spreading it onto the trigger `<button>` makes React
+    // hydrate a `multiple` attribute the server never rendered.
+    multiple,
     ...rest
 }: SingleProps) {
     const [uncontrolled, setUncontrolled] = useState<string | number | null>(
@@ -251,6 +255,8 @@ function MultiCombobox({
     value,
     defaultValue,
     onChange,
+    /* See SingleCombobox — the discriminant must not reach the DOM. */
+    multiple,
     ...rest
 }: MultipleProps) {
     const [uncontrolled, setUncontrolled] = useState<Array<string | number>>(
@@ -356,13 +362,20 @@ function MultiCombobox({
     return (
         <div className="relative">
             {/* One hidden input per selection, so the server receives an array
-                exactly as a checkbox list would have sent it. */}
+                exactly as a checkbox list would have sent it.
+
+                A trailing `[]` on `name` is stripped first, so `name="buyers"`
+                and `name="buyers[]"` both emit `buyers[]`. The second spelling
+                is the natural one to write coming from plain HTML, and without
+                this it silently produced `buyers[][]` — which decodes to an
+                array of arrays and fails validation on every submit, while
+                server-side tests posting arrays directly stay green. */}
             {name !== undefined &&
                 selectedValues.map((entry) => (
                     <input
                         key={entry}
                         type="hidden"
-                        name={`${name}[]`}
+                        name={`${name.replace(/\[\]$/, '')}[]`}
                         value={entry}
                     />
                 ))}
@@ -394,19 +407,25 @@ function MultiCombobox({
                             })}
                         >
                             {option.label}
-                            <span
-                                role="button"
-                                tabIndex={-1}
-                                aria-label={`Remove ${option.label}`}
-                                className="cursor-pointer opacity-60 hover:opacity-100"
-                                onClick={(event) => {
-                                    // Otherwise the toggle button opens the menu.
-                                    event.stopPropagation();
-                                    removeSelectedItem(option);
-                                }}
-                            >
-                                <X className="size-3" />
-                            </span>
+                            {/* A disabled control's chips are not removable
+                                either — the remove button sits inside the
+                                disabled trigger, so leaving it live is an
+                                affordance the control does not have. */}
+                            {!disabled && (
+                                <span
+                                    role="button"
+                                    tabIndex={-1}
+                                    aria-label={`Remove ${option.label}`}
+                                    className="cursor-pointer opacity-60 hover:opacity-100"
+                                    onClick={(event) => {
+                                        // Otherwise the toggle button opens the menu.
+                                        event.stopPropagation();
+                                        removeSelectedItem(option);
+                                    }}
+                                >
+                                    <X className="size-3" />
+                                </span>
+                            )}
                         </span>
                     ))}
                 </span>

@@ -5,12 +5,15 @@ namespace App\Http\Controllers\Admin;
 use App\Enums\Admin\Gender;
 use App\Enums\RecordStatus;
 use App\Http\Controllers\Controller;
+use App\Http\Requests\Admin\UserBuyerAccessRequest;
 use App\Http\Requests\Admin\UserIndexRequest;
 use App\Http\Requests\Admin\UserPasswordUpdateRequest;
 use App\Http\Requests\Admin\UserRoleUpdateRequest;
 use App\Http\Requests\Admin\UserStoreRequest;
 use App\Http\Requests\Admin\UserUpdateRequest;
 use App\Models\User;
+use App\Services\Admin\BuyerAccessService;
+use App\Services\Admin\BuyerService;
 use App\Services\Admin\DesignationService;
 use App\Services\Admin\UserService;
 use Illuminate\Http\JsonResponse;
@@ -24,6 +27,8 @@ class UserController extends Controller
     public function __construct(
         protected UserService $users,
         protected DesignationService $designations,
+        protected BuyerService $buyers,
+        protected BuyerAccessService $buyerAccess,
     ) {}
 
     /**
@@ -38,14 +43,23 @@ class UserController extends Controller
     {
         $filters = $request->filters();
 
+        /*
+         * Buyer access rides along only for those allowed to see it. It is one
+         * extra query for the whole page — `buyers` is a small, bounded set and
+         * an all-access user has no rows at all — which is why the access dialog
+         * needs no endpoint of its own to open with the right state.
+         */
+        $showsBuyers = $request->user()?->can('admin.buyer-access.view') ?? false;
+
         $users = User::query()
             ->when($filters['view'] === 'trashed', fn ($query) => $query->onlyTrashed())
             ->with(['roles:id,name', 'designation:id,name,short_form', 'insertedBy:id,name', 'lastUpdatedBy:id,name'])
+            ->when($showsBuyers, fn ($query) => $query->with('buyers:id,name,code')->withCount('buyers'))
             ->filterColumns($filters['filter'])
             ->sortBy($filters['sort'], $filters['direction'])
             ->paginate($filters['per_page'])
             ->withQueryString()
-            ->through($this->describe(...));
+            ->through(fn (User $user): array => $this->describe($user, $showsBuyers));
 
         return Inertia::render('admin/users/index', [
             'users' => $users,
@@ -192,6 +206,31 @@ class UserController extends Controller
     }
 
     /**
+     * Replace the given user's buyer access.
+     *
+     * The only write path for this fact — there is no buyer-access page; see
+     * ARCHITECTURE.md §9.2. Granting all-access clears the pivot, so the flag
+     * and the rows can never disagree about what somebody can see.
+     */
+    public function updateBuyerAccess(UserBuyerAccessRequest $request, User $user): RedirectResponse
+    {
+        $allBuyers = $request->grantsAllBuyers();
+        $buyers = $request->submittedBuyers();
+
+        $blocker = $this->buyerAccess->assignmentBlocker($user, $allBuyers, $buyers);
+
+        if ($blocker !== null) {
+            return $this->refuse($blocker);
+        }
+
+        $this->buyerAccess->assign($user, $allBuyers, $buyers);
+
+        Inertia::flash('toast', ['type' => 'success', 'message' => __('Buyer access updated.')]);
+
+        return back();
+    }
+
+    /**
      * Report whether an employee ID or email is still free.
      *
      * Backs the live check in the user form. Soft-deleted rows count as taken,
@@ -235,9 +274,13 @@ class UserController extends Controller
     /**
      * Shape a user for the index table.
      *
+     * `$withBuyers` mirrors the eager load in `index()`: without the permission
+     * the relation was never loaded, and shipping `buyers_count` from an absent
+     * relation would be a lie rather than a zero.
+     *
      * @return array<string, mixed>
      */
-    protected function describe(User $user): array
+    protected function describe(User $user, bool $withBuyers = false): array
     {
         return [
             'id' => $user->id,
@@ -259,6 +302,11 @@ class UserController extends Controller
             'deleted_at' => $user->deleted_at?->toDateString(),
             'is_self' => $this->users->isActor($user),
             'is_last_super_admin' => $this->users->isLastSuperAdmin($user),
+            ...$withBuyers ? [
+                'all_buyer_access' => $user->all_buyer_access,
+                'buyers_count' => (int) ($user->buyers_count ?? 0),
+                'buyers' => $this->buyers->describeHeld($user->buyers),
+            ] : [],
         ];
     }
 }

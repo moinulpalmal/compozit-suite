@@ -9,14 +9,18 @@ use App\Enums\Admin\Gender;
 use App\Enums\FilterType;
 use App\Enums\RecordStatus;
 use App\Enums\Theme;
+use App\Models\Admin\Buyer;
 use App\Models\Admin\Designation;
+use App\Models\Admin\Role;
 use App\Observers\ActorObserver;
 use Database\Factories\UserFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Hidden;
 use Illuminate\Database\Eloquent\Attributes\ObservedBy;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
@@ -34,6 +38,7 @@ use Spatie\Permission\Traits\HasRoles;
  * @property int|null $designation_id
  * @property RecordStatus $status
  * @property bool $approval_authority
+ * @property bool $all_buyer_access
  * @property int|null $inserted_by
  * @property int|null $last_updated_by
  * @property string $email
@@ -50,6 +55,7 @@ use Spatie\Permission\Traits\HasRoles;
  * @property-read User|null $insertedBy
  * @property-read User|null $lastUpdatedBy
  * @property-read Designation|null $designation
+ * @property-read Collection<int, Buyer> $buyers
  */
 #[ObservedBy(ActorObserver::class)]
 #[Fillable([
@@ -73,6 +79,17 @@ class User extends Authenticatable
     use HasFactory, HasRoles, HasStatus, Listable, Notifiable, SoftDeletes;
 
     /**
+     * Memoised buyer ids — see {@see self::accessibleBuyerIds()}.
+     *
+     * A real declared property, not an attribute: written through `$this->…` on
+     * a model, an undeclared name would become a *database column* on the next
+     * save.
+     *
+     * @var list<int>|null
+     */
+    protected ?array $accessibleBuyerIds = null;
+
+    /**
      * Get the attributes that should be cast.
      *
      * @return array<string, string>
@@ -85,7 +102,54 @@ class User extends Authenticatable
             'theme' => Theme::class,
             'gender' => Gender::class,
             'approval_authority' => 'boolean',
+            'all_buyer_access' => 'boolean',
         ];
+    }
+
+    /**
+     * The buyers this user has been granted access to.
+     *
+     * **Empty for a user holding `all_buyer_access`** — the flag is the grant and
+     * the pivot is cleared when it goes on, so this relation is not the question
+     * to ask about visibility. {@see self::seesAllBuyers()} is. See
+     * ARCHITECTURE.md §9.2.
+     *
+     * @return BelongsToMany<Buyer, $this>
+     */
+    public function buyers(): BelongsToMany
+    {
+        return $this->belongsToMany(Buyer::class);
+    }
+
+    /**
+     * Whether every buyer is visible to this user, present and future.
+     *
+     * The super-admin arm is not redundant with `Gate::before`: that bypass
+     * grants *abilities*, and buyer scope is row filtering, so without this a
+     * newly promoted super admin with no grants would see an empty application.
+     * This is the ARCHITECTURE.md §9.1 exception that permits naming the role.
+     */
+    public function seesAllBuyers(): bool
+    {
+        return $this->all_buyer_access || $this->hasRole(Role::SUPER_ADMIN);
+    }
+
+    /**
+     * The buyer ids this user may see, memoised for the life of the instance.
+     *
+     * `BuyerScope` runs on every query against every buyer-owned model, so a
+     * fresh `buyer_user` round trip per query is not affordable. Callers that
+     * change a user's access re-read them from a fresh instance — the service
+     * does exactly that.
+     *
+     * @return list<int>
+     */
+    public function accessibleBuyerIds(): array
+    {
+        return $this->accessibleBuyerIds ??= $this->buyers()
+            ->pluck('buyers.id')
+            ->map(intval(...))
+            ->all();
     }
 
     /**

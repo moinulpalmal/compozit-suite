@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Admin\BuyerController;
 use App\Http\Controllers\Admin\DesignationController;
 use App\Http\Controllers\Admin\PermissionController;
 use App\Http\Controllers\Admin\RoleController;
@@ -59,6 +60,16 @@ Route::middleware(['auth', 'auth.session', 'verified'])
             ->middleware('permission:admin.users.assign-roles');
 
         /*
+         * Buyer access is edited where the user is, in a dialog beside the roles
+         * one — there is no buyer-access page. `admin.buyer-access.view` gates
+         * whether the users list carries buyer data at all; this gates changing
+         * it. See ARCHITECTURE.md §9.2.
+         */
+        Route::put('users/{user}/buyer-access', [UserController::class, 'updateBuyerAccess'])
+            ->name('users.buyer-access')
+            ->middleware('permission:admin.buyer-access.update');
+
+        /*
          * Designations — HR job titles. One page with modals, like users.
          * There is no `show`, and no restore/force-delete pair: a designation
          * is retired by setting its status, and deleting one anybody holds is
@@ -83,6 +94,26 @@ Route::middleware(['auth', 'auth.session', 'verified'])
             ->middlewareFor(['store'], 'permission:admin.designations.create')
             ->middlewareFor(['update'], 'permission:admin.designations.update')
             ->middlewareFor(['destroy'], 'permission:admin.designations.delete');
+
+        /*
+         * Buyers — the unit every buyer-owned record is scoped by. One page with
+         * modals, like designations: retired with `status`, never soft-deleted.
+         *
+         * The options endpoint is declared before the resource so the literal
+         * segment is never shadowed by a model-bound one. It answers to whoever
+         * administers buyers *or* assigns access to them — the access dialog on
+         * `admin/users` needs the picker without needing `admin.buyers.view`.
+         */
+        Route::get('buyers/options', [BuyerController::class, 'options'])
+            ->name('buyers.options')
+            ->middleware('permission:admin.buyers.view|admin.buyer-access.update');
+
+        Route::resource('buyers', BuyerController::class)
+            ->only(['index', 'store', 'update', 'destroy'])
+            ->middlewareFor(['index'], 'permission:admin.buyers.view')
+            ->middlewareFor(['store'], 'permission:admin.buyers.create')
+            ->middlewareFor(['update'], 'permission:admin.buyers.update')
+            ->middlewareFor(['destroy'], 'permission:admin.buyers.delete');
 
         Route::resource('roles', RoleController::class)
             ->except('show')
