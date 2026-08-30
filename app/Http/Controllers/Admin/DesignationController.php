@@ -18,11 +18,6 @@ use Inertia\Response;
 
 class DesignationController extends Controller
 {
-    /**
-     * Rows per page on the designation list.
-     */
-    protected const int PER_PAGE = 25;
-
     public function __construct(protected DesignationService $designations) {}
 
     /**
@@ -38,10 +33,9 @@ class DesignationController extends Controller
 
         $designations = Designation::query()
             ->withCount(['users as users_count' => fn (Builder $query) => $query->withTrashed()])
-            ->when($filters['status'] !== '', fn ($query) => $query->where('status', $filters['status']))
-            ->search($filters['search_field'], $filters['search'])
+            ->filterColumns($filters['filter'])
             ->sortBy($filters['sort'], $filters['direction'])
-            ->paginate(self::PER_PAGE)
+            ->paginate($filters['per_page'])
             ->withQueryString()
             ->through(fn (Designation $designation): array => [
                 'id' => $designation->id,
@@ -56,7 +50,8 @@ class DesignationController extends Controller
             'designations' => $designations,
             'statuses' => RecordStatus::options(),
             'sortable' => Designation::SORTABLE,
-            'searchable' => Designation::SEARCHABLE,
+            'filterable' => Designation::FILTERABLE,
+            'perPageOptions' => DesignationIndexRequest::PER_PAGE_OPTIONS,
             'filters' => $filters,
         ]);
     }

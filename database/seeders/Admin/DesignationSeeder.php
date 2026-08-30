@@ -6,6 +6,7 @@ use App\Enums\RecordStatus;
 use App\Models\Admin\Designation;
 use Illuminate\Database\Console\Seeds\WithoutModelEvents;
 use Illuminate\Database\Seeder;
+use Illuminate\Support\Facades\App;
 
 /**
  * Seeds the job titles the Admin user form offers.
@@ -19,6 +20,16 @@ use Illuminate\Database\Seeder;
 class DesignationSeeder extends Seeder
 {
     use WithoutModelEvents;
+
+    /**
+     * Extra throwaway rows seeded in local development only.
+     *
+     * The real list is 17 titles against a page size of 25, which means the
+     * paging controls never appear while building the list screen. These give
+     * them something to page through; they are factory noise, clearly not real
+     * job titles, and they never reach another environment.
+     */
+    protected const int LOCAL_FILLER = 40;
 
     /**
      * The designations the application ships with, as `name => short_form`.
@@ -56,5 +67,25 @@ class DesignationSeeder extends Seeder
                 ['short_form' => $shortForm, 'status' => RecordStatus::Active],
             );
         }
+
+        $this->fillLocally();
+    }
+
+    /**
+     * Top the table up past one page, in local development only.
+     *
+     * Guarded on both the environment and the current count so re-running the
+     * seeder does not keep adding rows.
+     */
+    protected function fillLocally(): void
+    {
+        $target = count(self::DESIGNATIONS) + self::LOCAL_FILLER;
+        $existing = Designation::query()->count();
+
+        if (! App::environment('local') || $existing >= $target) {
+            return;
+        }
+
+        Designation::factory()->count($target - $existing)->create();
     }
 }

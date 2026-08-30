@@ -1,6 +1,7 @@
-import { Head, router } from '@inertiajs/react';
+import { Head } from '@inertiajs/react';
 import { Pencil, Plus, Trash2 } from 'lucide-react';
 import DesignationController from '@/actions/App/Http/Controllers/Admin/DesignationController';
+import ColumnFilterRow from '@/components/admin/column-filter-row';
 import ConfirmActionDialog from '@/components/admin/confirm-action-dialog';
 import DesignationFormDialog from '@/components/admin/designation-form-dialog';
 import ListToolbar from '@/components/admin/list-toolbar';
@@ -9,25 +10,22 @@ import SortableHeader, { nextSort } from '@/components/admin/sortable-header';
 import Heading from '@/components/heading';
 import { Button } from '@/components/ui/button';
 import { useCan } from '@/hooks/use-can';
+import { useListFilters } from '@/hooks/use-list-filters';
 import { index } from '@/routes/admin/designations';
 import type {
     DesignationFilters,
     DesignationListItem,
+    Filterable,
     Paginated,
     StatusOption,
 } from '@/types';
-
-/** Human labels for the searchable column names the server allow-lists. */
-const SEARCH_LABELS: Record<string, string> = {
-    name: 'Name',
-    short_form: 'Short form',
-};
 
 type Props = {
     designations: Paginated<DesignationListItem>;
     statuses: StatusOption[];
     sortable: string[];
-    searchable: string[];
+    filterable: Filterable;
+    perPageOptions: number[];
     filters: DesignationFilters;
 };
 
@@ -39,29 +37,28 @@ type Props = {
  * verbs here. Delete is refused while anybody holds the title, which is why the
  * row shows its holder count.
  *
- * Paginated, searchable and sortable like every Admin list — ARCHITECTURE.md
- * §8.6. Note this pagination does **not** reach the user form's designation
- * picker: that is a separate query which must offer every assignable title.
+ * Paginated, sortable, and filtered per column like every Admin list —
+ * ARCHITECTURE.md §8.6. Note this pagination does **not** reach the user form's
+ * designation picker: that is a separate query which must offer every
+ * assignable title.
  */
 export default function DesignationsIndex({
     designations,
     statuses,
     sortable,
-    searchable,
+    filterable,
+    perPageOptions,
     filters,
 }: Props) {
     const canCreate = useCan('admin.designations.create');
     const canUpdate = useCan('admin.designations.update');
     const canDelete = useCan('admin.designations.delete');
 
-    // Any filter change resets to page 1 — staying on page 9 of a result set
-    // that now has two pages would show an empty table.
-    const visit = (next: Partial<DesignationFilters>) =>
-        router.get(
-            index({ query: { ...filters, ...next, page: undefined } }),
-            {},
-            { preserveState: true, preserveScroll: true, replace: true },
-        );
+    const { draft, visit, setFilter, clear, hasActiveFilter } = useListFilters({
+        filters,
+        url: index,
+        only: ['designations', 'filters'],
+    });
 
     const sortProps = (column: string) => ({
         column,
@@ -97,25 +94,11 @@ export default function DesignationsIndex({
                 </div>
 
                 <ListToolbar
-                    filters={filters}
-                    searchable={searchable}
-                    searchLabels={SEARCH_LABELS}
-                    onChange={visit}
-                    onClear={() => visit({ search: '', status: '' })}
-                    controls={[
-                        {
-                            label: 'Status',
-                            ariaLabel: 'Filter by status',
-                            testId: 'status-filter',
-                            width: 'w-36',
-                            value: filters.status,
-                            onSelect: (status) => visit({ status }),
-                            options: [
-                                { value: '', label: 'All statuses' },
-                                ...statuses,
-                            ],
-                        },
-                    ]}
+                    perPage={filters.per_page}
+                    perPageOptions={perPageOptions}
+                    onPerPage={(per_page) => visit({ per_page })}
+                    onClear={clear}
+                    hasActiveFilter={hasActiveFilter}
                 />
 
                 <div className="overflow-x-auto rounded-box border border-base-300/70">
@@ -131,9 +114,42 @@ export default function DesignationsIndex({
                                 <SortableHeader {...sortProps('status')}>
                                     Status
                                 </SortableHeader>
+                                {/* Not filterable: `users_count` is a
+                                    `withCount` aggregate, so narrowing by it
+                                    needs `HAVING` rather than `WHERE`. */}
                                 <th>Users</th>
                                 <th className="w-24" />
                             </tr>
+
+                            <ColumnFilterRow
+                                filterable={filterable}
+                                draft={draft}
+                                onFilter={setFilter}
+                                cells={[
+                                    {
+                                        type: 'text',
+                                        column: 'name',
+                                        label: 'name',
+                                    },
+                                    {
+                                        type: 'text',
+                                        column: 'short_form',
+                                        label: 'short form',
+                                    },
+                                    {
+                                        type: 'select',
+                                        column: 'status',
+                                        label: 'status',
+                                        testId: 'status-filter',
+                                        options: [
+                                            { value: '', label: 'All' },
+                                            ...statuses,
+                                        ],
+                                    },
+                                    { type: 'none' },
+                                    { type: 'none' },
+                                ]}
+                            />
                         </thead>
                         <tbody>
                             {designations.data.length === 0 && (
@@ -143,8 +159,6 @@ export default function DesignationsIndex({
                                         className="text-center text-base-content/60"
                                     >
                                         No designations match these filters.
-                                        Search matches from the start of the
-                                        field.
                                     </td>
                                 </tr>
                             )}

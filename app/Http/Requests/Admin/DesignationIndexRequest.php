@@ -11,8 +11,8 @@ use Illuminate\Validation\Rule;
 /**
  * Validates the designation list's query string.
  *
- * The shared sort / direction / search / page rules come from
- * {@see ListRequest}; the status filter is this surface's own.
+ * The status filter that used to sit in the toolbar is now a cell in
+ * `Designation::FILTERABLE`; all this adds is the enum rule behind it.
  */
 class DesignationIndexRequest extends ListRequest
 {
@@ -27,30 +27,23 @@ class DesignationIndexRequest extends ListRequest
     /**
      * {@inheritDoc}
      */
-    protected function searchable(): array
+    protected function filterable(): array
     {
-        return Designation::SEARCHABLE;
+        return Designation::FILTERABLE;
     }
 
     /**
      * {@inheritDoc}
+     *
+     * The status cell is a dropdown, so a value outside the enum is a malformed
+     * request rather than a filter that finds nothing.
      *
      * @return array<string, ValidationRule|array<mixed>|string>
      */
     protected function filterRules(): array
     {
         return [
-            'status' => ['sometimes', 'nullable', Rule::enum(RecordStatus::class)],
+            'filter.status' => ['nullable', Rule::enum(RecordStatus::class)],
         ];
-    }
-
-    /**
-     * {@inheritDoc}
-     *
-     * @return array<string, string>
-     */
-    protected function filterValues(): array
-    {
-        return ['status' => $this->string('status')->value()];
     }
 }

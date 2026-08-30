@@ -1,6 +1,7 @@
-import { Head, Link, router } from '@inertiajs/react';
+import { Head, Link } from '@inertiajs/react';
 import { Pencil, Plus } from 'lucide-react';
 import PermissionController from '@/actions/App/Http/Controllers/Admin/PermissionController';
+import ColumnFilterRow from '@/components/admin/column-filter-row';
 import ConfirmDeleteDialog from '@/components/admin/confirm-delete-dialog';
 import ListToolbar from '@/components/admin/list-toolbar';
 import Pagination from '@/components/admin/pagination';
@@ -8,8 +9,10 @@ import SortableHeader, { nextSort } from '@/components/admin/sortable-header';
 import Heading from '@/components/heading';
 import { Button } from '@/components/ui/button';
 import { useCan } from '@/hooks/use-can';
+import { useListFilters } from '@/hooks/use-list-filters';
 import { create, edit, index } from '@/routes/admin/permissions';
 import type {
+    Filterable,
     ModuleOption,
     Paginated,
     PermissionFilters,
@@ -20,7 +23,8 @@ type Props = {
     permissions: Paginated<PermissionListItem>;
     modules: ModuleOption[];
     sortable: string[];
-    searchable: string[];
+    filterable: Filterable;
+    perPageOptions: number[];
     filters: PermissionFilters;
 };
 
@@ -30,8 +34,8 @@ type Props = {
  * This page used to group rows under module headings, filtered client-side over
  * the whole catalogue. **Grouping and pagination cannot both hold** — a group
  * would be cut across a page boundary, and the remainder would open the next
- * page under no heading. So the module became a column and a server-side
- * filter, and the search moved to the shared prefix-matched one.
+ * page under no heading. So the module became a column with its own filter cell,
+ * served by `Permission::scopeModule()`.
  *
  * The role form's permission picker still groups by module. That is a different
  * query (`PermissionService::groupedByModule()`) and is deliberately untouched.
@@ -40,21 +44,19 @@ export default function PermissionsIndex({
     permissions,
     modules,
     sortable,
-    searchable,
+    filterable,
+    perPageOptions,
     filters,
 }: Props) {
     const canCreate = useCan('admin.permissions.create');
     const canUpdate = useCan('admin.permissions.update');
     const canDelete = useCan('admin.permissions.delete');
 
-    // Any filter change resets to page 1 — staying on page 9 of a result set
-    // that now has two pages would show an empty table.
-    const visit = (next: Partial<PermissionFilters>) =>
-        router.get(
-            index({ query: { ...filters, ...next, page: undefined } }),
-            {},
-            { preserveState: true, preserveScroll: true, replace: true },
-        );
+    const { draft, visit, setFilter, clear, hasActiveFilter } = useListFilters({
+        filters,
+        url: index,
+        only: ['permissions', 'filters'],
+    });
 
     const sortProps = (column: string) => ({
         column,
@@ -84,25 +86,11 @@ export default function PermissionsIndex({
                 </div>
 
                 <ListToolbar
-                    filters={filters}
-                    searchable={searchable}
-                    searchLabels={{ name: 'Permission' }}
-                    onChange={visit}
-                    onClear={() => visit({ search: '', module: '' })}
-                    controls={[
-                        {
-                            label: 'Module',
-                            ariaLabel: 'Filter by module',
-                            testId: 'module-filter',
-                            width: 'w-44',
-                            value: filters.module,
-                            onSelect: (module) => visit({ module }),
-                            options: [
-                                { value: '', label: 'All modules' },
-                                ...modules,
-                            ],
-                        },
-                    ]}
+                    perPage={filters.per_page}
+                    perPageOptions={perPageOptions}
+                    onPerPage={(per_page) => visit({ per_page })}
+                    onClear={clear}
+                    hasActiveFilter={hasActiveFilter}
                 />
 
                 <div className="overflow-x-auto rounded-box border border-base-300/70">
@@ -116,6 +104,31 @@ export default function PermissionsIndex({
                                 <th>Roles</th>
                                 <th className="w-24" />
                             </tr>
+
+                            <ColumnFilterRow
+                                filterable={filterable}
+                                draft={draft}
+                                onFilter={setFilter}
+                                cells={[
+                                    {
+                                        type: 'text',
+                                        column: 'name',
+                                        label: 'permission',
+                                    },
+                                    {
+                                        type: 'select',
+                                        column: 'module',
+                                        label: 'module',
+                                        testId: 'module-filter',
+                                        options: [
+                                            { value: '', label: 'All' },
+                                            ...modules,
+                                        ],
+                                    },
+                                    { type: 'none' },
+                                    { type: 'none' },
+                                ]}
+                            />
                         </thead>
                         <tbody>
                             {permissions.data.length === 0 && (
@@ -125,8 +138,6 @@ export default function PermissionsIndex({
                                         className="text-center text-base-content/60"
                                     >
                                         No permissions match these filters.
-                                        Search matches from the start of the
-                                        name — try the Module filter instead.
                                     </td>
                                 </tr>
                             )}

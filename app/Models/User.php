@@ -6,6 +6,7 @@ namespace App\Models;
 use App\Concerns\HasStatus;
 use App\Concerns\Listable;
 use App\Enums\Admin\Gender;
+use App\Enums\FilterType;
 use App\Enums\RecordStatus;
 use App\Enums\Theme;
 use App\Models\Admin\Designation;
@@ -123,22 +124,31 @@ class User extends Authenticatable
     }
 
     /**
-     * The fields the Admin user list may be searched by.
+     * The columns the Admin user list's filter row exposes.
      *
-     * Searching one named field rather than OR-ing across all of them is what
-     * keeps the query indexable: an `OR` over six columns forces MySQL into an
-     * unreliable index merge or a scan, whereas one column is a range scan on
-     * that column's index every time. See ARCHITECTURE.md §6.3.
+     * Each cell filters its own column and the cells are `AND`-ed, which is what
+     * keeps this indexable — the leading predicate still uses an index and the
+     * rest are cheap residual filters. It is `OR`-ing one term across every
+     * column that MySQL cannot serve, and that is not what this does.
+     * See ARCHITECTURE.md §6.3.
      *
-     * @var list<string>
+     * The identifiers stay {@see FilterType::Prefix}: they are the columns with
+     * indexes built for exactly that lookup, and prefix is how anybody actually
+     * types an employee ID or a phone number. Names and emails are
+     * {@see FilterType::Contains}, where finding mid-string is worth the scan.
+     *
+     * @var array<string, FilterType>
      */
-    public const array SEARCHABLE = [
-        'name',
-        'employee_id',
-        'email',
-        'personal_mobile_no',
-        'official_mobile_no',
-        'official_extension_no',
+    public const array FILTERABLE = [
+        'name' => FilterType::Contains,
+        'employee_id' => FilterType::Prefix,
+        'email' => FilterType::Contains,
+        'personal_mobile_no' => FilterType::Prefix,
+        'official_mobile_no' => FilterType::Prefix,
+        'official_extension_no' => FilterType::Prefix,
+        'gender' => FilterType::Equals,
+        'designation_id' => FilterType::Equals,
+        'status' => FilterType::Equals,
     ];
 
     /**

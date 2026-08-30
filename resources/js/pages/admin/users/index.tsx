@@ -1,4 +1,4 @@
-import { Head, router } from '@inertiajs/react';
+import { Head } from '@inertiajs/react';
 import {
     KeyRound,
     Pencil,
@@ -8,6 +8,7 @@ import {
     Trash2,
 } from 'lucide-react';
 import UserController from '@/actions/App/Http/Controllers/Admin/UserController';
+import ColumnFilterRow from '@/components/admin/column-filter-row';
 import ConfirmActionDialog from '@/components/admin/confirm-action-dialog';
 import ListToolbar from '@/components/admin/list-toolbar';
 import Pagination from '@/components/admin/pagination';
@@ -18,26 +19,18 @@ import UserRoleDialog from '@/components/admin/user-role-dialog';
 import Heading from '@/components/heading';
 import { Button } from '@/components/ui/button';
 import { useCan } from '@/hooks/use-can';
+import { useListFilters } from '@/hooks/use-list-filters';
 import { index } from '@/routes/admin/users';
 import type {
     DesignationFilterOption,
     DesignationOption,
+    Filterable,
     GenderOption,
     Paginated,
     StatusOption,
     UserFilters,
     UserListItem,
 } from '@/types';
-
-/** Human labels for the searchable column names the server allow-lists. */
-const SEARCH_LABELS: Record<string, string> = {
-    name: 'Name',
-    employee_id: 'Employee ID',
-    email: 'Email',
-    personal_mobile_no: 'Personal mobile',
-    official_mobile_no: 'Official mobile',
-    official_extension_no: 'Extension',
-};
 
 type Props = {
     users: Paginated<UserListItem>;
@@ -47,10 +40,11 @@ type Props = {
     statuses: StatusOption[];
     /** What the create/edit modal may offer. */
     designations: DesignationOption[];
-    /** What the filter dropdown lists — retired designations included. */
+    /** What the filter cell lists — retired designations included. */
     designationFilters: DesignationFilterOption[];
     sortable: string[];
-    searchable: string[];
+    filterable: Filterable;
+    perPageOptions: number[];
     filters: UserFilters;
     counts: { active: number; trashed: number };
 };
@@ -63,7 +57,8 @@ export default function UsersIndex({
     designations,
     designationFilters,
     sortable,
-    searchable,
+    filterable,
+    perPageOptions,
     filters,
     counts,
 }: Props) {
@@ -75,16 +70,18 @@ export default function UsersIndex({
     const canResetPassword = useCan('admin.users.reset-password');
     const canAssignRoles = useCan('admin.users.assign-roles');
 
-    const isHistorical = filters.filter === 'trashed';
+    const isHistorical = filters.view === 'trashed';
 
-    // Any filter change resets to page 1 — staying on page 9 of a result set
-    // that now has two pages would show an empty table.
-    const visit = (next: Partial<UserFilters>) =>
-        router.get(
-            index({ query: { ...filters, ...next, page: undefined } }),
-            {},
-            { preserveState: true, preserveScroll: true, replace: true },
-        );
+    /*
+     * `designations` is in the partial reload because it is derived from the
+     * rows on screen — it offers every retired title the *current page* still
+     * holds, so leaving it out would let the edit modal go stale after a filter.
+     */
+    const { draft, visit, setFilter, clear, hasActiveFilter } = useListFilters({
+        filters,
+        url: index,
+        only: ['users', 'filters', 'designations'],
+    });
 
     const toggleSort = (column: string) => visit(nextSort(filters, column));
 
@@ -124,13 +121,21 @@ export default function UsersIndex({
                     )}
                 </div>
 
-                <div className="flex flex-wrap items-center justify-between gap-3">
+                <ListToolbar
+                    perPage={filters.per_page}
+                    perPageOptions={perPageOptions}
+                    onPerPage={(per_page) => visit({ per_page })}
+                    onClear={clear}
+                    hasActiveFilter={hasActiveFilter}
+                >
+                    {/* Which record set, not which column value — so it stays
+                        here rather than becoming a filter cell. */}
                     <div role="tablist" className="tabs tabs-box">
                         <button
                             type="button"
                             role="tab"
                             className={`tab ${isHistorical ? '' : 'tab-active'}`}
-                            onClick={() => visit({ filter: 'active' })}
+                            onClick={() => visit({ view: 'active' })}
                         >
                             Active
                             <span className="ml-2 badge badge-sm">
@@ -142,7 +147,7 @@ export default function UsersIndex({
                             type="button"
                             role="tab"
                             className={`tab ${isHistorical ? 'tab-active' : ''}`}
-                            onClick={() => visit({ filter: 'trashed' })}
+                            onClick={() => visit({ view: 'trashed' })}
                             data-test="historical-tab"
                         >
                             Historical
@@ -151,66 +156,7 @@ export default function UsersIndex({
                             </span>
                         </button>
                     </div>
-                </div>
-
-                <ListToolbar
-                    filters={filters}
-                    searchable={searchable}
-                    searchLabels={SEARCH_LABELS}
-                    onChange={visit}
-                    onClear={() =>
-                        visit({
-                            search: '',
-                            gender: '',
-                            designation: '',
-                            status: '',
-                        })
-                    }
-                    controls={[
-                        {
-                            label: 'Gender',
-                            ariaLabel: 'Filter by gender',
-                            width: 'w-40',
-                            value: filters.gender,
-                            onSelect: (gender) => visit({ gender }),
-                            options: [
-                                { value: '', label: 'All genders' },
-                                ...genders,
-                            ],
-                        },
-                        {
-                            label: 'Designation',
-                            ariaLabel: 'Filter by designation',
-                            testId: 'designation-filter',
-                            width: 'w-52',
-                            value: filters.designation,
-                            onSelect: (designation) => visit({ designation }),
-                            /* Deactivated designations are listed too: a
-                               retired title still has holders and they have to
-                               be findable. Values are stringified to match
-                               `filters.designation`, which arrives from the
-                               query string. */
-                            options: [
-                                { value: '', label: 'All designations' },
-                                ...designationFilters.map((designation) => ({
-                                    value: String(designation.value),
-                                    label: designation.label,
-                                })),
-                            ],
-                        },
-                        {
-                            label: 'Status',
-                            ariaLabel: 'Filter by status',
-                            width: 'w-36',
-                            value: filters.status,
-                            onSelect: (status) => visit({ status }),
-                            options: [
-                                { value: '', label: 'All statuses' },
-                                ...statuses,
-                            ],
-                        },
-                    ]}
-                />
+                </ListToolbar>
 
                 <div className="overflow-x-auto rounded-box border border-base-300/70">
                     <table className="table table-sm">
@@ -244,6 +190,108 @@ export default function UsersIndex({
                                 </SortableHeader>
                                 <th className="w-40" />
                             </tr>
+
+                            <ColumnFilterRow
+                                filterable={filterable}
+                                draft={draft}
+                                onFilter={setFilter}
+                                cells={[
+                                    {
+                                        type: 'text',
+                                        column: 'employee_id',
+                                        label: 'employee ID',
+                                    },
+                                    /* One heading, two columns underneath it —
+                                       so the cell stacks, and each box names
+                                       itself rather than repeating the shared
+                                       match hint. */
+                                    {
+                                        type: 'stack',
+                                        cells: [
+                                            {
+                                                type: 'text',
+                                                column: 'name',
+                                                label: 'name',
+                                            },
+                                            {
+                                                type: 'text',
+                                                column: 'email',
+                                                label: 'email',
+                                                placeholder: 'Email…',
+                                            },
+                                        ],
+                                    },
+                                    {
+                                        type: 'select',
+                                        column: 'designation_id',
+                                        label: 'designation',
+                                        testId: 'designation-filter',
+                                        className: 'hidden lg:table-cell',
+                                        /* Deactivated designations are listed
+                                           too: a retired title still has
+                                           holders and they have to be findable.
+                                           Values are stringified to match the
+                                           filter, which arrives as a string. */
+                                        options: [
+                                            { value: '', label: 'All' },
+                                            ...designationFilters.map(
+                                                (designation) => ({
+                                                    value: String(
+                                                        designation.value,
+                                                    ),
+                                                    label: designation.label,
+                                                }),
+                                            ),
+                                        ],
+                                    },
+                                    {
+                                        type: 'stack',
+                                        className: 'hidden md:table-cell',
+                                        cells: [
+                                            {
+                                                type: 'text',
+                                                column: 'personal_mobile_no',
+                                                label: 'personal mobile',
+                                                placeholder: 'Personal…',
+                                            },
+                                            {
+                                                type: 'text',
+                                                column: 'official_mobile_no',
+                                                label: 'official mobile',
+                                                placeholder: 'Official…',
+                                            },
+                                            {
+                                                type: 'text',
+                                                column: 'official_extension_no',
+                                                label: 'extension',
+                                                placeholder: 'Ext…',
+                                            },
+                                        ],
+                                    },
+                                    { type: 'none' },
+                                    /* The column itself becomes "Deleted" on
+                                       the historical tab, where a status filter
+                                       would sit under a heading it does not
+                                       describe. */
+                                    isHistorical
+                                        ? { type: 'none' }
+                                        : {
+                                              type: 'select',
+                                              column: 'status',
+                                              label: 'status',
+                                              testId: 'status-filter',
+                                              options: [
+                                                  { value: '', label: 'All' },
+                                                  ...statuses,
+                                              ],
+                                          },
+                                    {
+                                        type: 'none',
+                                        className: 'hidden xl:table-cell',
+                                    },
+                                    { type: 'none' },
+                                ]}
+                            />
                         </thead>
                         <tbody>
                             {users.data.length === 0 && (
@@ -254,7 +302,7 @@ export default function UsersIndex({
                                     >
                                         {isHistorical
                                             ? 'No deleted users.'
-                                            : 'No users match these filters. Search matches from the start of the field.'}
+                                            : 'No users match these filters.'}
                                     </td>
                                 </tr>
                             )}

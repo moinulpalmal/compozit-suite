@@ -13,9 +13,15 @@ use Illuminate\Validation\Rule;
 /**
  * Validates the Admin user list's query string.
  *
- * The shared sort / direction / search / page rules come from
- * {@see ListRequest}. Everything below is what this surface adds of its own:
- * the active-versus-historical tab, and three filters.
+ * The shared sort / filter row / page rules come from {@see ListRequest}. What
+ * this surface adds is the active-versus-historical tab, plus tighter rules for
+ * three filter cells whose values are not free text.
+ *
+ * The tab is `?view=active|trashed`. It was `?filter=` until the filter row
+ * arrived and claimed `filter[...]` — a scalar and an array cannot share a
+ * query-string key. `view` is the better name for it regardless: it selects the
+ * record set, not a column value, which is exactly why it is not in
+ * `User::FILTERABLE`.
  */
 class UserIndexRequest extends ListRequest
 {
@@ -30,23 +36,26 @@ class UserIndexRequest extends ListRequest
     /**
      * {@inheritDoc}
      */
-    protected function searchable(): array
+    protected function filterable(): array
     {
-        return User::SEARCHABLE;
+        return User::FILTERABLE;
     }
 
     /**
      * {@inheritDoc}
+     *
+     * The three cells below are dropdowns, so anything outside their option
+     * list is a malformed request rather than a search that finds nothing.
      *
      * @return array<string, ValidationRule|array<mixed>|string>
      */
     protected function filterRules(): array
     {
         return [
-            'filter' => ['sometimes', 'in:active,trashed'],
-            'gender' => ['sometimes', 'nullable', Rule::enum(Gender::class)],
-            'designation' => ['sometimes', 'nullable', 'integer', Rule::exists(Designation::class, 'id')],
-            'status' => ['sometimes', 'nullable', Rule::enum(RecordStatus::class)],
+            'view' => ['sometimes', 'in:active,trashed'],
+            'filter.gender' => ['nullable', Rule::enum(Gender::class)],
+            'filter.designation_id' => ['nullable', 'integer', Rule::exists(Designation::class, 'id')],
+            'filter.status' => ['nullable', Rule::enum(RecordStatus::class)],
         ];
     }
 
@@ -58,10 +67,7 @@ class UserIndexRequest extends ListRequest
     protected function filterValues(): array
     {
         return [
-            'filter' => $this->string('filter')->value() === 'trashed' ? 'trashed' : 'active',
-            'gender' => $this->string('gender')->value(),
-            'designation' => $this->string('designation')->value(),
-            'status' => $this->string('status')->value(),
+            'view' => $this->string('view')->value() === 'trashed' ? 'trashed' : 'active',
         ];
     }
 }

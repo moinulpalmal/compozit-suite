@@ -49,7 +49,7 @@ Built by `0001_01_01_000000_create_users_table`, then
 | `official_extension_no` | `string(4)`, nullable | Up to four digits. |
 | `gender` | `string(1)`, default `'M'` | Cast to `App\Enums\Admin\Gender` — `M` / `F` / `O`. |
 | `designation_id` | FK → `designations.id`, **nullable**, `nullOnDelete` | Required by the form requests, not by the column. See [§8](#8-designations). |
-| `approved` | `boolean`, default `true` | Active/inactive switch surfaced in the edit modal. |
+| `status` | `string(1)`, default `'A'` | Cast to `App\Enums\RecordStatus` via `HasStatus`. Was a boolean `approved` — see [§9.1](#91-usersapproved-became-usersstatus). |
 | `approval_authority` | `boolean`, default `false` | **Parked.** See [§2.2](#22-approval-authority-is-not-wired-to-anything). |
 | `inserted_by` | FK → `users.id`, nullable, `nullOnDelete` | Written only by `ActorObserver`. |
 | `last_updated_by` | FK → `users.id`, nullable, `nullOnDelete` | Written only by `ActorObserver`. |
@@ -81,16 +81,16 @@ plausible-looking candidates were rejected because the numbers said no. The gene
 | Index | Serves | Source |
 | --- | --- | --- |
 | `PRIMARY` | `id` | — |
-| `users_email_unique` | login-adjacent lookups, availability check, email prefix search **and** email sort | unique constraint |
-| `users_employee_id_unique` | login, availability check, employee-ID prefix search **and** ID sort | unique constraint |
+| `users_email_unique` | login-adjacent lookups, availability check **and** email sort. Not the email *filter* — that is `Contains` now | unique constraint |
+| `users_employee_id_unique` | login, availability check, employee-ID prefix filter **and** ID sort | unique constraint |
 | `users_inserted_by_foreign` | FK integrity | InnoDB, automatic |
 | `users_last_updated_by_foreign` | FK integrity | InnoDB, automatic |
-| `users_deleted_at_name_index` | default view, name sort, name prefix search, both counts | `…091435_add_indexes_to_users_table` |
+| `users_deleted_at_name_index` | default view, name sort, both counts — and it still serves the `ORDER BY` under a `%name%` filter | `…091435_add_indexes_to_users_table` |
 | `users_deleted_at_created_at_index` | "Added" sort | `…094614_add_data_table_indexes_to_users_table` |
-| `users_deleted_at_personal_mobile_index` | mobile prefix search | same |
-| `users_deleted_at_official_mobile_index` | mobile prefix search | same |
-| `users_deleted_at_extension_index` | extension prefix search | same |
-| `users_deleted_at_approved_name_index` | status filter + default sort | same |
+| `users_deleted_at_personal_mobile_index` | mobile prefix filter | same |
+| `users_deleted_at_official_mobile_index` | mobile prefix filter | same |
+| `users_deleted_at_extension_index` | extension prefix filter | same |
+| `users_deleted_at_status_name_index` | status filter + default sort | `…131928_change_users_approved_to_status` (replaced the `approved` original) |
 | `users_designation_id_foreign` | FK integrity **and** the designation filter | InnoDB, automatic |
 
 Every composite leads with `deleted_at` because every query on this table has it — the soft-delete
@@ -103,7 +103,7 @@ scope is always applied.
 | Sort by "Added" (`created_at desc`) | **11.34 ms** + filesort | **0.33 ms** | `…created_at_index` |
 | Extension lookup (selective prefix) | 6.65 ms | **0.19 ms** | `…extension_index` |
 | Mobile lookup (selective prefix) | 6.65 ms | **0.28 ms** | `…personal_mobile_index` |
-| Inactive-user filter | 1.25 ms | **0.25 ms** | `…approved_name_index` |
+| Inactive-user filter | 1.25 ms | **0.25 ms** | `…approved_name_index`, since rebuilt as `…status_name_index` |
 
 **Rejected candidates — do not re-add without new measurements:**
 
@@ -113,6 +113,11 @@ scope is always applied.
 | `(deleted_at, email)` | Same story via `users_email_unique`; 0.56 ms → 0.47 ms is inside the noise. |
 | `(deleted_at, gender, name)` | Gender has three values — not selective. Both plans sub-millisecond (0.35 ms → 0.29 ms). |
 | `(deleted_at, designation_id, name)` | **The planner never chose it.** With the composite installed, the rare-designation filter still planned on `users_designation_id_foreign + filesort` at 1.58 ms — indistinguishable from the 1.29–1.66 ms it runs at without. The FK index `constrained()` already creates is enough, exactly as [§6.3](../ARCHITECTURE.md#63-migrations) predicts. |
+
+**The status index was re-measured when `approved` became `status`**, rather than assumed to carry
+over. `(deleted_at, status, name)` is chosen by the planner on every run at 0.28–0.47 ms, against the
+boolean version's 0.25 ms — the same plan, within noise. It is a shipped index now, so it is no
+longer a benchmark *candidate*; a candidate duplicating a shipped index measures nothing.
 
 `designation_id` was expected to be the case where a composite finally earned its place — it has far
 more distinct values than `gender`, which was rejected for low cardinality. It did not. The reason is
@@ -136,22 +141,63 @@ measurement — it is the identical query shape on an identical column, and the 
 left `official_mobile_no` null so the benchmark had no data for it. The factory now populates it, so
 the next benchmark run covers it directly.
 
-### 2.1.2 Search is prefix-matched and field-scoped
+### 2.1.2 Matching is declared per column
 
-`User::scopeSearch()` takes a **field** and a term, and matches `LIKE 'term%'`.
+> This section previously argued that **all** search is prefix-matched, on one field chosen from a
+> selector. Half of that is now reversed. The single search box became a filter cell under every
+> column, and text columns split into two behaviours instead of sharing one. The reasoning below
+> replaces the old rule; it does not sit alongside it.
 
-Both halves of that are load-bearing:
+`User::FILTERABLE` names a `FilterType` for each column, and `Listable::scopeFilterColumns()`
+dispatches on it:
 
-- **Prefix, not contains.** `LIKE '%term%'` cannot use a B-tree, ever. `LIKE 'term%'` is a range
-  scan. So "158" finds employee 15868 and "868" does not — that is the contract, and the empty
-  state and the search placeholder both say so.
-- **One field, not an `OR` across all six.** An `OR` over six columns is the case MySQL handles
-  worst: it either attempts an unreliable index merge or picks one index and filters the rest. With
-  a single search box, the mobile and extension indexes above would have been built and then never
-  used. The field selector is what makes them pay.
+| Column | Type | Why |
+| --- | --- | --- |
+| `name`, `email` | `Contains` — `LIKE '%term%'` | Finding a name mid-string is what people expect of a name box, and worth a scan |
+| `employee_id` | `Prefix` — `LIKE 'term%'` | The login identifier, covered by a unique index, and how anyone types an ID |
+| `personal_mobile_no`, `official_mobile_no`, `official_extension_no` | `Prefix` | Each has a measured index built for exactly this seek — see §2.1.1 |
+| `gender`, `designation_id`, `status` | `Equals` | Dropdown cells; an equality, not a text match |
 
-The term is escaped with `addcslashes($term, '%_\\')` so a user typing `%` gets a literal match
-rather than a full-table wildcard scan. There is a test pinning that.
+**The choice is declared, never inferred from the column type.** Every filterable column here is a
+`varchar` — `employee_id` holds `U3` for backfilled users, and the phone numbers are strings because
+leading zeros matter — so type inference would make the entire table `Contains` and quietly retire
+three indexes.
+
+The visible consequence: **"868" finds employee 15868 only where the column is `Contains`, and
+`employee_id` is not.** Each cell's placeholder says which it is ("Contains…" versus "Starts with…")
+rather than leaving people to discover it.
+
+**Cells are `AND`-ed, which is what keeps this indexable.** It is `OR`-ing one term across six
+columns that MySQL handles worst — an unreliable index merge, or one index chosen and the rest
+filtered. With a cell per column the leading predicate seeks and the others are residual filters.
+
+Every term is escaped with `addcslashes($term, '%_\\')` so a user typing `%` gets a literal match
+rather than a full-table wildcard scan. There is a test pinning that, for both match types.
+
+**What `%term%` actually cost**, measured on 5,000 rows after the change (`php artisan
+users:benchmark`):
+
+| Query | ms | Index chosen |
+| --- | --- | --- |
+| unfiltered page | 0.33 | `users_deleted_at_name_index` |
+| `name` contains, broad | 0.51 | `users_deleted_at_name_index` |
+| `name` contains, selective | **1.49** | `users_deleted_at_name_index` |
+| `employee_id` prefix | 0.31 | `users_employee_id_unique` + filesort |
+| `personal_mobile_no` prefix | 0.29 | `users_deleted_at_personal_mobile_index` + filesort |
+| `official_extension_no` prefix | 0.29 | `users_deleted_at_extension_index` + filesort |
+| two cells (`name` contains + `status`) | 0.39 | `users_deleted_at_name_index` |
+
+**No index was dropped, and the measurement is why.** The three prefix indexes are still chosen, so
+they still earn their write cost. `users_deleted_at_name_index` survives the contains filter too —
+not as a range seek, which a leading wildcard makes impossible, but as an ordered walk that supplies
+`ORDER BY name` and stops at the `LIMIT`, with the wildcard applied as a residual filter. The price
+of contains is the 1.49 ms row: roughly 4× an unfiltered page, and the slowest thing on this list.
+
+`FULLTEXT` remains **deferred**: it is word-boundary based (a mid-word fragment still would not
+match — the very case `%term%` was chosen for), `innodb_ft_min_token_size` is 3 on this server so
+1–2 character terms would return nothing, and Laravel's SQLite grammar has no `compileFullText`, so
+the migration would throw under test and the production `MATCH` path would ship uncovered by CI.
+Revisit if the contains scan becomes a problem at real table sizes.
 
 `FULLTEXT` was considered for true "contains" search and **deferred**: it is word-boundary based (a
 mid-word fragment still would not match), `innodb_ft_min_token_size` is 3 on this server so 1–2
@@ -285,41 +331,47 @@ shareable URL:
 
 | Parameter | Values |
 | --- | --- |
-| `filter` | `active` (default) / `trashed` |
+| `view` | `active` (default) / `trashed` |
 | `sort` | `name` (default), `employee_id`, `email`, `created_at` — `User::SORTABLE` |
 | `direction` | `asc` (default) / `desc` |
-| `search_field` | one of `User::SEARCHABLE`; `name` by default |
-| `search` | prefix term, max 100 chars |
-| `gender` | `M` / `F` / `O`, empty for all |
-| `status` | `active` / `inactive`, empty for all |
-| `page` | paginator page, 25 per page |
+| `filter[…]` | one key per `User::FILTERABLE` column, max 100 chars each |
+| `per_page` | `10` / `25` (default) / `50` / `100` |
+| `page` | paginator page |
+
+The tab is **`view`, not `filter`**. It was `filter=active|trashed` until the filter row arrived and
+claimed `filter[...]`; a scalar and an array cannot share one query-string key. `view` is the better
+name anyway — it picks the record set, which is exactly why it is not a cell in the filter row.
 
 `UserIndexRequest` validates all of it and `UserIndexRequest::filters()` applies the defaults, so the
 controller never sees a half-specified state. Changing any filter resets to page 1 — staying on
 page 9 of a result set that now has two pages would show an empty table.
 
-**Sort and search field names are allow-listed twice**, in the request and again in the model scope.
+**Sort columns and filter keys are allow-listed twice**, in the request and again in the model scope.
 That is not redundancy for its own sake: passing request input to `orderBy()` is a SQL injection,
 and the scope is the layer that guarantees it cannot happen even if the query is ever built from
-somewhere other than this controller. `UserTest` pins it with `?sort=name; DROP TABLE users`.
+somewhere other than this controller. `UserTest` pins it with `?sort=name; DROP TABLE users`. An
+unknown `filter[…]` key is likewise an error rather than a silent ignore — a typo'd filter must not
+look like a filter that found nothing.
 This deliberately diverges from the `index/create/edit` pattern that roles and permissions use —
 see [ARCHITECTURE.md → Module 1](../ARCHITECTURE.md#5-module-registry). Do not harmonise one into
 the other without a new decision.
 
 ### 3.1.1 The list apparatus, and what is no longer here
 
-The toolbar, sortable headers, prefix search and pagination that this page pioneered are now shared
+The toolbar, sortable headers, column filters and pagination that this page pioneered are now shared
 by all four Admin lists —
-[ARCHITECTURE.md §8.6](../ARCHITECTURE.md#86-every-list-is-paginated-searchable-and-sortable).
+[ARCHITECTURE.md §8.6](../ARCHITECTURE.md#86-every-list-is-paginated-sortable-and-filtered-per-column).
 
-Three things moved out of this page in that change, so look for them in their new homes:
+Things that moved out of this page, so look for them in their new homes:
 
 | Was | Now |
 | --- | --- |
-| `components/admin/users-table-toolbar.tsx` | `components/admin/list-toolbar.tsx`, taking a declarative `controls` array |
+| `components/admin/users-table-toolbar.tsx` | `components/admin/list-toolbar.tsx` — and most of what it held is now `components/admin/column-filter-row.tsx` |
 | A `SortableHeader` local to `pages/admin/users/index.tsx` | `components/admin/sortable-header.tsx`, plus `nextSort()` |
-| `User::scopeSearch()` / `scopeSortBy()` | `App\Concerns\Listable`. `User::SEARCHABLE` and `SORTABLE` stayed on the model |
-| `UserIndexRequest extends FormRequest` | `extends App\Http\Requests\ListRequest`; only the tab and three filters are still declared here |
+| `User::scopeSearch()` / `scopeSortBy()` | `App\Concerns\Listable::scopeFilterColumns()` / `scopeSortBy()`. `User::FILTERABLE` and `SORTABLE` stayed on the model |
+| The page's own debounce-free `router.get` helper | `hooks/use-list-filters.ts` |
+| `UserController::PER_PAGE` (copied into all four controllers) | `ListRequest::PER_PAGE_OPTIONS` / `DEFAULT_PER_PAGE`, and a user-selectable `per_page` |
+| `UserIndexRequest extends FormRequest` | `extends App\Http\Requests\ListRequest`; only the `view` tab and three dropdown-cell rules are still declared here |
 
 All of these stay in `components/admin/`, **not** `components/shared/`: §6.5's promotion rule fires
 when a second *module* imports a component, not a second surface, and all four lists are Admin.
@@ -336,9 +388,15 @@ test, and it stayed green throughout.
 | `admin/user-password-dialog.tsx` | Sets another user's password — no current-password prompt, because the actor is not the owner. |
 | `admin/confirm-action-dialog.tsx` | Generic confirm-then-submit over a Wayfinder `.form()`. Takes the trigger as `children`. |
 | `admin/confirm-delete-dialog.tsx` | The destructive icon-button preset over the above. Roles and permissions still use it unchanged. |
-| `admin/list-toolbar.tsx` | Declarative filter dropdowns plus the field-scoped search box. Shared by all four lists. |
+| `admin/column-filter-row.tsx` | The `<tr>` of filter cells under the headers — text, dropdown, stacked, or empty. Shared by all four lists. |
+| `admin/list-toolbar.tsx` | The thin bar above the table: rows-per-page, Clear filters, and surface extras such as this page's Active/Historical tabs. |
 | `admin/sortable-header.tsx` | Clickable `<th>` and `nextSort()`. Shared by all four lists. |
-| `admin/pagination.tsx` | Previous/next paging. Moves to `components/shared/` the moment a second module imports it, per [ARCHITECTURE.md §6.5](../ARCHITECTURE.md#65-components). |
+| `admin/pagination.tsx` | Numbered pages with previous/next. Moves to `components/shared/` the moment a second module imports it, per [ARCHITECTURE.md §6.5](../ARCHITECTURE.md#65-components). |
+
+A cell can be `stack`ed because a table column is not always one database column: this page shows
+the email under the name and two numbers under "Contact", so those headings carry two and three
+boxes respectively. Stacked boxes name themselves in their placeholder instead of showing the shared
+match hint, which is the one place the "Contains…" / "Starts with…" signal is not on screen.
 
 Every dropdown on these screens is `components/ui/combobox.tsx`, not a native `<select>` — there are
 none left in the application. It shows its search input only above ten options, so Gender and Status
@@ -417,11 +475,13 @@ something to name.
 
 **Grouping and pagination cannot both hold.** A group gets cut across a page boundary — page 1 ends
 midway through `admin.users`, page 2 opens with the remainder under no heading. When every Admin
-list became paginated ([ARCHITECTURE.md §8.6](../ARCHITECTURE.md#86-every-list-is-paginated-searchable-and-sortable)),
+list became paginated ([ARCHITECTURE.md §8.6](../ARCHITECTURE.md#86-every-list-is-paginated-sortable-and-filtered-per-column)),
 the grouping had to give way. It became:
 
 - a **Module column** on each row, and
-- a **module filter**, served by `Permission::scopeInModule()` and `PermissionService::moduleOptions()`.
+- a **module filter cell** under it, served by `Permission::scopeModule()` and
+  `PermissionService::moduleOptions()`. It is declared `FilterType::Scope` because the module is the
+  first dot-delimited segment of `name`, not a column of its own.
 
 `scopeInModule()` matches `"{module}.%"`, appending the dot on purpose: a bare `admin%` prefix would
 also sweep in a neighbouring `administration.*` module. There is a test pinning that.
@@ -455,12 +515,16 @@ server-side and indexable rather than a `includes()` over every row.
 
 ### Adding a list screen
 
-1. `use Listable` on the model, and declare `SEARCHABLE` / `SORTABLE`.
-2. `{Model}IndexRequest extends ListRequest` — implement `sortable()` and `searchable()`, and add
-   `filterRules()` / `filterValues()` only if the surface has filters of its own.
-3. Controller: `->search(…)->sortBy(…)->paginate(self::PER_PAGE)->withQueryString()->through(…)`,
-   and pass `sortable`, `searchable` and `filters` as props.
-4. Page: `<ListToolbar>`, `<SortableHeader>` per sortable column, `<Pagination>`.
+1. `use Listable` on the model, and declare `FILTERABLE` / `SORTABLE`. Pick each column's
+   `FilterType` deliberately — see [§2.1.2](#212-matching-is-declared-per-column).
+2. `{Model}IndexRequest extends ListRequest` — implement `sortable()` and `filterable()`, and add
+   `filterRules()` / `filterValues()` only for a dropdown cell's enum rule or a record-set switch.
+3. Controller: `->filterColumns($filters['filter'])->sortBy(…)->paginate($filters['per_page'])
+   ->withQueryString()->through(…)`, and pass `sortable`, `filterable`, `perPageOptions` and
+   `filters` as props.
+4. Page: `useListFilters`, `<ListToolbar>`, `<SortableHeader>` per sortable column, a
+   `<ColumnFilterRow>` with **one cell per table column** — `{ type: 'none' }` included — and
+   `<Pagination>`. Name every prop that varies with the rows in the hook's `only` list.
 5. **Add the surface to `surfaces()` in `tests/Feature/Admin/ListBehaviourTest.php`** — it then
    inherits the whole shared contract for free.
 
@@ -541,13 +605,17 @@ have diverged from `users` and had no observer path.
 
 ### 8.2 `status` is a char, and it is not `deleted_at`
 
-`designations.status` (`'A'`/`'I'`) and `users.approved` (boolean) say the same thing two different
-ways. **This is a deliberate owner decision**, not drift — the char flag matches the HR system the
-data comes from. Do not "harmonise" it into a boolean, and equally **do not copy it onto a third
-table** on the assumption that it is now the house style. `users.approved` remains the precedent for
-anything without that HR lineage.
+`designations.status` is `'A'`/`'I'`, cast through `App\Enums\RecordStatus` and wired up by
+`App\Concerns\HasStatus`. **This is now the application's only active/inactive vocabulary** — see
+[§9](#9-recordstatus-is-the-one-activeinactive-vocabulary).
 
-The consequence is that this screen has **two verbs where `users` has one**:
+> This section previously argued the opposite: that `designations.status` and `users.approved` said
+> the same thing two different ways, that the divergence was deliberate, and that neither should be
+> harmonised. That held only while designations were the sole char-flagged table. When the owner
+> made `RecordStatus` the shared convention, `users.approved` became the outlier rather than the
+> precedent, and it was migrated to `users.status`. The rule is reversed, not merely amended.
+
+The consequence is that this screen has **two verbs where a soft-deleting table has one**:
 
 | Verb | Effect |
 | --- | --- |
@@ -615,3 +683,41 @@ filter is in [§2.1.1](#211-indexes--every-one-of-them-measured) — the answer 
 `Database\Seeders\Admin\DesignationSeeder` ships a **placeholder** list of garments-manufacturing
 titles and is called from `DatabaseSeeder`. It is idempotent (`firstOrCreate` on the unique name), so
 it will not overwrite a title renamed through the UI. **Replace the array with the real HR list.**
+
+---
+
+## 9. `RecordStatus` is the one active/inactive vocabulary
+
+`App\Enums\RecordStatus` (`'A'` / `'I'`) plus `App\Concerns\HasStatus` is how every table in this
+application says "in use" or "retired". A model gets the cast, `scopeActive()`, `scopeInactive()` and
+`isActive()` from a single `use` — that trait is what makes the enum *usable* rather than merely
+shared, and is why the four methods are not copy-pasted per table.
+
+It sits at the root of `app/Enums/` because it belongs to no module, the same reasoning as `Theme`.
+
+**It is named `RecordStatus`, not `Status`, deliberately.** A BQS or purchase order moving through
+Draft → Approved → Cancelled is a different concept with a different lifecycle and belongs in its own
+module-scoped enum. Leaving `Status` unclaimed gives that enum an obvious home that is not this file.
+
+### 9.1 `users.approved` became `users.status`
+
+`users` carried a boolean `approved` until `RecordStatus` became the convention; at that point it was
+the only boolean active flag left, so it moved
+(`2026_08_27_131928_change_users_approved_to_status`). The column was added, backfilled from
+`approved`, and the old one dropped.
+
+**The index moved with it.** `users_deleted_at_approved_name_index` became
+`users_deleted_at_status_name_index` on `(deleted_at, status, name)`, and was **re-measured** rather
+than assumed: the planner picks it on every run of `users:benchmark` at 0.28–0.47 ms, against the
+0.25 ms the boolean version recorded. The index survived the column change intact —
+[§2.1.1](#211-indexes--every-one-of-them-measured).
+
+The migration drops the index *before* the column: SQLite rebuilds the table on a column drop and
+would otherwise carry a dangling index definition into the copy.
+
+### 9.2 `approval_authority` is still a boolean, and stays one
+
+It sits in the same fieldset and is not the same kind of thing. `status` says whether an account may
+be used; `approval_authority` says what its holder may do. Merging them would conflate "disabled"
+with "cannot approve", which are independent. See
+[§2.2](#22-approval_authority-is-not-wired-to-anything) — it is still wired to nothing.

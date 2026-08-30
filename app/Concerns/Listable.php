@@ -2,27 +2,32 @@
 
 namespace App\Concerns;
 
+use App\Enums\FilterType;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Str;
 
 /**
- * Prefix search and allow-listed sorting for a model behind an index screen.
+ * Column filtering and allow-listed sorting for a model behind an index screen.
  *
- * Extracted from `App\Models\User` when designations, roles and permissions all
- * needed the same two scopes. Every Admin list is paginated, searchable and
- * sortable (ARCHITECTURE.md §8.6), and this is the model half of that; the
+ * Every Admin list is paginated, sortable, and filtered by a row of cells under
+ * its headers (ARCHITECTURE.md §8.6). This is the model half of that; the
  * request half is `App\Http\Requests\ListRequest`.
  *
  * A using model **must** declare both allow-lists:
  *
  * ```php
- * public const array SEARCHABLE = ['name'];
+ * public const array FILTERABLE = [
+ *     'name'   => FilterType::Contains,
+ *     'status' => FilterType::Equals,
+ * ];
+ *
  * public const array SORTABLE = ['name', 'created_at'];
  * ```
  *
  * They stay on the model rather than in this trait for two reasons: PHP will not
  * let a class override a constant a trait defines, and controllers ship them to
  * the front end (`User::SORTABLE`) so the table knows which headers to make
- * clickable.
+ * clickable and which cell to render in each filter column.
  */
 trait Listable
 {
@@ -37,26 +42,35 @@ trait Listable
     }
 
     /**
-     * Filter by a prefix match on one searchable field.
+     * Apply the filter row's values, each column matching the way it declares.
      *
-     * **Prefix, not contains.** `LIKE 'term%'` uses an index; `LIKE '%term%'`
-     * cannot, ever. So "158" finds employee 15868 but "868" does not — that is
-     * the contract, not a bug. See ARCHITECTURE.md §6.3.
+     * The allow-list is load-bearing twice over: a key absent from `FILTERABLE`
+     * never reaches the query at all, and the match type comes from the model
+     * rather than from the request, so no caller can turn an indexed prefix
+     * lookup into a table scan by changing a query parameter.
+     *
+     * Blank values are skipped rather than matched, so an empty cell means "no
+     * filter" instead of "rows whose name is the empty string".
      *
      * @param  Builder<static>  $query
+     * @param  array<string, string>  $filters
      */
-    public function scopeSearch(Builder $query, ?string $field, ?string $term): void
+    public function scopeFilterColumns(Builder $query, array $filters): void
     {
-        $term = trim((string) $term);
+        foreach (static::FILTERABLE as $column => $type) {
+            $value = trim((string) ($filters[$column] ?? ''));
 
-        if ($term === '' || ! in_array($field, static::SEARCHABLE, true)) {
-            return;
+            if ($value === '') {
+                continue;
+            }
+
+            match ($type) {
+                FilterType::Contains => $query->where($column, 'like', '%'.static::escapeLike($value).'%'),
+                FilterType::Prefix => $query->where($column, 'like', static::escapeLike($value).'%'),
+                FilterType::Equals => $query->where($column, $value),
+                FilterType::Scope => $query->{Str::camel($column)}($value),
+            };
         }
-
-        // Otherwise a term of "%" becomes a wildcard and scans the whole table.
-        $escaped = addcslashes($term, '%_\\');
-
-        $query->where($field, 'like', "{$escaped}%");
     }
 
     /**
@@ -74,5 +88,16 @@ trait Listable
         $direction = $direction === 'desc' ? 'desc' : 'asc';
 
         $query->orderBy($column, $direction);
+    }
+
+    /**
+     * Neutralise the wildcards a user can type into a `LIKE` term.
+     *
+     * Without this a term of "%" matches every row instead of none, and "_"
+     * silently becomes a single-character wildcard.
+     */
+    protected static function escapeLike(string $term): string
+    {
+        return addcslashes($term, '%_\\');
     }
 }

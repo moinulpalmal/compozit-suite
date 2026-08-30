@@ -118,39 +118,48 @@ export type UserListItem = {
 };
 
 /**
+ * How one column's filter cell matches, mirroring `App\Enums\FilterType`.
+ *
+ * `contains` finds mid-string and cannot use an index; `prefix` is indexable and
+ * is why "868" does not find employee 15868. The page shows the difference in
+ * each cell's placeholder rather than leaving people to guess.
+ */
+export type FilterMatch = 'contains' | 'prefix' | 'equals' | 'scope';
+
+/** A model's `FILTERABLE` map, as the controller ships it. */
+export type Filterable = Record<string, FilterMatch>;
+
+/**
  * The query state every Admin list screen carries, as `ListRequest::filters()`
- * serialises it. Surface-specific filters extend this.
+ * serialises it. Surface-specific keys extend this.
  */
 export type ListFilters = {
     /** Allow-listed column name; anything else is rejected server-side. */
     sort: string;
     direction: 'asc' | 'desc';
-    /** Which single column `search` is matched against. */
-    search_field: string;
-    /** Matched as a **prefix** — "158" finds 15868, "868" does not. */
-    search: string;
+    /** One of `perPageOptions`; anything else is rejected server-side. */
+    per_page: number;
+    /**
+     * The filter row's values, keyed by column. Every filterable column is
+     * present, blank when unfiltered, so the row renders from this alone.
+     */
+    filter: Record<string, string>;
 };
 
 export type UserFilters = ListFilters & {
-    filter: 'active' | 'trashed';
-    gender: string;
-    /** A designation id as a string, or '' for all. */
-    designation: string;
-    /** A `RecordStatus` value (`'A'` / `'I'`), or '' for all. */
-    status: string;
+    /**
+     * Which record set is listed. Not a column filter — it chooses between the
+     * live table and the soft-deleted history, which is why it is `view` and not
+     * a cell in the filter row.
+     */
+    view: 'active' | 'trashed';
 };
 
-export type DesignationFilters = ListFilters & {
-    /** `'A'`, `'I'`, or '' for all. */
-    status: string;
-};
+export type DesignationFilters = ListFilters;
 
 export type RoleFilters = ListFilters;
 
-export type PermissionFilters = ListFilters & {
-    /** A module segment (`admin`, `merchandising`), or '' for all. */
-    module: string;
-};
+export type PermissionFilters = ListFilters;
 
 /** One page of a Laravel paginator, as Inertia serialises it. */
 export type Paginated<T> = {

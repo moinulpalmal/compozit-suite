@@ -4,14 +4,15 @@ namespace App\Http\Requests\Admin;
 
 use App\Http\Requests\ListRequest;
 use App\Models\Admin\Permission;
-use Illuminate\Contracts\Validation\ValidationRule;
 
 /**
  * Validates the permission list's query string.
  *
  * The module filter replaces the grouped rendering this page used to do
  * client-side — grouping and pagination cannot both hold, because a group would
- * be cut across a page boundary. See documentation/admin.md §5.
+ * be cut across a page boundary. See documentation/admin.md §5. It is a cell in
+ * the filter row like any other, declared as a scope because the module is a
+ * segment of `name` rather than a column.
  */
 class PermissionIndexRequest extends ListRequest
 {
@@ -26,30 +27,8 @@ class PermissionIndexRequest extends ListRequest
     /**
      * {@inheritDoc}
      */
-    protected function searchable(): array
+    protected function filterable(): array
     {
-        return Permission::SEARCHABLE;
-    }
-
-    /**
-     * {@inheritDoc}
-     *
-     * @return array<string, ValidationRule|array<mixed>|string>
-     */
-    protected function filterRules(): array
-    {
-        return [
-            'module' => ['sometimes', 'nullable', 'string', 'max:50'],
-        ];
-    }
-
-    /**
-     * {@inheritDoc}
-     *
-     * @return array<string, string>
-     */
-    protected function filterValues(): array
-    {
-        return ['module' => $this->string('module')->value()];
+        return Permission::FILTERABLE;
     }
 }

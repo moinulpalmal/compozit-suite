@@ -39,7 +39,7 @@ test('the permission list filters by module', function () {
 
     Permission::findOrCreate('merchandising.tech-packs.view', 'web');
 
-    $this->get(route('admin.permissions.index', ['module' => 'merchandising']))
+    $this->get(route('admin.permissions.index', ['filter' => ['module' => 'merchandising']]))
         ->assertOk()
         ->assertInertia(fn ($page) => $page
             ->has('permissions.data', 1)
@@ -55,7 +55,7 @@ test('the module filter matches a whole segment, not a prefix of one', function 
     // scope appends the dot separator rather than matching the bare prefix.
     Permission::findOrCreate('administration.things.view', 'web');
 
-    $this->get(route('admin.permissions.index', ['module' => 'admin']))
+    $this->get(route('admin.permissions.index', ['filter' => ['module' => 'admin']]))
         ->assertOk()
         ->assertInertia(function ($page) {
             $listed = collect($page->toArray()['props']['permissions']['data'])

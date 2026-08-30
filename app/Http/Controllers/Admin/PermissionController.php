@@ -15,11 +15,6 @@ use Inertia\Response;
 
 class PermissionController extends Controller
 {
-    /**
-     * Rows per page on the permission list.
-     */
-    protected const int PER_PAGE = 25;
-
     public function __construct(protected PermissionService $permissions) {}
 
     /**
@@ -38,10 +33,9 @@ class PermissionController extends Controller
 
         $permissions = Permission::query()
             ->with('roles:id,name')
-            ->inModule($filters['module'])
-            ->search($filters['search_field'], $filters['search'])
+            ->filterColumns($filters['filter'])
             ->sortBy($filters['sort'], $filters['direction'])
-            ->paginate(self::PER_PAGE)
+            ->paginate($filters['per_page'])
             ->withQueryString()
             ->through(fn (Permission $permission): array => [
                 'id' => $permission->id,
@@ -54,7 +48,8 @@ class PermissionController extends Controller
             'permissions' => $permissions,
             'modules' => $this->permissions->moduleOptions(),
             'sortable' => Permission::SORTABLE,
-            'searchable' => Permission::SEARCHABLE,
+            'filterable' => Permission::FILTERABLE,
+            'perPageOptions' => PermissionIndexRequest::PER_PAGE_OPTIONS,
             'filters' => $filters,
         ]);
     }

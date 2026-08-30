@@ -15,11 +15,6 @@ use Inertia\Response;
 
 class RoleController extends Controller
 {
-    /**
-     * Rows per page on the role list.
-     */
-    protected const int PER_PAGE = 25;
-
     public function __construct(
         protected RoleService $roles,
         protected PermissionService $permissions,
@@ -34,9 +29,9 @@ class RoleController extends Controller
 
         $roles = Role::query()
             ->withCount(['permissions', 'users'])
-            ->search($filters['search_field'], $filters['search'])
+            ->filterColumns($filters['filter'])
             ->sortBy($filters['sort'], $filters['direction'])
-            ->paginate(self::PER_PAGE)
+            ->paginate($filters['per_page'])
             ->withQueryString()
             ->through(fn (Role $role): array => [
                 'id' => $role->id,
@@ -50,7 +45,8 @@ class RoleController extends Controller
         return Inertia::render('admin/roles/index', [
             'roles' => $roles,
             'sortable' => Role::SORTABLE,
-            'searchable' => Role::SEARCHABLE,
+            'filterable' => Role::FILTERABLE,
+            'perPageOptions' => RoleIndexRequest::PER_PAGE_OPTIONS,
             'filters' => $filters,
         ]);
     }

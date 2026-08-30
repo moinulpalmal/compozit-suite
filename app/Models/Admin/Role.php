@@ -3,6 +3,7 @@
 namespace App\Models\Admin;
 
 use App\Concerns\Listable;
+use App\Enums\FilterType;
 use App\Providers\AppServiceProvider;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Carbon;
@@ -34,11 +35,15 @@ class Role extends SpatieRole
     public const string SUPER_ADMIN = 'super-admin';
 
     /**
-     * The fields the role list may be searched by.
+     * The columns the role list's filter row exposes.
      *
-     * @var list<string>
+     * `users_count` and `permissions_count` have no cell for the same reason
+     * they have no sort: they are `withCount` aggregates, so filtering them
+     * needs `HAVING` rather than `WHERE`.
+     *
+     * @var array<string, FilterType>
      */
-    public const array SEARCHABLE = ['name'];
+    public const array FILTERABLE = ['name' => FilterType::Contains];
 
     /**
      * The columns the role list may be sorted by.

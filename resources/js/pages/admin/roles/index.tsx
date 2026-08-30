@@ -1,6 +1,7 @@
-import { Head, Link, router } from '@inertiajs/react';
+import { Head, Link } from '@inertiajs/react';
 import { Pencil, Plus } from 'lucide-react';
 import RoleController from '@/actions/App/Http/Controllers/Admin/RoleController';
+import ColumnFilterRow from '@/components/admin/column-filter-row';
 import ConfirmDeleteDialog from '@/components/admin/confirm-delete-dialog';
 import ListToolbar from '@/components/admin/list-toolbar';
 import Pagination from '@/components/admin/pagination';
@@ -8,34 +9,34 @@ import SortableHeader, { nextSort } from '@/components/admin/sortable-header';
 import Heading from '@/components/heading';
 import { Button } from '@/components/ui/button';
 import { useCan } from '@/hooks/use-can';
+import { useListFilters } from '@/hooks/use-list-filters';
 import { create, edit, index } from '@/routes/admin/roles';
-import type { Paginated, RoleFilters, RoleListItem } from '@/types';
+import type { Filterable, Paginated, RoleFilters, RoleListItem } from '@/types';
 
 type Props = {
     roles: Paginated<RoleListItem>;
     sortable: string[];
-    searchable: string[];
+    filterable: Filterable;
+    perPageOptions: number[];
     filters: RoleFilters;
 };
 
 export default function RolesIndex({
     roles,
     sortable,
-    searchable,
+    filterable,
+    perPageOptions,
     filters,
 }: Props) {
     const canCreate = useCan('admin.roles.create');
     const canUpdate = useCan('admin.roles.update');
     const canDelete = useCan('admin.roles.delete');
 
-    // Any filter change resets to page 1 — staying on page 9 of a result set
-    // that now has two pages would show an empty table.
-    const visit = (next: Partial<RoleFilters>) =>
-        router.get(
-            index({ query: { ...filters, ...next, page: undefined } }),
-            {},
-            { preserveState: true, preserveScroll: true, replace: true },
-        );
+    const { draft, visit, setFilter, clear, hasActiveFilter } = useListFilters({
+        filters,
+        url: index,
+        only: ['roles', 'filters'],
+    });
 
     const sortProps = (column: string) => ({
         column,
@@ -65,11 +66,11 @@ export default function RolesIndex({
                 </div>
 
                 <ListToolbar
-                    filters={filters}
-                    searchable={searchable}
-                    searchLabels={{ name: 'Role' }}
-                    onChange={visit}
-                    onClear={() => visit({ search: '' })}
+                    perPage={filters.per_page}
+                    perPageOptions={perPageOptions}
+                    onPerPage={(per_page) => visit({ per_page })}
+                    onClear={clear}
+                    hasActiveFilter={hasActiveFilter}
                 />
 
                 <div className="overflow-x-auto rounded-box border border-base-300/70">
@@ -79,13 +80,30 @@ export default function RolesIndex({
                                 <SortableHeader {...sortProps('name')}>
                                     Role
                                 </SortableHeader>
-                                {/* Aggregates, not columns — sorting by them
-                                    needs `orderBy` on the withCount alias, not
-                                    the allow-list path. See Role::SORTABLE. */}
+                                {/* Aggregates, not columns — neither sorting
+                                    nor filtering by them goes through the
+                                    allow-list path. See Role::SORTABLE and
+                                    Role::FILTERABLE. */}
                                 <th className="text-right">Permissions</th>
                                 <th className="text-right">Users</th>
                                 <th className="w-24" />
                             </tr>
+
+                            <ColumnFilterRow
+                                filterable={filterable}
+                                draft={draft}
+                                onFilter={setFilter}
+                                cells={[
+                                    {
+                                        type: 'text',
+                                        column: 'name',
+                                        label: 'role',
+                                    },
+                                    { type: 'none' },
+                                    { type: 'none' },
+                                    { type: 'none' },
+                                ]}
+                            />
                         </thead>
                         <tbody>
                             {roles.data.length === 0 && (
@@ -94,8 +112,7 @@ export default function RolesIndex({
                                         colSpan={4}
                                         className="text-center text-base-content/60"
                                     >
-                                        No roles match these filters. Search
-                                        matches from the start of the name.
+                                        No roles match these filters.
                                     </td>
                                 </tr>
                             )}

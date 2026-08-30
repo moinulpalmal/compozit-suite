@@ -29,7 +29,9 @@ class BenchmarkUsersCommand extends Command
     /**
      * Indexes to test, as name => columns.
      *
-     * `(deleted_at, name)` is absent because it already exists in a migration.
+     * `(deleted_at, name)` and `(deleted_at, status, name)` are absent because
+     * they already exist in migrations — a candidate duplicating a shipped
+     * index measures nothing but the cost of maintaining two copies of it.
      *
      * @var array<string, list<string>>
      */
@@ -40,7 +42,6 @@ class BenchmarkUsersCommand extends Command
         'bench_deleted_personal_mobile' => ['deleted_at', 'personal_mobile_no'],
         'bench_deleted_official_mobile' => ['deleted_at', 'official_mobile_no'],
         'bench_deleted_extension' => ['deleted_at', 'official_extension_no'],
-        'bench_deleted_status_name' => ['deleted_at', 'status', 'name'],
         'bench_deleted_gender_name' => ['deleted_at', 'gender', 'name'],
 
         /*
@@ -204,11 +205,23 @@ class BenchmarkUsersCommand extends Command
             'sort employee_id' => "{$base} ORDER BY employee_id ASC LIMIT 25",
             'sort email desc' => "{$base} ORDER BY email DESC LIMIT 25",
             'sort created_at desc' => "{$base} ORDER BY created_at DESC LIMIT 25",
-            'search name (broad)' => "{$base} AND name LIKE 'Ma%' ORDER BY name LIMIT 25",
-            'search employee_id (selective)' => "{$base} AND employee_id LIKE '{$sample['employee_id']}%' ORDER BY name LIMIT 25",
-            'search mobile (selective)' => "{$base} AND personal_mobile_no LIKE '{$sample['personal_mobile_no']}%' ORDER BY name LIMIT 25",
-            'search mobile (broad)' => "{$base} AND personal_mobile_no LIKE '017%' ORDER BY name LIMIT 25",
-            'search extension (selective)' => "{$base} AND official_extension_no LIKE '{$sample['official_extension_no']}%' ORDER BY name LIMIT 25",
+            /*
+             * `name` and `email` are FilterType::Contains, so they are measured
+             * as `%term%` — the shape the filter row actually issues, and the
+             * one no index can serve. The identifiers stay `term%`.
+             */
+            'filter name (contains, broad)' => "{$base} AND name LIKE '%Ma%' ORDER BY name LIMIT 25",
+            'filter name (contains, selective)' => "{$base} AND name LIKE '%{$sample['name']}%' ORDER BY name LIMIT 25",
+            'filter email (contains)' => "{$base} AND email LIKE '%example%' ORDER BY name LIMIT 25",
+            'filter employee_id (prefix)' => "{$base} AND employee_id LIKE '{$sample['employee_id']}%' ORDER BY name LIMIT 25",
+            'filter mobile (prefix, selective)' => "{$base} AND personal_mobile_no LIKE '{$sample['personal_mobile_no']}%' ORDER BY name LIMIT 25",
+            'filter mobile (prefix, broad)' => "{$base} AND personal_mobile_no LIKE '017%' ORDER BY name LIMIT 25",
+            'filter extension (prefix)' => "{$base} AND official_extension_no LIKE '{$sample['official_extension_no']}%' ORDER BY name LIMIT 25",
+            /*
+             * Two cells at once is the filter row's normal case, and the one
+             * that decides whether the leading predicate's index still helps.
+             */
+            'two cells (name contains + status)' => "{$base} AND name LIKE '%Ma%' AND status = 'A' ORDER BY name LIMIT 25",
             'filter gender' => "{$base} AND gender = 'F' ORDER BY name LIMIT 25",
             'filter designation (common)' => "{$base} AND designation_id = {$sample['designation_common']} ORDER BY name LIMIT 25",
             'filter designation (rare)' => "{$base} AND designation_id = {$sample['designation_rare']} ORDER BY name LIMIT 25",
@@ -226,7 +239,7 @@ class BenchmarkUsersCommand extends Command
      * index is used at all: the common title matches a third of the table and
      * will rightly be scanned, the rare one is the case an index can win.
      *
-     * @return array{employee_id: string, personal_mobile_no: string, official_extension_no: string, designation_common: int, designation_rare: int}
+     * @return array{name: string, employee_id: string, personal_mobile_no: string, official_extension_no: string, designation_common: int, designation_rare: int}
      */
     protected function sample(): array
     {
@@ -241,6 +254,9 @@ class BenchmarkUsersCommand extends Command
             ->all();
 
         return [
+            // A mid-string slice, which is the case `%term%` exists to serve
+            // and the one a prefix match would miss.
+            'name' => substr((string) $user->name, 2, 5),
             // Long enough to identify one person, as a real lookup would be.
             'employee_id' => substr((string) $user->employee_id, 0, 4),
             'personal_mobile_no' => substr((string) $user->personal_mobile_no, 0, 8),

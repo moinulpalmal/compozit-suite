@@ -10,8 +10,12 @@ use Illuminate\Support\Facades\Schema;
  *
  * `status` is a single character (`A`/`I`), not a boolean and not `deleted_at`:
  * deactivating retires a title from the pickers, deleting removes it and is
- * refused while any user still holds it. The divergence from `users.approved`
- * is deliberate — documentation/admin.md records why.
+ * refused while any user still holds it.
+ *
+ * This was the first char-flagged table. It later became the house convention —
+ * `App\Enums\RecordStatus` with `App\Concerns\HasStatus` — and `users.approved`
+ * was migrated to match it rather than the other way round. See
+ * ARCHITECTURE.md §9.3.1.
  *
  * No index beyond the two unique constraints. A unique constraint already *is*
  * an index (ARCHITECTURE.md §6.3), the table is small, and `status` has two

@@ -4,6 +4,7 @@ namespace App\Models\Admin;
 
 use App\Concerns\HasStatus;
 use App\Concerns\Listable;
+use App\Enums\FilterType;
 use App\Enums\RecordStatus;
 use App\Models\User;
 use App\Observers\ActorObserver;
@@ -45,14 +46,19 @@ class Designation extends Model
     use HasFactory, HasStatus, Listable;
 
     /**
-     * The fields the designation list may be searched by.
+     * The columns the designation list's filter row exposes.
      *
-     * One named field rather than an `OR` across both, for the reason in
-     * ARCHITECTURE.md §6.3 — `name` is covered by its unique index.
+     * Both text columns are {@see FilterType::Contains}: this table is small and
+     * bounded by the size of an org chart, so the scan is trivial and finding
+     * "manager" inside "Assistant Manager" is what someone typing here wants.
      *
-     * @var list<string>
+     * @var array<string, FilterType>
      */
-    public const array SEARCHABLE = ['name', 'short_form'];
+    public const array FILTERABLE = [
+        'name' => FilterType::Contains,
+        'short_form' => FilterType::Contains,
+        'status' => FilterType::Equals,
+    ];
 
     /**
      * The columns the designation list may be sorted by.

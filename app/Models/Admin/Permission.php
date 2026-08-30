@@ -3,6 +3,7 @@
 namespace App\Models\Admin;
 
 use App\Concerns\Listable;
+use App\Enums\FilterType;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Carbon;
@@ -29,14 +30,18 @@ class Permission extends SpatiePermission
     use Listable;
 
     /**
-     * The fields the permission list may be searched by.
+     * The columns the permission list's filter row exposes.
      *
-     * A prefix match on `name` doubles as the module filter's manual escape
-     * hatch: searching `merchandising.` narrows to that module.
+     * `module` is not a column. It is the first dot-delimited segment of `name`,
+     * so its cell is a {@see FilterType::Scope} that hands the value to
+     * {@see self::scopeModule()}.
      *
-     * @var list<string>
+     * @var array<string, FilterType>
      */
-    public const array SEARCHABLE = ['name'];
+    public const array FILTERABLE = [
+        'name' => FilterType::Contains,
+        'module' => FilterType::Scope,
+    ];
 
     /**
      * The columns the permission list may be sorted by.
@@ -56,13 +61,16 @@ class Permission extends SpatiePermission
     /**
      * Limit the query to one module segment.
      *
+     * Named for its filter key so {@see FilterType::Scope} can resolve it —
+     * `filter[module]` calls `scopeModule()`.
+     *
      * Matched as a prefix on `name` rather than against a stored column: the
      * module is not a column, it is the first dot-delimited segment, and a
      * prefix is the one shape an index can serve (ARCHITECTURE.md §6.3).
      *
      * @param  Builder<Permission>  $query
      */
-    public function scopeInModule(Builder $query, ?string $module): void
+    public function scopeModule(Builder $query, ?string $module): void
     {
         $module = trim((string) $module);
 

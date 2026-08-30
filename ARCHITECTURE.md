@@ -206,9 +206,9 @@ form pieces live in `resources/js/components/admin/`.
 **User management deliberately diverges from that page pattern.** It is a *single* page —
 `pages/admin/users/index.tsx` — where create, edit, role assignment, password reset, soft delete,
 restore and permanent delete all happen in modals, and where the active and historical (soft-deleted)
-lists are two tabs driven by a `?filter=active|trashed` query parameter rather than a second route.
-It is also the module's **data-table reference**: sortable headers, gender and status filters, a
-field-scoped prefix search and pagination, all carried in the query string and validated by
+lists are two tabs driven by a `?view=active|trashed` query parameter rather than a second route.
+It is also the module's **data-table reference**: sortable headers, a filter cell under each column,
+a page-size selector and numbered pagination, all carried in the query string and validated by
 `UserIndexRequest` against allow-lists on the model. Copy that shape for the next list surface.
 This is a decision, not drift: the owner asked for one screen. Roles and permissions keep their
 `index/create/edit` pages; do not "harmonise" one into the other without a new decision.
@@ -298,7 +298,7 @@ Request classes are named `{Model}{Action}Request` — `TechPackStoreRequest`,
 `TechPackUpdateRequest`. Actions are named as verbs — `DuplicateTechPack`, not `TechPackDuplicator`.
 
 An index screen's request is `{Model}IndexRequest` and extends `App\Http\Requests\ListRequest`
-rather than `FormRequest` — see [§8.6](#86-every-list-is-paginated-searchable-and-sortable). That
+rather than `FormRequest` — see [§8.6](#86-every-list-is-paginated-sortable-and-filtered-per-column). That
 base class is the one request that lives at the root of `app/Http/Requests/`, because it belongs to
 no module.
 
@@ -342,15 +342,25 @@ An index is not a property of a column, it is a property of a **query**. Find th
 - **Foreign keys: InnoDB indexes them automatically, SQLite does not.** Development runs on MySQL
   and tests on SQLite ([§2](#2-stack)), so do not add an explicit index for a `constrained()`
   column — on MySQL it is a duplicate.
-- **`LIKE '%term%'` cannot use a B-tree**, ever. The leading wildcard defeats it. Accept the scan,
-  switch to prefix matching (`term%`, which an index *can* serve), or use `FULLTEXT` — and if
+- **`LIKE '%term%'` cannot use a B-tree for the *predicate*,** ever — the leading wildcard defeats
+  it. It can still use one for the `ORDER BY`, which is why `users_deleted_at_name_index` survived
+  `name` becoming a contains filter: MySQL walks it in order, applies the wildcard as a residual
+  filter, and stops at the `LIMIT`. So a contains column costs a scan, not the index. The
+  alternatives remain prefix matching (`term%`, which an index *can* seek) or `FULLTEXT` — and if
   `FULLTEXT`, guard the migration by driver, because Laravel's SQLite grammar has no
   `compileFullText` and the migration will throw under test.
-- **`OR` across several columns defeats indexing too.** One search box matching a term against six
-  columns forces an unreliable index merge, or makes the optimizer pick one index and filter the
-  rest — so indexes built for the other five are never used. Prefer a **field-scoped** search (a
-  "search in [column]" selector) so every query is a single-column range scan. `admin/users` is the
-  worked example.
+- **Choose contains-versus-prefix per column, and declare it.** Each model's `FILTERABLE` map names
+  a `FilterType` for every filterable column ([§8.6](#86-every-list-is-paginated-sortable-and-filtered-per-column)).
+  Names and emails are `Contains`, where finding mid-string is worth the scan; identifiers and phone
+  numbers are `Prefix`, which is both how people type them and what keeps their indexes seekable.
+  **Never infer this from the column type** — every filterable column in this application is a
+  `varchar`, `employee_id` included, so inference would silently make everything `Contains`.
+- **`OR` across several columns defeats indexing; `AND` does not.** One search box matching a term
+  against six columns forces an unreliable index merge, or makes the optimizer pick one index and
+  filter the rest — so indexes built for the other five are never used. A **filter row**, where each
+  cell filters its own column and the cells are `AND`-ed, has no such problem: the leading predicate
+  seeks and the rest are cheap residual filters. That is why the lists have a cell per column and
+  not one box across all of them.
 - **A `unique` index already serves `ORDER BY`,** not just lookups. With a `LIMIT`, MySQL walks it in
   order and stops early, so a `(deleted_at, that_column)` composite for sorting is usually redundant.
   Two such "obvious" composites were measured and rejected on `users`.
@@ -517,29 +527,46 @@ shipping fewer rows is the entire point. Match `q` as a **prefix** so the query 
 `X-Requested-With` header — omit that and Laravel records the JSON URL as the session's previous
 URL, sending every later `back()` to it.
 
-### 8.6 Every list is paginated, searchable and sortable
+### 8.6 Every list is paginated, sortable and filtered per column
 
 **A list screen is never a bare `->get()`.** All four Admin lists — users, designations, roles,
 permissions — go through one apparatus, and a new one inherits it rather than re-implementing it:
 
 | Piece | Job |
 | --- | --- |
-| `app/Concerns/Listable` | `scopeSearch()` and `scopeSortBy()`. The model declares `SEARCHABLE` and `SORTABLE` |
-| `app/Http/Requests/ListRequest` | Abstract base validating `sort` / `direction` / `search_field` / `search` / `page`. Subclasses add their own filters through `filterRules()` and `filterValues()` |
-| `components/admin/list-toolbar.tsx` | The filter bar — dropdown filters plus a field-scoped search |
+| `app/Enums/FilterType` | `Contains` / `Prefix` / `Equals` / `Scope` — how one cell matches |
+| `app/Concerns/Listable` | `scopeFilterColumns()` and `scopeSortBy()`. The model declares `FILTERABLE` and `SORTABLE` |
+| `app/Http/Requests/ListRequest` | Abstract base validating `sort` / `direction` / `per_page` / `filter[…]` / `page`. Subclasses add anything else through `filterRules()` and `filterValues()` |
+| `components/admin/column-filter-row.tsx` | The row of filter cells under the headers |
+| `hooks/use-list-filters.ts` | The 400 ms debounce, page reset, and one-visit clear |
+| `components/admin/list-toolbar.tsx` | The thin bar above: page size, Clear filters, surface extras |
 | `components/admin/sortable-header.tsx` | Clickable `<th>`, and `nextSort()` |
-| `components/admin/pagination.tsx` | "Showing x–y of z" with prev/next |
+| `components/admin/pagination.tsx` | Numbered pages with prev/next and "Showing x–y of z" |
+
+The wire format is `?filter[name]=man&sort=name&direction=asc&per_page=50&page=2`.
 
 Rules that come with it:
 
 - **The allow-lists are a security control, not a convenience.** Request input reaching `orderBy()`
-  is a SQL injection. It is validated in the request *and* clamped in the scope; keep both.
-- **Search is a prefix match on one named field.** Never an `OR` across columns — see
-  [§6.3](#63-migrations). The toolbar's "Search in" selector is what makes the per-column indexes pay.
-- **Paginate with `->paginate()->withQueryString()->through(…)`.** Without `withQueryString`, page 2
-  silently drops the sort and filters.
-- **`SORTABLE` holds columns, not aggregates.** Sorting by a `withCount` alias needs a different
-  path; `Role::SORTABLE` records why `users_count` is absent.
+  is a SQL injection, and a filter key outside `FILTERABLE` must be a validation **error**, not a
+  silent ignore. Both are checked in the request *and* clamped in the scope; keep both.
+- **Filters are per column and `AND`-ed.** Never an `OR` across columns — see
+  [§6.3](#63-migrations), which also governs whether a column is `Contains` or `Prefix`.
+- **Page size is an allow-list, not a cap.** `ListRequest::PER_PAGE_OPTIONS`; an unvalidated
+  `?per_page=999999` is a denial-of-service that costs nothing to send.
+- **Text cells debounce, dropdowns do not.** A contains filter is a table scan, so every visit the
+  debounce saves is a scan that never runs.
+- **A partial reload must name every prop that varies with the rows.** `useListFilters`' `only`
+  list is not just an optimization — the users list has to include `designations`, because that prop
+  is derived from the rows currently on screen and would otherwise go stale.
+- **Paginate with `->paginate($filters['per_page'])->withQueryString()->through(…)`.** Without
+  `withQueryString`, page 2 silently drops the sort and filters.
+- **`SORTABLE` and `FILTERABLE` hold columns, not aggregates.** A `withCount` alias needs `HAVING`
+  and a different path; `Role` records why `users_count` is in neither.
+- **A filter that selects the record set is not a filter cell.** The users list's
+  `?view=active|trashed` chooses between the live table and the soft-deleted history, so it lives in
+  the toolbar. It is also why that parameter is `view` and not `filter`: a scalar and an array
+  cannot share one query-string key.
 - **A list and its picker are different queries.** Paginating a list must never paginate the
   dropdown that offers the same records elsewhere —
   `DesignationService::assignableOptions()` and `PermissionService::groupedByModule()` are both
@@ -631,6 +658,26 @@ there is nothing else to write.
 
 Observers are registered with the `#[ObservedBy]` attribute on the model, not in a service provider.
 When the full audit-log mechanism is chosen, it belongs here alongside this.
+
+### 9.3.1 Active/inactive status
+
+`App\Enums\RecordStatus` (`'A'` / `'I'`) is the application's **one** active/inactive vocabulary, and
+`App\Concerns\HasStatus` is how a model gets it: the cast, `scopeActive()`, `scopeInactive()` and
+`isActive()` from a single `use`. A table opts in with a `string(1) status` column defaulting to
+`'A'`, and adds `'status'` to `#[Fillable]` if a form writes it. Currently `users` and
+`designations`.
+
+- **The enum lives at the root of `app/Enums/`**, like `Theme`, because it belongs to no module — an
+  exception to [§6.1](#61-backend-classes).
+- **It is `RecordStatus`, not `Status`.** A workflow status (Draft → Approved → Cancelled on a BQS or
+  PO) is a different concept with a different lifecycle and belongs in a module-scoped enum. The
+  generic name is left free so that enum has an obvious home.
+- **`status` is not `deleted_at`.** Deactivating retires a record from pickers while leaving it in
+  place and leaving its holders alone; deleting is a separate verb with its own guard. A table can
+  have both.
+- **Do not add a second boolean active flag.** `users.approved` was one, and was migrated to
+  `users.status` when this became the convention. A boolean like `approval_authority` is fine when it
+  means something else — that one is a *power* flag, not an active flag.
 
 ### 9.4 Master data
 

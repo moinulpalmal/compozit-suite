@@ -28,7 +28,7 @@ test('users with the view permission see the active list', function () {
         ->assertInertia(fn ($page) => $page
             ->component('admin/users/index')
             ->has('users.data', 2)
-            ->where('filters.filter', 'active')
+            ->where('filters.view', 'active')
             ->where('counts.trashed', 1));
 });
 
@@ -39,7 +39,7 @@ test('the historical tab lists only soft-deleted users', function () {
     User::factory()->create(['name' => 'Deleted Person'])->delete();
 
     $this->actingAs($actor)
-        ->get(route('admin.users.index', ['filter' => 'trashed']))
+        ->get(route('admin.users.index', ['view' => 'trashed']))
         ->assertOk()
         ->assertInertia(fn ($page) => $page
             ->has('users.data', 1)
@@ -63,7 +63,7 @@ test('search matches an employee id by prefix', function () {
     User::factory()->create(['employee_id' => '90210']);
     User::factory()->create(['employee_id' => '77777']);
 
-    $this->get(route('admin.users.index', ['search_field' => 'employee_id', 'search' => '902']))
+    $this->get(route('admin.users.index', ['filter' => ['employee_id' => '902']]))
         ->assertOk()
         ->assertInertia(fn ($page) => $page
             ->has('users.data', 1)
@@ -75,7 +75,7 @@ test('search does not match mid-string', function () {
 
     User::factory()->create(['employee_id' => '90210']);
 
-    $this->get(route('admin.users.index', ['search_field' => 'employee_id', 'search' => '021']))
+    $this->get(route('admin.users.index', ['filter' => ['employee_id' => '021']]))
         ->assertOk()
         ->assertInertia(fn ($page) => $page->has('users.data', 0));
 });
@@ -85,8 +85,9 @@ test('search is scoped to the chosen field', function () {
 
     User::factory()->create(['name' => 'Zubair', 'employee_id' => '55501']);
 
-    // The term matches the employee ID, but the field is name — so no result.
-    $this->get(route('admin.users.index', ['search_field' => 'name', 'search' => '555']))
+    // The term matches the employee ID, but it was typed into the name cell —
+    // each cell filters its own column and nothing else.
+    $this->get(route('admin.users.index', ['filter' => ['name' => '555']]))
         ->assertOk()
         ->assertInertia(fn ($page) => $page->has('users.data', 0));
 });
@@ -96,7 +97,7 @@ test('a wildcard in the search term is escaped, not honoured', function () {
 
     User::factory()->create(['name' => 'Rashida']);
 
-    $this->get(route('admin.users.index', ['search_field' => 'name', 'search' => '%']))
+    $this->get(route('admin.users.index', ['filter' => ['name' => '%']]))
         ->assertOk()
         ->assertInertia(fn ($page) => $page->has('users.data', 0));
 });
@@ -107,7 +108,7 @@ test('users can be searched by mobile number prefix', function () {
     User::factory()->create(['personal_mobile_no' => '01712345678']);
     User::factory()->create(['personal_mobile_no' => '01911112222']);
 
-    $this->get(route('admin.users.index', ['search_field' => 'personal_mobile_no', 'search' => '01712']))
+    $this->get(route('admin.users.index', ['filter' => ['personal_mobile_no' => '01712']]))
         ->assertOk()
         ->assertInertia(fn ($page) => $page
             ->has('users.data', 1)
@@ -139,11 +140,11 @@ test('an unknown sort column is rejected rather than reaching the database', fun
     expect(User::query()->count())->toBeGreaterThan(0);
 });
 
-test('an unknown search field is rejected', function () {
+test('an unknown filter column is rejected', function () {
     $this->actingAs(userWithPermissions('admin.users.view'));
 
-    $this->get(route('admin.users.index', ['search_field' => 'password', 'search' => 'x']))
-        ->assertSessionHasErrors('search_field');
+    $this->get(route('admin.users.index', ['filter' => ['password' => 'x']]))
+        ->assertSessionHasErrors('filter');
 });
 
 test('the list filters by gender and by status', function () {
@@ -158,12 +159,12 @@ test('the list filters by gender and by status', function () {
     User::factory()->create(['name' => 'Male Person', 'gender' => 'M']);
     User::factory()->inactive()->create(['name' => 'Disabled Person', 'gender' => 'M']);
 
-    $this->get(route('admin.users.index', ['gender' => 'F']))
+    $this->get(route('admin.users.index', ['filter' => ['gender' => 'F']]))
         ->assertInertia(fn ($page) => $page
             ->has('users.data', 1)
             ->where('users.data.0.name', 'Female Person'));
 
-    $this->get(route('admin.users.index', ['status' => RecordStatus::Inactive->value]))
+    $this->get(route('admin.users.index', ['filter' => ['status' => RecordStatus::Inactive->value]]))
         ->assertInertia(fn ($page) => $page
             ->has('users.data', 1)
             ->where('users.data.0.name', 'Disabled Person'));
@@ -177,16 +178,16 @@ test('the list is paginated and keeps its filters across pages', function () {
 
     User::factory()->count(30)->create(['gender' => 'F']);
 
-    $this->get(route('admin.users.index', ['gender' => 'F']))
+    $this->get(route('admin.users.index', ['filter' => ['gender' => 'F']]))
         ->assertInertia(fn ($page) => $page
             ->has('users.data', 25)
             ->where('users.total', 30)
             ->where('users.current_page', 1));
 
-    $this->get(route('admin.users.index', ['gender' => 'F', 'page' => 2]))
+    $this->get(route('admin.users.index', ['filter' => ['gender' => 'F'], 'page' => 2]))
         ->assertInertia(fn ($page) => $page
             ->where('users.current_page', 2)
-            ->where('filters.gender', 'F'));
+            ->where('filters.filter.gender', 'F'));
 });
 
 test('a user is created with roles and a verified email', function () {
@@ -523,7 +524,7 @@ test('a user with no designation still loads on the list', function () {
 
     User::factory()->create(['name' => 'Legacy Person', 'designation_id' => null]);
 
-    $this->get(route('admin.users.index', ['search_field' => 'name', 'search' => 'Legacy']))
+    $this->get(route('admin.users.index', ['filter' => ['name' => 'Legacy']]))
         ->assertOk()
         ->assertInertia(fn ($page) => $page
             ->has('users.data', 1)
@@ -539,21 +540,21 @@ test('the list filters by designation', function () {
     User::factory()->create(['name' => 'Ayesha', 'designation_id' => $merchandiser->id]);
     User::factory()->create(['name' => 'Bilal', 'designation_id' => $cutter->id]);
 
-    $this->get(route('admin.users.index', ['designation' => $merchandiser->id]))
+    $this->get(route('admin.users.index', ['filter' => ['designation_id' => $merchandiser->id]]))
         ->assertOk()
         ->assertInertia(fn ($page) => $page
             ->has('users.data', 1)
             ->where('users.data.0.name', 'Ayesha')
             ->where('users.data.0.designation', 'Merchandiser')
-            ->where('filters.designation', (string) $merchandiser->id));
+            ->where('filters.filter.designation_id', (string) $merchandiser->id));
 });
 
 test('an unknown designation filter is rejected', function () {
     $this->actingAs(userWithPermissions('admin.users.view'));
 
     $this->from(route('admin.users.index'))
-        ->get(route('admin.users.index', ['designation' => 999999]))
-        ->assertSessionHasErrors('designation');
+        ->get(route('admin.users.index', ['filter' => ['designation_id' => 999999]]))
+        ->assertSessionHasErrors('filter.designation_id');
 });
 
 test('the edit picker offers a deactivated designation this page still holds', function () {

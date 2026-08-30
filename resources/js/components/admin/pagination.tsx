@@ -1,10 +1,19 @@
 import { Link } from '@inertiajs/react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
+import type { ReactNode } from 'react';
 import { Button } from '@/components/ui/button';
 import type { Paginated } from '@/types';
 
+/** Pages either side of the current one before the list is elided. */
+const WINDOW = 2;
+
 /**
- * Previous/next paging with a "showing x–y of z" read-out.
+ * Numbered paging with previous/next and a "showing x–y of z" read-out.
+ *
+ * The page numbers are computed here from `current_page` and `last_page` rather
+ * than rendered from the paginator's own `links` array: those labels are HTML
+ * entities (`&laquo; Previous`) and bake previous/next into the same list, which
+ * is a worse fit than deriving the window.
  *
  * Lives in `components/admin/` because Admin is currently its only consumer —
  * move it to `components/shared/` the moment a second module imports it, per
@@ -24,54 +33,150 @@ export default function Pagination<T>({ page }: { page: Paginated<T> }) {
             </p>
 
             {page.last_page > 1 && (
-                <div className="flex items-center gap-2">
-                    <Button
-                        variant="secondary"
-                        size="sm"
-                        disabled={page.prev_page_url === null}
-                        asChild={page.prev_page_url !== null}
-                    >
-                        {page.prev_page_url === null ? (
-                            <span>
-                                <ChevronLeft /> Previous
-                            </span>
-                        ) : (
-                            <Link
-                                href={page.prev_page_url}
-                                preserveScroll
-                                preserveState
-                            >
-                                <ChevronLeft /> Previous
-                            </Link>
-                        )}
-                    </Button>
+                <div className="flex items-center gap-1">
+                    <Step
+                        url={page.prev_page_url}
+                        label="Previous"
+                        icon={<ChevronLeft />}
+                    />
 
-                    <span className="text-sm text-base-content/60 tabular-nums">
-                        {page.current_page} / {page.last_page}
-                    </span>
+                    {pageNumbers(page.current_page, page.last_page).map(
+                        (entry, index) =>
+                            entry === null ? (
+                                <span
+                                    // Ellipses have no identity of their own;
+                                    // there are at most two and they never move
+                                    // relative to their neighbours.
+                                    key={`gap-${index}`}
+                                    className="px-1 text-sm text-base-content/40"
+                                >
+                                    …
+                                </span>
+                            ) : (
+                                <Button
+                                    key={entry}
+                                    size="sm"
+                                    variant={
+                                        entry === page.current_page
+                                            ? 'default'
+                                            : 'ghost'
+                                    }
+                                    aria-label={`Page ${entry}`}
+                                    aria-current={
+                                        entry === page.current_page
+                                            ? 'page'
+                                            : undefined
+                                    }
+                                    asChild={entry !== page.current_page}
+                                    className="tabular-nums"
+                                >
+                                    {entry === page.current_page ? (
+                                        <span>{entry}</span>
+                                    ) : (
+                                        <Link
+                                            href={pageUrl(page, entry)}
+                                            preserveScroll
+                                            preserveState
+                                        >
+                                            {entry}
+                                        </Link>
+                                    )}
+                                </Button>
+                            ),
+                    )}
 
-                    <Button
-                        variant="secondary"
-                        size="sm"
-                        disabled={page.next_page_url === null}
-                        asChild={page.next_page_url !== null}
-                    >
-                        {page.next_page_url === null ? (
-                            <span>
-                                Next <ChevronRight />
-                            </span>
-                        ) : (
-                            <Link
-                                href={page.next_page_url}
-                                preserveScroll
-                                preserveState
-                            >
-                                Next <ChevronRight />
-                            </Link>
-                        )}
-                    </Button>
+                    <Step
+                        url={page.next_page_url}
+                        label="Next"
+                        icon={<ChevronRight />}
+                        trailing
+                    />
                 </div>
             )}
         </div>
     );
+}
+
+/** Previous or Next, disabled at the ends rather than hidden. */
+function Step({
+    url,
+    label,
+    icon,
+    trailing = false,
+}: {
+    url: string | null;
+    label: string;
+    icon: ReactNode;
+    trailing?: boolean;
+}) {
+    const content = trailing ? (
+        <>
+            <span className="hidden sm:inline">{label}</span> {icon}
+        </>
+    ) : (
+        <>
+            {icon} <span className="hidden sm:inline">{label}</span>
+        </>
+    );
+
+    return (
+        <Button
+            variant="secondary"
+            size="sm"
+            disabled={url === null}
+            asChild={url !== null}
+            aria-label={label}
+        >
+            {url === null ? (
+                <span>{content}</span>
+            ) : (
+                <Link href={url} preserveScroll preserveState>
+                    {content}
+                </Link>
+            )}
+        </Button>
+    );
+}
+
+/**
+ * A page's URL, taken from a link the paginator already built.
+ *
+ * Building it by hand would mean re-deriving the query string, and
+ * `withQueryString()` has already put every filter, the sort and the page size
+ * onto these. `prev_page_url` is the reliable donor: it exists on every page but
+ * the first, and the first is the one case that needs no derivation.
+ */
+function pageUrl<T>(page: Paginated<T>, target: number): string {
+    const donor = page.prev_page_url ?? page.next_page_url ?? '';
+
+    return donor.replace(/([?&]page=)\d+/, `$1${target}`);
+}
+
+/**
+ * The page numbers to show, with `null` standing in for an elision.
+ *
+ * Always the first and last page, plus a window either side of the current one,
+ * so the list keeps a constant width instead of growing with the result set.
+ */
+function pageNumbers(current: number, last: number): (number | null)[] {
+    const wanted = new Set<number>([1, last]);
+
+    for (let page = current - WINDOW; page <= current + WINDOW; page++) {
+        if (page >= 1 && page <= last) {
+            wanted.add(page);
+        }
+    }
+
+    const sorted = [...wanted].sort((a, b) => a - b);
+    const out: (number | null)[] = [];
+
+    sorted.forEach((page, index) => {
+        if (index > 0 && page - sorted[index - 1] > 1) {
+            out.push(null);
+        }
+
+        out.push(page);
+    });
+
+    return out;
 }

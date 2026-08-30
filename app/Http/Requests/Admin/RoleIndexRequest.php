@@ -8,8 +8,8 @@ use App\Models\Admin\Role;
 /**
  * Validates the role list's query string.
  *
- * Nothing beyond the shared sort / search / page rules — roles have no filters
- * of their own.
+ * Nothing beyond the shared sort / filter row / page rules — roles have no
+ * filters of their own.
  */
 class RoleIndexRequest extends ListRequest
 {
@@ -24,8 +24,8 @@ class RoleIndexRequest extends ListRequest
     /**
      * {@inheritDoc}
      */
-    protected function searchable(): array
+    protected function filterable(): array
     {
-        return Role::SEARCHABLE;
+        return Role::FILTERABLE;
     }
 }

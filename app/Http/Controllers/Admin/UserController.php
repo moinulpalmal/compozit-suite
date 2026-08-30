@@ -21,11 +21,6 @@ use Inertia\Response;
 
 class UserController extends Controller
 {
-    /**
-     * Rows per page on the user list.
-     */
-    protected const int PER_PAGE = 25;
-
     public function __construct(
         protected UserService $users,
         protected DesignationService $designations,
@@ -34,22 +29,21 @@ class UserController extends Controller
     /**
      * List users, either the active ones or the soft-deleted history.
      *
-     * Both live on one page behind a `filter` query parameter rather than two
-     * routes — see ARCHITECTURE.md → "Module 1 — Admin".
+     * Both live on one page behind a `view` query parameter rather than two
+     * routes — see ARCHITECTURE.md → "Module 1 — Admin". That parameter selects
+     * the record set; everything that filters a column value goes through the
+     * filter row instead.
      */
     public function index(UserIndexRequest $request): Response
     {
         $filters = $request->filters();
 
         $users = User::query()
-            ->when($filters['filter'] === 'trashed', fn ($query) => $query->onlyTrashed())
-            ->when($filters['gender'] !== '', fn ($query) => $query->where('gender', $filters['gender']))
-            ->when($filters['designation'] !== '', fn ($query) => $query->where('designation_id', $filters['designation']))
-            ->when($filters['status'] !== '', fn ($query) => $query->where('status', $filters['status']))
+            ->when($filters['view'] === 'trashed', fn ($query) => $query->onlyTrashed())
             ->with(['roles:id,name', 'designation:id,name,short_form', 'insertedBy:id,name', 'lastUpdatedBy:id,name'])
-            ->search($filters['search_field'], $filters['search'])
+            ->filterColumns($filters['filter'])
             ->sortBy($filters['sort'], $filters['direction'])
-            ->paginate(self::PER_PAGE)
+            ->paginate($filters['per_page'])
             ->withQueryString()
             ->through($this->describe(...));
 
@@ -70,7 +64,8 @@ class UserController extends Controller
             ),
             'designationFilters' => $this->designations->filterOptions(),
             'sortable' => User::SORTABLE,
-            'searchable' => User::SEARCHABLE,
+            'filterable' => User::FILTERABLE,
+            'perPageOptions' => UserIndexRequest::PER_PAGE_OPTIONS,
             'filters' => $filters,
             'counts' => [
                 'active' => User::query()->count(),
