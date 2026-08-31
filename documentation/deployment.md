@@ -204,9 +204,14 @@ the application builds links from it. If it ever changes, edit `.env` and re-run
 
 ```powershell
 cd C:\laragon\www
-git clone https://github.com/moinulpalmal/compozit-suite.git
+git clone --branch main https://github.com/moinulpalmal/compozit-suite.git
 cd compozit-suite
 ```
+
+> **The server runs `main`, and only `main`.** `--branch` is written out rather than relying on the
+> repository's default, so the command still does the right thing if that default ever moves. Feature
+> work happens on `dev` and reaches the server by being merged into `main` — never by deploying `dev`
+> directly. Confirm what you have with `git branch --show-current` before going on.
 
 ### 4.3 Create the database and a dedicated user
 
@@ -423,7 +428,7 @@ work, or orders will end up attached to a buyer that does not exist.
 ```powershell
 php artisan down
 
-git pull --ff-only
+git pull --ff-only origin main
 composer install --no-dev --optimize-autoloader --no-interaction
 npm ci
 npm run build
@@ -472,6 +477,7 @@ Rows marked ✔ were reproduced while writing this file.
 | Works on the server, not from other PCs | The firewall rule, or Apache is not listening on 8787 | [§4.10](#410-secure-the-account-before-opening-the-firewall); confirm `Listen 8787` |
 | Virtual-host changes keep disappearing | You edited an `auto.*.conf`, which Laragon regenerates | Use a filename without the `auto.` prefix — [§4.8](#48-point-apache-at-the-app-on-port-8787) |
 | Login always fails, with no useful error | Signing in with the email address | The login is the **employee ID** |
+| The server is missing a feature you know was finished, or `git pull` reports nothing to do | The clone is on the wrong branch — `dev` work reaches the server only once merged into `main` | `git branch --show-current` must print `main` — [§4.2](#42-get-the-code) |
 
 Logs: `storage\logs\laravel.log` for the application, and Apache's own logs under
 `C:\laragon\etc\apache2\logs\` for the web server.
