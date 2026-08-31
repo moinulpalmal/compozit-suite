@@ -137,7 +137,7 @@ store.post = (options?: RouteQueryOptions): RouteDefinition<'post'> => ({
  * @see app/Http/Controllers/Settings/NotificationColorController.php:75
  * @route '/settings/master-data/notification-colors/{notification_color}'
  */
-export const update = (args: { notification_color: string | number | { id: string | number } } | [notification_color: string | number | { id: string | number } ] | string | number | { id: string | number }, options?: RouteQueryOptions): RouteDefinition<'put'> => ({
+export const update = (args: { notification_color: number | { id: number } } | [notification_color: number | { id: number } ] | number | { id: number }, options?: RouteQueryOptions): RouteDefinition<'put'> => ({
     url: update.url(args, options),
     method: 'put',
 })
@@ -152,7 +152,7 @@ update.definition = {
  * @see app/Http/Controllers/Settings/NotificationColorController.php:75
  * @route '/settings/master-data/notification-colors/{notification_color}'
  */
-update.url = (args: { notification_color: string | number | { id: string | number } } | [notification_color: string | number | { id: string | number } ] | string | number | { id: string | number }, options?: RouteQueryOptions) => {
+update.url = (args: { notification_color: number | { id: number } } | [notification_color: number | { id: number } ] | number | { id: number }, options?: RouteQueryOptions) => {
     if (typeof args === 'string' || typeof args === 'number') {
         args = { notification_color: args }
     }
@@ -185,7 +185,7 @@ update.url = (args: { notification_color: string | number | { id: string | numbe
  * @see app/Http/Controllers/Settings/NotificationColorController.php:75
  * @route '/settings/master-data/notification-colors/{notification_color}'
  */
-update.put = (args: { notification_color: string | number | { id: string | number } } | [notification_color: string | number | { id: string | number } ] | string | number | { id: string | number }, options?: RouteQueryOptions): RouteDefinition<'put'> => ({
+update.put = (args: { notification_color: number | { id: number } } | [notification_color: number | { id: number } ] | number | { id: number }, options?: RouteQueryOptions): RouteDefinition<'put'> => ({
     url: update.url(args, options),
     method: 'put',
 })
@@ -194,7 +194,7 @@ update.put = (args: { notification_color: string | number | { id: string | numbe
  * @see app/Http/Controllers/Settings/NotificationColorController.php:75
  * @route '/settings/master-data/notification-colors/{notification_color}'
  */
-update.patch = (args: { notification_color: string | number | { id: string | number } } | [notification_color: string | number | { id: string | number } ] | string | number | { id: string | number }, options?: RouteQueryOptions): RouteDefinition<'patch'> => ({
+update.patch = (args: { notification_color: number | { id: number } } | [notification_color: number | { id: number } ] | number | { id: number }, options?: RouteQueryOptions): RouteDefinition<'patch'> => ({
     url: update.url(args, options),
     method: 'patch',
 })
@@ -204,7 +204,7 @@ update.patch = (args: { notification_color: string | number | { id: string | num
  * @see app/Http/Controllers/Settings/NotificationColorController.php:75
  * @route '/settings/master-data/notification-colors/{notification_color}'
  */
-    const updateForm = (args: { notification_color: string | number | { id: string | number } } | [notification_color: string | number | { id: string | number } ] | string | number | { id: string | number }, options?: RouteQueryOptions): RouteFormDefinition<'post'> => ({
+    const updateForm = (args: { notification_color: number | { id: number } } | [notification_color: number | { id: number } ] | number | { id: number }, options?: RouteQueryOptions): RouteFormDefinition<'post'> => ({
         action: update.url(args, {
                     [options?.mergeQuery ? 'mergeQuery' : 'query']: {
                         _method: 'PUT',
@@ -219,7 +219,7 @@ update.patch = (args: { notification_color: string | number | { id: string | num
  * @see app/Http/Controllers/Settings/NotificationColorController.php:75
  * @route '/settings/master-data/notification-colors/{notification_color}'
  */
-        updateForm.put = (args: { notification_color: string | number | { id: string | number } } | [notification_color: string | number | { id: string | number } ] | string | number | { id: string | number }, options?: RouteQueryOptions): RouteFormDefinition<'post'> => ({
+        updateForm.put = (args: { notification_color: number | { id: number } } | [notification_color: number | { id: number } ] | number | { id: number }, options?: RouteQueryOptions): RouteFormDefinition<'post'> => ({
             action: update.url(args, {
                         [options?.mergeQuery ? 'mergeQuery' : 'query']: {
                             _method: 'PUT',
@@ -233,7 +233,7 @@ update.patch = (args: { notification_color: string | number | { id: string | num
  * @see app/Http/Controllers/Settings/NotificationColorController.php:75
  * @route '/settings/master-data/notification-colors/{notification_color}'
  */
-        updateForm.patch = (args: { notification_color: string | number | { id: string | number } } | [notification_color: string | number | { id: string | number } ] | string | number | { id: string | number }, options?: RouteQueryOptions): RouteFormDefinition<'post'> => ({
+        updateForm.patch = (args: { notification_color: number | { id: number } } | [notification_color: number | { id: number } ] | number | { id: number }, options?: RouteQueryOptions): RouteFormDefinition<'post'> => ({
             action: update.url(args, {
                         [options?.mergeQuery ? 'mergeQuery' : 'query']: {
                             _method: 'PATCH',
@@ -249,7 +249,7 @@ update.patch = (args: { notification_color: string | number | { id: string | num
  * @see app/Http/Controllers/Settings/NotificationColorController.php:92
  * @route '/settings/master-data/notification-colors/{notification_color}'
  */
-export const destroy = (args: { notification_color: string | number | { id: string | number } } | [notification_color: string | number | { id: string | number } ] | string | number | { id: string | number }, options?: RouteQueryOptions): RouteDefinition<'delete'> => ({
+export const destroy = (args: { notification_color: number | { id: number } } | [notification_color: number | { id: number } ] | number | { id: number }, options?: RouteQueryOptions): RouteDefinition<'delete'> => ({
     url: destroy.url(args, options),
     method: 'delete',
 })
@@ -264,7 +264,7 @@ destroy.definition = {
  * @see app/Http/Controllers/Settings/NotificationColorController.php:92
  * @route '/settings/master-data/notification-colors/{notification_color}'
  */
-destroy.url = (args: { notification_color: string | number | { id: string | number } } | [notification_color: string | number | { id: string | number } ] | string | number | { id: string | number }, options?: RouteQueryOptions) => {
+destroy.url = (args: { notification_color: number | { id: number } } | [notification_color: number | { id: number } ] | number | { id: number }, options?: RouteQueryOptions) => {
     if (typeof args === 'string' || typeof args === 'number') {
         args = { notification_color: args }
     }
@@ -297,7 +297,7 @@ destroy.url = (args: { notification_color: string | number | { id: string | numb
  * @see app/Http/Controllers/Settings/NotificationColorController.php:92
  * @route '/settings/master-data/notification-colors/{notification_color}'
  */
-destroy.delete = (args: { notification_color: string | number | { id: string | number } } | [notification_color: string | number | { id: string | number } ] | string | number | { id: string | number }, options?: RouteQueryOptions): RouteDefinition<'delete'> => ({
+destroy.delete = (args: { notification_color: number | { id: number } } | [notification_color: number | { id: number } ] | number | { id: number }, options?: RouteQueryOptions): RouteDefinition<'delete'> => ({
     url: destroy.url(args, options),
     method: 'delete',
 })
@@ -307,7 +307,7 @@ destroy.delete = (args: { notification_color: string | number | { id: string | n
  * @see app/Http/Controllers/Settings/NotificationColorController.php:92
  * @route '/settings/master-data/notification-colors/{notification_color}'
  */
-    const destroyForm = (args: { notification_color: string | number | { id: string | number } } | [notification_color: string | number | { id: string | number } ] | string | number | { id: string | number }, options?: RouteQueryOptions): RouteFormDefinition<'post'> => ({
+    const destroyForm = (args: { notification_color: number | { id: number } } | [notification_color: number | { id: number } ] | number | { id: number }, options?: RouteQueryOptions): RouteFormDefinition<'post'> => ({
         action: destroy.url(args, {
                     [options?.mergeQuery ? 'mergeQuery' : 'query']: {
                         _method: 'DELETE',
@@ -322,7 +322,7 @@ destroy.delete = (args: { notification_color: string | number | { id: string | n
  * @see app/Http/Controllers/Settings/NotificationColorController.php:92
  * @route '/settings/master-data/notification-colors/{notification_color}'
  */
-        destroyForm.delete = (args: { notification_color: string | number | { id: string | number } } | [notification_color: string | number | { id: string | number } ] | string | number | { id: string | number }, options?: RouteQueryOptions): RouteFormDefinition<'post'> => ({
+        destroyForm.delete = (args: { notification_color: number | { id: number } } | [notification_color: number | { id: number } ] | number | { id: number }, options?: RouteQueryOptions): RouteFormDefinition<'post'> => ({
             action: destroy.url(args, {
                         [options?.mergeQuery ? 'mergeQuery' : 'query']: {
                             _method: 'DELETE',

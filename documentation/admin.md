@@ -50,7 +50,7 @@ Built by `0001_01_01_000000_create_users_table`, then
 | `gender` | `string(1)`, default `'M'` | Cast to `App\Enums\Admin\Gender` — `M` / `F` / `O`. |
 | `designation_id` | FK → `designations.id`, **nullable**, `nullOnDelete` | Required by the form requests, not by the column. See [§8](#8-designations). |
 | `status` | `string(1)`, default `'A'` | Cast to `App\Enums\RecordStatus` via `HasStatus`. Was a boolean `approved` — see [§9.1](#91-usersapproved-became-usersstatus). |
-| `approval_authority` | `boolean`, default `false` | **Parked.** See [§2.2](#22-approval-authority-is-not-wired-to-anything). |
+| `approval_authority` | `boolean`, default `false` | **Parked.** See [§2.2](#22-approval_authority-is-not-wired-to-anything). |
 | `inserted_by` | FK → `users.id`, nullable, `nullOnDelete` | Written only by `ActorObserver`. |
 | `last_updated_by` | FK → `users.id`, nullable, `nullOnDelete` | Written only by `ActorObserver`. |
 | `email` | `string`, unique | Still required — the password-reset broker is keyed on it. |
