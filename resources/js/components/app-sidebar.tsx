@@ -4,6 +4,7 @@ import {
     KeyRound,
     LayoutGrid,
     Palette,
+    ScrollText,
     ShieldCheck,
     Store,
     Users,
@@ -28,6 +29,7 @@ import { index as designationsIndex } from '@/routes/admin/designations';
 import { index as permissionsIndex } from '@/routes/admin/permissions';
 import { index as rolesIndex } from '@/routes/admin/roles';
 import { index as usersIndex } from '@/routes/admin/users';
+import { index as purchaseOrdersIndex } from '@/routes/merchandising/purchase-orders';
 import { index as notificationColorsIndex } from '@/routes/settings/master-data/notification-colors';
 import type { NavGroup, NavItem } from '@/types';
 
@@ -51,6 +53,8 @@ export function AppSidebar() {
     // One bucket gates every master-data table, so this same check will grow to
     // cover colours, sizes and UOM without a permission per screen.
     const canViewMasterData = useCan('settings.master-data.view');
+
+    const canViewPurchaseOrders = useCan('merchandising.purchase-orders.view');
 
     // Admin surfaces live in their own group, not alongside Platform.
     const adminNavItems: NavItem[] = [
@@ -98,10 +102,26 @@ export function AppSidebar() {
             : []),
     ];
 
+    // The order lifecycle up to the point production begins. Tech packs, BQS and
+    // bookings join this group as they are built — a module's links never join
+    // another module's group (ARCHITECTURE.md §8.3).
+    const merchandisingNavItems: NavItem[] = [
+        ...(canViewPurchaseOrders
+            ? [
+                  {
+                      title: 'Purchase orders',
+                      href: purchaseOrdersIndex(),
+                      icon: ScrollText,
+                  },
+              ]
+            : []),
+    ];
+
     // A group whose items are all hidden is not rendered at all, so it never
     // reaches the collapse state either.
     const navGroups: NavGroup[] = [
         { label: 'Platform', items: mainNavItems },
+        { label: 'Merchandising', items: merchandisingNavItems },
         { label: 'Admin', items: adminNavItems },
         { label: 'Settings', items: settingsNavItems },
     ].filter((group) => group.items.length > 0);

@@ -37,7 +37,14 @@ class RolePermissionSeeder extends Seeder
         'settings.application' => ['view', 'update'],
         'merchandising.tech-packs' => ['view', 'create', 'update', 'delete'],
         'merchandising.bqs' => ['view', 'create', 'update', 'delete'],
-        'merchandising.purchase-orders' => ['view', 'create', 'update', 'delete'],
+        /*
+         * `import` is separate from `create` on purpose. A purchase order is never
+         * typed in — it is read out of the buyer's own document by a parser that
+         * shells out to a converter. Granting someone the power to run that over an
+         * upload is a different decision from letting them edit an order, the same
+         * way `admin.users.assign-roles` is separate from `admin.users.update`.
+         */
+        'merchandising.purchase-orders' => ['view', 'create', 'update', 'delete', 'import'],
         'merchandising.bookings' => ['view', 'create', 'update', 'delete'],
         'production.orders' => ['view', 'create', 'update', 'delete'],
         'reports.merchandising' => ['view'],

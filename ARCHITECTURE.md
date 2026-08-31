@@ -37,6 +37,14 @@ database, five functional modules plus a dashboard.
 | Tests | Pest | `^5.1` | |
 | Static analysis | Larastan / PHPStan | `^3.9` | |
 | Format | Pint (PHP), Prettier + ESLint (TS) | | |
+| Doc parsing | `ext-zip` (PHP extension) | — | **Required.** `ZipArchive` reads a `.docx`; without it the whole purchase-order import fails. Enabled in `php.ini` — see [`documentation/deployment.md`](documentation/deployment.md) |
+| Doc parsing | LibreOffice (`soffice`) | 26.8 | **External binary, optional.** Converts `.doc`/`.rtf` to `.docx`. Needed only for those two formats; `LIBREOFFICE_BIN` in `.env` |
+| Doc parsing | Xpdf `pdftotext` | 4.06 | **External binary, optional.** `-layout` extraction for `.pdf`. Must be the **Xpdf** build, not Poppler — the parser reads column positions and the two differ. `PDFTOTEXT_BIN` in `.env` |
+
+The three parsing rows are the application's only dependencies on software outside
+Composer and npm. Each is needed by exactly one upload format, and each fails with a message
+naming the `.env` key to set, so a machine without LibreOffice still imports `.docx` and `.pdf`
+normally. Configuration is `config/po-parser.php`.
 
 Database: **MySQL** (`compozitsuite` on `127.0.0.1:3306` via Laragon) for local development —
 `.env` sets `DB_CONNECTION=mysql`. Tests run against in-memory SQLite (`phpunit.xml`) — *provided no
@@ -67,7 +75,9 @@ compozit-suite/
 │   │   └── Fortify/         Fortify's auth action contracts (not a module)
 │   ├── Concerns/            Shared traits (validation rule sets, etc.)
 │   ├── Console/Commands/    Artisan commands
+│   ├── DataTransferObjects/ Immutable value objects, grouped by module — see §6.7
 │   ├── Enums/               Backed enums, grouped by module
+│   ├── Exceptions/          Custom exception types, grouped by module
 │   ├── Http/
 │   │   ├── Controllers/     Grouped by module
 │   │   ├── Middleware/      App-wide middleware
@@ -150,6 +160,19 @@ Why this and not a `app/Modules/*` package-per-module layout:
 bookings) are expressed through *file naming*, not deeper folders. Frontend pages are the one
 exception — see [§6.4](#64-frontend-pages).
 
+**An engine is one unit, and may nest.** `app/Services/Merchandising/PoParser/` is the sole
+exception, and it is a deliberate one. The purchase-order document parser is 33 collaborating
+classes forming a single pipeline — text extraction, line processing, a section state machine,
+fifteen field extractors, validation — that nothing outside `PurchaseOrderImportService` calls
+into. Flattening it produces `app/Services/Merchandising/PoParserLineItemHeaderExtractor.php`
+thirty-three times, which does not remove the hierarchy, it just moves it into the filenames and
+makes the directory listing unreadable.
+
+The test for this exception, so it does not become a licence: **the nested tree has exactly one
+entry point, and its internals are not referenced from outside it.** A sub-area with several
+callers — tech packs, BQS, bookings — is a *sub-area* and stays flat, as above. If a second
+engine ever qualifies, it earns its own line here.
+
 ---
 
 ## 5. Module registry
@@ -159,7 +182,7 @@ exception — see [§6.4](#64-frontend-pages).
 | 0 | Dashboard | `Dashboard` | `routes/web.php` | `dashboard` | `/dashboard` | `pages/dashboard.tsx` | ✅ built (placeholder content) |
 | 1 | Admin | `Admin` | `routes/admin.php` | `admin.` | `/admin` | `pages/admin/` | 🟡 users + RBAC + designations built, rest scaffolded |
 | 2 | Settings | `Settings` | `routes/settings.php` | *(see note)* | `/settings` | `pages/settings/` | ✅ partly built |
-| 3 | Merchandising | `Merchandising` | `routes/merchandising.php` | `merchandising.` | `/merchandising` | `pages/merchandising/` | 🟡 scaffolded |
+| 3 | Merchandising | `Merchandising` | `routes/merchandising.php` | `merchandising.` | `/merchandising` | `pages/merchandising/` | 🟡 purchase-order import built, rest scaffolded |
 | 4 | Production | `Production` | `routes/production.php` | `production.` | `/production` | `pages/production/` | 🟡 scaffolded |
 | 5 | Reports | `Reports` | `routes/reports.php` | `reports.` | `/reports` | `pages/reports/` | 🟡 scaffolded |
 
@@ -277,15 +300,45 @@ are in [§9.4](#94-master-data).
 
 ### Module 3 — Merchandising
 
-| Sub-area | Naming | Pages |
-| --- | --- | --- |
-| a. Development tech pack management | `Merchandising\TechPack*` | `pages/merchandising/tech-packs/` |
-| b. BQS (budget quotation sheet) | `Merchandising\Bqs*` | `pages/merchandising/bqs/` |
-| b. Purchase order management | `Merchandising\PurchaseOrder*` | `pages/merchandising/purchase-orders/` |
-| c. Fabric & accessory booking | `Merchandising\Booking*` | `pages/merchandising/bookings/` |
+| Sub-area | Naming | Pages | Status |
+| --- | --- | --- | --- |
+| a. Development tech pack management | `Merchandising\TechPack*` | `pages/merchandising/tech-packs/` | 🟡 |
+| b. BQS (budget quotation sheet) | `Merchandising\Bqs*` | `pages/merchandising/bqs/` | 🟡 |
+| c. Purchase order import & management | `Merchandising\PurchaseOrder*` | `pages/merchandising/purchase-orders/` | ✅ import + list + detail |
+| d. Fabric & accessory booking | `Merchandising\Booking*` | `pages/merchandising/bookings/` | 🟡 |
 
 Merchandising owns the order lifecycle up to the point production begins. It is the upstream
 source of truth for style, buyer order, and consumption data that Production reads.
+
+#### Purchase orders arrive by parsing a document
+
+There is **no create form.** A purchase order is imported by uploading the buyer's own document
+(`.docx`, `.doc`, `.rtf`, `.pdf`), which is parsed by the engine in
+`app/Services/Merchandising/PoParser/` — the [§4](#4-the-organizing-rule) nesting exception. That is
+why `import` is its own permission rather than an alias for `create`.
+
+**The parser is specific to Walmart's import purchase-order template**, despite the general class
+names. It recognises pages by a header of the form `Purchase Order: <10 digits> … Page: <n>` and
+finds nothing in any other document. A second buyer's template is a second parser, not a wider
+regex. The buyer is therefore chosen on the upload form rather than inferred, and is validated
+against the uploader's own [§9.2](#92-buyer-scoped-access-control) access — importing into a buyer
+you cannot see would write rows the scope then hides from you.
+
+Three tables, and the split between them is the module's central decision:
+
+| Table | Holds |
+| --- | --- |
+| `po_imports` | One row per uploaded file: the document, the whole parse result, every warning |
+| `purchase_orders` | One row per order per revision. Header fields are columns; the remaining ~10 sections ride in a `payload` JSON column |
+| `po_line_items` | The colour/size lines — the only part of a document that becomes rows |
+
+Line items are rows because Production computes consumption from quantity × colour × size and must
+join to them; everything else is display-only and nothing queries it. Revisions are keyed on the
+document's own `Revised Date … By:`, with a `source_hash` making a byte-identical re-upload
+idempotent. **Orders that fail to parse are stored and flagged**, so their warnings stay next to the
+document — which means every downstream reader must exclude them, and `PurchaseOrder::scopeUsable()`
+is how. The reasoning for all of this, and the trade-offs declined along the way, are in
+[`documentation/merchandising.md`](documentation/merchandising.md).
 
 ### Module 4 — Production
 
@@ -450,6 +503,29 @@ File names are kebab-case; the exported component is PascalCase.
 Shared, app-wide types live in `resources/js/types/` and are re-exported from
 `types/index.ts`. Module domain types go in `resources/js/types/{module}.ts` and must also be
 re-exported there so `@/types` stays the single import path.
+
+### 6.7 Data transfer objects and exceptions
+
+Two `app/` directories were added with the purchase-order import, both grouped by module like every
+other layer:
+
+| Kind | Location | Example |
+| --- | --- | --- |
+| DTO | `app/DataTransferObjects/{Module}/` | `Merchandising\Po\PurchaseOrderDto` |
+| Exception | `app/Exceptions/{Module}/` | `Merchandising\PoParser\TextExtractionException` |
+
+**A DTO is `final readonly` with promoted typed properties, and carries a `toArray()`.** They exist
+where data crosses a boundary in a shape no Eloquent model has — here, what a parser read out of a
+document before anything decides which parts become columns. They are not a general replacement for
+arrays: a service returning `['id' => …, 'name' => …]` to its own controller does not need one.
+
+`toArray()` keys are snake_case and are a **contract in two directions** wherever a DTO is stored:
+`PurchaseOrderDto::toArray()` is both the `purchase_orders.payload` column and the prop the React
+page renders, so changing a key is a migration *and* a front-end change.
+
+An exception type earns its place when a caller catches it *specifically*. The parser's four form a
+hierarchy under one base so that "this document could not be read" is one `catch`, which is what
+the import controller does.
 
 ---
 
@@ -634,9 +710,9 @@ URL, sending every later `back()` to it.
 
 ### 8.6 Every list is paginated, sortable and filtered per column
 
-**A list screen is never a bare `->get()`.** All six lists — the five Admin ones and Settings'
-notification colours — go through one apparatus, and a new one inherits it rather than
-re-implementing it:
+**A list screen is never a bare `->get()`.** All seven lists — the five Admin ones, Settings'
+notification colours, and Merchandising's purchase orders — go through one apparatus, and a new one
+inherits it rather than re-implementing it:
 
 | Piece | Job |
 | --- | --- |
@@ -851,10 +927,18 @@ Rules, each of which is a decision rather than an accident:
 - **The id list is memoised on the `User` instance.** A global scope runs on *every* query; a fresh
   `buyer_user` round trip per query is not affordable.
 
-The scope ships with no buyer-owned models — `purchase_orders`, `tech_packs` and the rest do not
-exist yet — so it is proven against a throwaway model declared inside
-`tests/Feature/Admin/BuyerScopeTest.php`. The first real buyer-owned table adds `use BuyerScoped;`
-and inherits tested behaviour.
+**`purchase_orders` and `po_imports` are the first real buyer-owned tables**, and they took the
+mechanism exactly as promised: one `use BuyerScoped;` each, no other registration, and the
+behaviour tested in `tests/Feature/Admin/BuyerScopeTest.php` applied to them unchanged. That test's
+throwaway model stays — it pins the trait's contract independently of any module — and
+`tests/Feature/Merchandising/PurchaseOrderScopeTest.php` now proves it on a real table.
+
+> This paragraph previously read "the scope ships with no buyer-owned models … `tech_packs` and the
+> rest do not exist yet". `purchase_orders` exists; the line is corrected rather than annotated.
+
+`po_line_items` is the first model to hit the stated limit: it reaches its buyer through its parent
+and therefore has **no** `buyer_id` and does **not** use the trait. Every read goes through
+`PurchaseOrder`, which is scoped, and the foreign key cascades. Do not add a scope that joins.
 
 ### 9.3 Audit logging
 
@@ -1127,8 +1211,13 @@ pass.
 ## 14. Module reference documentation
 
 `documentation/` holds one `{module}.md` per module — currently
-[`documentation/admin.md`](documentation/admin.md) and
-[`documentation/settings.md`](documentation/settings.md).
+[`documentation/admin.md`](documentation/admin.md),
+[`documentation/settings.md`](documentation/settings.md) and
+[`documentation/merchandising.md`](documentation/merchandising.md).
+
+`documentation/deployment.md` is the exception: it describes an *operation* rather than a module —
+what to type, in order, to get the application running — and is the home for anything a machine
+needs installed on it.
 
 **These files and this one do different jobs. Do not let them overlap.**
 
