@@ -32,7 +32,9 @@ Laravel day to day, read the [glossary](#7-glossary) first — it explains migra
 rest in a paragraph each.
 
 > **Paths.** Everything below uses Laragon's default location, `C:\laragon`. On the machine this was
-> written on Laragon lives at `D:\Projects\laragon` instead. Substitute whichever is yours.
+> written on Laragon lives at `D:\Projects\laragon` instead. Substitute whichever is yours — most
+> commands fail loudly if you get it wrong, but the two paths inside the Apache site file in
+> [§4.8](#48-point-apache-at-the-app-on-port-8787) fail *quietly*, so check those twice.
 
 ---
 
@@ -319,6 +321,21 @@ Listen 8787
 </VirtualHost>
 ```
 
+> **Do not create this file with Notepad's Save dialog.** Its *Save as type* defaults to "Text
+> Documents (\*.txt)" and silently saves `compozit-production.conf` as
+> **`compozit-production.conf.txt`**. Apache includes `sites-enabled/*.conf` and never matches that
+> name, so the site does not exist — and the symptom is not an error, it is Laragon's own "Server is
+> running" page on port 8787 (see [§6](#6-troubleshooting)). Either choose *All Files* in the Save
+> dialog, or create the file from PowerShell:
+>
+> ```powershell
+> notepad C:\laragon\etc\apache2\sites-enabled\compozit-production.conf
+> ```
+>
+> Notepad offers to create it, and the name is then already fixed. Confirm what you actually got with
+> `Get-ChildItem C:\laragon\etc\apache2\sites-enabled` — Windows Explorer hides known extensions and
+> will show both files as `compozit-production.conf`.
+
 > **Do not edit the `auto.compozit-suite.test.conf` already in that folder.** Laragon generates every
 > `auto.*.conf` itself and overwrites them, so changes there vanish on the next restart. Any filename
 > without the `auto.` prefix is yours to keep — which is why the file above is not called one.
@@ -330,7 +347,20 @@ Three things must hold or the site will not work:
 - `AllowOverride All`, so the shipped `public/.htaccess` can route requests.
 - `mod_rewrite` is enabled — **Menu → Apache → modules → rewrite_module**.
 
-Start Laragon again.
+Start Laragon again — **Stop, then Start.** "Reload" does not always pick up a new site file.
+
+**Check that Apache actually loaded your site before going on.** This is the one step that catches a
+misnamed or misplaced file, and it takes a second:
+
+```powershell
+cd C:\laragon\bin\apache\<apache-version>\bin
+.\httpd.exe -S
+```
+
+The output lists every virtual host. **A line beginning `*:8787` must appear**, pointing at your
+`compozit-production.conf`. If port 8787 is absent, Apache never read your file — go back and check
+its name and folder, then look at the first two rows of [§6](#6-troubleshooting). Do not move on
+until 8787 is listed: everything after this point will appear to work and serve the wrong site.
 
 > The virtual-host block above is **verified**: it was loaded by Apache 2.4.66 using Laragon's own
 > FastCGI PHP wiring and served this application correctly, including `.htaccess` routing and the
@@ -429,6 +459,9 @@ Rows marked ✔ were reproduced while writing this file.
 
 | Symptom | Cause | Fix |
 | --- | --- | --- |
+| **Port 8787 shows Laragon's own "Server is running / PHP is enabled" page** | No virtual host matched 8787, so Apache fell back to its main `DocumentRoot`. Your site file was never loaded — it is not an error, so nothing appears in the logs | Run `httpd.exe -S`; if `*:8787` is absent, see the next two rows — [§4.8](#48-point-apache-at-the-app-on-port-8787) |
+| Site file looks right in Explorer but is never loaded | Notepad saved it as `compozit-production.conf.txt`; Explorer hides the extension | `Get-ChildItem` the folder to see the real name, then `Rename-Item` it — [§4.8](#48-point-apache-at-the-app-on-port-8787) |
+| `httpd.exe -S` lists 8787, but the browser gives **403 Forbidden** | The vhost loaded, but `DocumentRoot` points somewhere that does not exist — often `C:/laragon/...` copied verbatim onto a machine where Laragon is on another drive | Correct the two paths in the file to where you really cloned, forward slashes, ending in `/public` |
 | ✔ `npm run dev` stops with *"Error generating types: Command failed: php artisan wayfinder:generate"* | PHP is not on the PATH. The error names Wayfinder, not PHP | [§2](#2-prerequisites--both-halves), then open a **new** terminal |
 | ✔ `db:seed` stops with *"Call to undefined function … fake()"* | Ran after `composer install --no-dev`; factories need faker | `composer install`, seed, then strip again — [§4.5](#45-install-and-build) |
 | ✔ `db:seed` stops with *"Duplicate entry 'test@example.com'"* | Already seeded. It is a one-time command | Nothing to fix — [§4.6](#46-seed-the-database--once-ever) |
