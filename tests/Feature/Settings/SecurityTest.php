@@ -95,3 +95,32 @@ test('correct password must be provided to update password', function () {
         ->assertSessionHasErrors('current_password')
         ->assertRedirect(route('security.edit'));
 });
+
+test('a session holding a stale password hash is signed out', function () {
+    $user = User::factory()->create();
+
+    $this->actingAs($user)
+        ->withSession(['password_hash_web' => 'stale-hash'])
+        ->get(route('dashboard'))
+        ->assertRedirect(route('login'));
+
+    $this->assertGuest();
+});
+
+test('updating the password keeps the current session signed in', function () {
+    $user = User::factory()->create();
+
+    $this->actingAs($user)->get(route('dashboard'))->assertOk();
+
+    $this->from(route('security.edit'))
+        ->put(route('user-password.update'), [
+            'current_password' => 'password',
+            'password' => 'new-password',
+            'password_confirmation' => 'new-password',
+        ])
+        ->assertSessionHasNoErrors();
+
+    $this->get(route('dashboard'))->assertOk();
+
+    $this->assertAuthenticated();
+});

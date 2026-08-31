@@ -2,6 +2,8 @@
 
 namespace Database\Factories;
 
+use App\Enums\Admin\Gender;
+use App\Enums\RecordStatus;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Factories\Factory;
 use Illuminate\Support\Facades\Hash;
@@ -26,11 +28,31 @@ class UserFactory extends Factory
     {
         return [
             'name' => fake()->name(),
+            'employee_id' => (string) fake()->unique()->numberBetween(10000, 9999999),
+            'personal_mobile_no' => '01'.fake()->numberBetween(3, 9).fake()->numerify('########'),
+            // Only some staff are issued a company handset.
+            'official_mobile_no' => fake()->boolean(40)
+                ? '01'.fake()->numberBetween(3, 9).fake()->numerify('########')
+                : null,
+            'official_extension_no' => fake()->numerify('###'),
+            'gender' => fake()->randomElement(Gender::cases()),
+            'status' => RecordStatus::Active,
+            'approval_authority' => false,
             'email' => fake()->unique()->safeEmail(),
             'email_verified_at' => now(),
             'password' => static::$password ??= Hash::make('password'),
             'remember_token' => Str::random(10),
         ];
+    }
+
+    /**
+     * Indicate that the user's account is disabled.
+     */
+    public function inactive(): static
+    {
+        return $this->state(fn (array $attributes) => [
+            'status' => RecordStatus::Inactive,
+        ]);
     }
 
     /**

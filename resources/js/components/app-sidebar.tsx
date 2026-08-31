@@ -1,7 +1,14 @@
 import { Link } from '@inertiajs/react';
-import { BookOpen, FolderGit2, LayoutGrid } from 'lucide-react';
+import {
+    BriefcaseBusiness,
+    KeyRound,
+    LayoutGrid,
+    Palette,
+    ShieldCheck,
+    Store,
+    Users,
+} from 'lucide-react';
 import AppLogo from '@/components/app-logo';
-import { NavFooter } from '@/components/nav-footer';
 import { NavMain } from '@/components/nav-main';
 import { NavUser } from '@/components/nav-user';
 import {
@@ -13,8 +20,16 @@ import {
     SidebarMenuButton,
     SidebarMenuItem,
 } from '@/components/ui/sidebar';
+import { useCan } from '@/hooks/use-can';
+import { useNavGroups } from '@/hooks/use-nav-groups';
 import { dashboard } from '@/routes';
-import type { NavItem } from '@/types';
+import { index as buyersIndex } from '@/routes/admin/buyers';
+import { index as designationsIndex } from '@/routes/admin/designations';
+import { index as permissionsIndex } from '@/routes/admin/permissions';
+import { index as rolesIndex } from '@/routes/admin/roles';
+import { index as usersIndex } from '@/routes/admin/users';
+import { index as notificationColorsIndex } from '@/routes/settings/master-data/notification-colors';
+import type { NavGroup, NavItem } from '@/types';
 
 const mainNavItems: NavItem[] = [
     {
@@ -24,20 +39,76 @@ const mainNavItems: NavItem[] = [
     },
 ];
 
-const footerNavItems: NavItem[] = [
-    {
-        title: 'Repository',
-        href: 'https://github.com/laravel/react-starter-kit',
-        icon: FolderGit2,
-    },
-    {
-        title: 'Documentation',
-        href: 'https://laravel.com/docs/starter-kits#react',
-        icon: BookOpen,
-    },
-];
-
 export function AppSidebar() {
+    // Hiding a link is convenience, not authorization — the routes are gated by
+    // the `permission:` middleware and the module's policies.
+    const canViewUsers = useCan('admin.users.view');
+    const canViewRoles = useCan('admin.roles.view');
+    const canViewPermissions = useCan('admin.permissions.view');
+    const canViewDesignations = useCan('admin.designations.view');
+    const canViewBuyers = useCan('admin.buyers.view');
+
+    // One bucket gates every master-data table, so this same check will grow to
+    // cover colours, sizes and UOM without a permission per screen.
+    const canViewMasterData = useCan('settings.master-data.view');
+
+    // Admin surfaces live in their own group, not alongside Platform.
+    const adminNavItems: NavItem[] = [
+        ...(canViewUsers
+            ? [{ title: 'Users', href: usersIndex(), icon: Users }]
+            : []),
+        ...(canViewDesignations
+            ? [
+                  {
+                      title: 'Designations',
+                      href: designationsIndex(),
+                      icon: BriefcaseBusiness,
+                  },
+              ]
+            : []),
+        ...(canViewBuyers
+            ? [{ title: 'Buyers', href: buyersIndex(), icon: Store }]
+            : []),
+        ...(canViewRoles
+            ? [{ title: 'Roles', href: rolesIndex(), icon: ShieldCheck }]
+            : []),
+        ...(canViewPermissions
+            ? [
+                  {
+                      title: 'Permissions',
+                      href: permissionsIndex(),
+                      icon: KeyRound,
+                  },
+              ]
+            : []),
+    ];
+
+    // Master data and app configuration. The *account* settings pages
+    // (profile, security, appearance) are not here — they are reached from the
+    // user menu and live under their own layout, see ARCHITECTURE.md §8.1.
+    const settingsNavItems: NavItem[] = [
+        ...(canViewMasterData
+            ? [
+                  {
+                      title: 'Notification colours',
+                      href: notificationColorsIndex(),
+                      icon: Palette,
+                  },
+              ]
+            : []),
+    ];
+
+    // A group whose items are all hidden is not rendered at all, so it never
+    // reaches the collapse state either.
+    const navGroups: NavGroup[] = [
+        { label: 'Platform', items: mainNavItems },
+        { label: 'Admin', items: adminNavItems },
+        { label: 'Settings', items: settingsNavItems },
+    ].filter((group) => group.items.length > 0);
+
+    // Called once: this is the only place that knows every group and its links.
+    const { isExpanded, toggle } = useNavGroups(navGroups);
+
     return (
         <Sidebar collapsible="icon" variant="inset">
             <SidebarHeader>
@@ -53,11 +124,22 @@ export function AppSidebar() {
             </SidebarHeader>
 
             <SidebarContent>
-                <NavMain items={mainNavItems} />
+                {navGroups.map((group) => (
+                    <NavMain
+                        key={group.label}
+                        items={group.items}
+                        label={group.label}
+                        expanded={isExpanded(group.label)}
+                        onToggle={() => toggle(group.label)}
+                    />
+                ))}
             </SidebarContent>
 
+            {/* No footer nav: the starter kit's Repository and Documentation
+                links were removed and nothing has replaced them. `NavFooter`
+                stays in the tree for when something does — rendering it with an
+                empty array would emit an empty group and its padding. */}
             <SidebarFooter>
-                <NavFooter items={footerNavItems} className="mt-auto" />
                 <NavUser />
             </SidebarFooter>
         </Sidebar>

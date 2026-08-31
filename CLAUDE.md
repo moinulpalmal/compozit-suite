@@ -1,3 +1,106 @@
+# Agent Operating Contract
+
+## 1. Read the map first
+
+**Before planning or writing any code, read @ARCHITECTURE.md.**
+
+It is the authoritative map of this repository: which module owns each concern, where every kind of
+class belongs, how routes and pages are named, and which files must be edited to register a new
+surface. Do not infer the layout by grepping — the file is authoritative, and guessing puts files
+in the wrong place. Read it again at the start of every session; it changes.
+
+If what you find on disk contradicts `ARCHITECTURE.md`, **the disk is the fact and the file is the
+bug** — fix the file as part of your change and say so.
+
+## 2. Keep the map in sync
+
+`ARCHITECTURE.md` is **volatile**: it is expected to change as the project's structure and the
+owner's preferences evolve. Keeping it accurate is part of the job, not a follow-up task.
+
+**Update `ARCHITECTURE.md` in the same change** whenever you make a *definitive structural change*:
+
+- a module is added, renamed, removed, or re-scoped
+- a directory is created or removed at the top level or inside a module
+- a route file is added, or a route prefix or naming convention changes
+- a naming or placement convention is established or altered
+- a cross-cutting mechanism is chosen — RBAC wiring, buyer scoping, audit logging
+- an architecture-shaping dependency is added, removed, or upgraded
+- layout resolution in `resources/js/app.tsx` changes
+- a module's status marker changes (🟡 scaffolded → ✅ built)
+
+[§12 of `ARCHITECTURE.md`](ARCHITECTURE.md#12-keeping-this-file-in-sync) maps each trigger to the
+exact section to edit.
+
+**Do not** touch it for ordinary feature work that follows conventions already recorded. A new
+controller inside an existing module is not a structural change.
+
+When you update it: edit the decision **in place** and state the reason. Never append a note that
+contradicts an existing line and leaves both readings live. Never let a ⬜ placeholder survive a
+change that resolves it. Say so in your summary when you have updated it — and say so when a change
+was structural but you judged the file already covered it.
+
+### This rule is machine-enforced
+
+A `PostToolUse` hook (`.claude/hooks/architecture-sync.mjs`, wired in `.claude/settings.json`) runs
+after every Write/Edit and pushes back when:
+
+- **Rule A** — you touched a structural file (`routes/*.php`, `resources/js/app.tsx`,
+  `composer.json`, `package.json`, `bootstrap/app.php`, `bootstrap/providers.php`) while
+  `ARCHITECTURE.md` has no pending edits.
+- **Rule B** — you wrote into a module directory whose name appears nowhere in `ARCHITECTURE.md`,
+  i.e. an unregistered module.
+
+Both are self-clearing: document the change and the hook goes quiet. It is a backstop for the rule
+above, not a substitute for it — the hook cannot see a renamed convention or a resolved ⬜. If it
+fires on something genuinely not structural, say why rather than working around it.
+
+## 3. The owner's preferences are the source of truth
+
+The structure in `ARCHITECTURE.md` reflects decisions the owner has made, not immutable law. When
+they state a preference that conflicts with what is recorded there — about layout, naming, module
+boundaries, or anything else — **the preference wins**. Update the file to match it in the same
+turn, including the rationale, so the next agent inherits the decision rather than re-litigating it.
+
+## 4. Project rules
+
+- **Use `php artisan make:*`** for every new file, with `--no-interaction`. Do not hand-write class
+  files that a generator produces.
+- **Never edit `resources/js/actions/` or `resources/js/routes/`** — Wayfinder generates them.
+- **Never nest `database/migrations/`** — the migrator does not recurse.
+- **Every change needs a test.** Write or update one, then run it:
+  `php artisan test --compact --filter=...`.
+- **Run `vendor/bin/pint --dirty --format agent`** before finalizing any PHP change.
+- **Do not add dependencies or create new top-level directories** without asking first.
+- **Do not create documentation files** unless asked. `ARCHITECTURE.md` is the exception — keeping
+  it current is required.
+- The Laravel Boost guidelines below apply in full and are not superseded by this contract.
+
+## 5. Where to start, by task
+
+| Task | Start here |
+| --- | --- |
+| Anything at all | [`ARCHITECTURE.md §5`](ARCHITECTURE.md#5-module-registry) — find the owning module |
+| Adding a feature | [`§10`](ARCHITECTURE.md#10-adding-a-feature-to-an-existing-module) — the end-to-end path |
+| Adding a module | [`§11`](ARCHITECTURE.md#11-adding-a-new-module) — the registration checklist |
+| Naming something | [`§6`](ARCHITECTURE.md#6-naming-conventions) |
+| Deciding where logic goes | [`§7`](ARCHITECTURE.md#7-request-lifecycle) |
+| Permissions, buyer scope, auditing | [`§9`](ARCHITECTURE.md#9-cross-cutting-concerns) |
+| Running or testing the app | [`§13`](ARCHITECTURE.md#13-commands) |
+
+---
+
+playwright configuration:
+APP BASE URL: http://localhost:8000
+  (served by `composer run dev`, which runs `php artisan serve` + queue + vite concurrently.
+   The URL is only live while that is running. Port 8080 is the Laragon landing page, not this app.)
+Login Auth: 
+User Name: test@example.com
+Password: password
+user this authentication for using playwright mcp server.
+playwright trigger clause: if user write plarywright trigger command at prompt explicitly only than use it. 
+PHP Path: D:\Projects\laragon\bin\php\php-8.4.12-nts-Win32-vs17-x64
+  (php is not on PATH in the bash shell; invoke it via this full path or use PowerShell.)
+
 <laravel-boost-guidelines>
 === foundation rules ===
 

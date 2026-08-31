@@ -9,6 +9,8 @@ import {
     useRef,
     useState,
 } from 'react';
+import type { Align, Side } from '@/lib/anchored-position';
+import { ANCHOR_GAP, positionAnchored } from '@/lib/anchored-position';
 import { cn } from '@/lib/utils';
 
 /**
@@ -21,16 +23,13 @@ import { cn } from '@/lib/utils';
  * are written by hand below: arrow-key roving focus, and closing when Tab moves
  * focus out of the menu.
  *
- * Placement is computed in JS rather than with CSS anchor positioning: it needs no
- * support guard, and clamping to the viewport replaces the collision handling that
- * came free with Radix.
+ * Placement lives in `lib/anchored-position.ts`, shared with `combobox.tsx`.
  *
  * Deliberately not supported: typeahead, submenus, and checkbox/radio items — none
  * are used here. If they are ever needed, reinstate `@radix-ui/react-dropdown-menu`
- * and restyle it rather than growing this file.
+ * and restyle it rather than growing this file. `combobox.tsx` is where that rule
+ * was applied: a searchable listbox was bought (`downshift`) rather than grown here.
  */
-type Side = 'top' | 'right' | 'bottom' | 'left';
-type Align = 'start' | 'center' | 'end';
 
 type DropdownMenuContextValue = {
     contentId: string;
@@ -57,9 +56,6 @@ function useDropdownMenu(): DropdownMenuContextValue {
 
     return context;
 }
-
-const VIEWPORT_MARGIN = 8;
-const TRIGGER_GAP = 4;
 
 function DropdownMenu({ children }: { children?: ReactNode }) {
     const contentId = useId();
@@ -127,7 +123,7 @@ function DropdownMenuContent({
     children,
     side = 'bottom',
     align = 'start',
-    sideOffset = TRIGGER_GAP,
+    sideOffset = ANCHOR_GAP,
     ...props
 }: DropdownMenuContentProps) {
     const { contentId, contentRef, triggerRef, setOpen, openedByKeyboardRef } =
@@ -141,76 +137,13 @@ function DropdownMenuContent({
             return;
         }
 
-        const anchor = trigger.getBoundingClientRect();
-        const menu = content.getBoundingClientRect();
-
-        content.style.setProperty(
-            '--dropdown-trigger-width',
-            `${anchor.width}px`,
-        );
-
-        let top: number;
-        let left: number;
-
-        if (side === 'top' || side === 'bottom') {
-            top =
-                side === 'bottom'
-                    ? anchor.bottom + sideOffset
-                    : anchor.top - menu.height - sideOffset;
-
-            left =
-                align === 'end'
-                    ? anchor.right - menu.width
-                    : align === 'center'
-                      ? anchor.left + (anchor.width - menu.width) / 2
-                      : anchor.left;
-
-            // Flip when the preferred side has no room but the opposite one does.
-            if (
-                side === 'bottom' &&
-                top + menu.height > window.innerHeight - VIEWPORT_MARGIN &&
-                anchor.top - menu.height - sideOffset > VIEWPORT_MARGIN
-            ) {
-                top = anchor.top - menu.height - sideOffset;
-            } else if (
-                side === 'top' &&
-                top < VIEWPORT_MARGIN &&
-                anchor.bottom + menu.height + sideOffset <
-                    window.innerHeight - VIEWPORT_MARGIN
-            ) {
-                top = anchor.bottom + sideOffset;
-            }
-        } else {
-            left =
-                side === 'right'
-                    ? anchor.right + sideOffset
-                    : anchor.left - menu.width - sideOffset;
-
-            top =
-                align === 'end'
-                    ? anchor.bottom - menu.height
-                    : align === 'center'
-                      ? anchor.top + (anchor.height - menu.height) / 2
-                      : anchor.top;
-
-            if (
-                side === 'right' &&
-                left + menu.width > window.innerWidth - VIEWPORT_MARGIN &&
-                anchor.left - menu.width - sideOffset > VIEWPORT_MARGIN
-            ) {
-                left = anchor.left - menu.width - sideOffset;
-            } else if (
-                side === 'left' &&
-                left < VIEWPORT_MARGIN &&
-                anchor.right + menu.width + sideOffset <
-                    window.innerWidth - VIEWPORT_MARGIN
-            ) {
-                left = anchor.right + sideOffset;
-            }
-        }
-
-        content.style.left = `${clamp(left, menu.width, window.innerWidth)}px`;
-        content.style.top = `${clamp(top, menu.height, window.innerHeight)}px`;
+        positionAnchored(trigger, content, {
+            side,
+            align,
+            sideOffset,
+            // `nav-user.tsx` widens its menu to the trigger with this.
+            widthVar: '--dropdown-trigger-width',
+        });
     }, [align, contentRef, side, sideOffset, triggerRef]);
 
     useEffect(() => {
@@ -347,12 +280,6 @@ function DropdownMenuSeparator({ className, ...props }: ComponentProps<'li'>) {
             {...props}
         />
     );
-}
-
-function clamp(value: number, size: number, viewport: number): number {
-    const max = Math.max(VIEWPORT_MARGIN, viewport - size - VIEWPORT_MARGIN);
-
-    return Math.min(Math.max(VIEWPORT_MARGIN, value), max);
 }
 
 function menuItems(content: HTMLElement): HTMLElement[] {

@@ -198,7 +198,6 @@ function Sidebar({
                         } as React.CSSProperties
                     }
                     side={side}
-                    showCloseButton={false}
                 >
                     <SheetHeader className="sr-only">
                         <SheetTitle>Sidebar</SheetTitle>

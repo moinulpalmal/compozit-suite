@@ -1,7 +1,7 @@
 import { Link, usePage } from '@inertiajs/react';
-import { BookOpen, Folder, LayoutGrid, Menu, Search } from 'lucide-react';
+import { LayoutGrid, Menu, Search } from 'lucide-react';
 import AppLogo from '@/components/app-logo';
-import AppLogoIcon from '@/components/app-logo-icon';
+import { AppLogoMark } from '@/components/app-logo-icon';
 import { Breadcrumbs } from '@/components/breadcrumbs';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
@@ -20,7 +20,7 @@ import {
 import { UserMenuContent } from '@/components/user-menu-content';
 import { useCurrentUrl } from '@/hooks/use-current-url';
 import { useInitials } from '@/hooks/use-initials';
-import { cn, toUrl } from '@/lib/utils';
+import { cn } from '@/lib/utils';
 import { dashboard } from '@/routes';
 import type { BreadcrumbItem, NavItem } from '@/types';
 
@@ -33,19 +33,6 @@ const mainNavItems: NavItem[] = [
         title: 'Dashboard',
         href: dashboard(),
         icon: LayoutGrid,
-    },
-];
-
-const rightNavItems: NavItem[] = [
-    {
-        title: 'Repository',
-        href: 'https://github.com/laravel/react-starter-kit',
-        icon: Folder,
-    },
-    {
-        title: 'Documentation',
-        href: 'https://laravel.com/docs/starter-kits#react',
-        icon: BookOpen,
     },
 ];
 
@@ -81,7 +68,7 @@ export function AppHeader({ breadcrumbs = [] }: Props) {
                                     Navigation menu
                                 </SheetTitle>
                                 <SheetHeader className="flex justify-start p-4 text-left">
-                                    <AppLogoIcon className="h-6 w-6 fill-current text-base-content" />
+                                    <AppLogoMark className="h-7 w-auto" />
                                 </SheetHeader>
                                 <div className="flex h-full flex-1 flex-col justify-between p-2 text-sm">
                                     <ul className="menu w-full gap-1 p-0">
@@ -96,24 +83,6 @@ export function AppHeader({ breadcrumbs = [] }: Props) {
                                                     )}
                                                     <span>{item.title}</span>
                                                 </Link>
-                                            </li>
-                                        ))}
-                                    </ul>
-
-                                    <ul className="menu w-full gap-1 p-0">
-                                        {rightNavItems.map((item) => (
-                                            <li key={item.title}>
-                                                <a
-                                                    href={toUrl(item.href)}
-                                                    target="_blank"
-                                                    rel="noopener noreferrer"
-                                                    className="font-medium"
-                                                >
-                                                    {item.icon && (
-                                                        <item.icon className="h-5 w-5" />
-                                                    )}
-                                                    <span>{item.title}</span>
-                                                </a>
                                             </li>
                                         ))}
                                     </ul>
@@ -178,30 +147,6 @@ export function AppHeader({ breadcrumbs = [] }: Props) {
                             >
                                 <Search className="!size-5 opacity-80 group-hover:opacity-100" />
                             </Button>
-                            <div className="ml-1 hidden gap-1 lg:flex">
-                                {rightNavItems.map((item) => (
-                                    <span
-                                        key={item.title}
-                                        className="tooltip tooltip-bottom"
-                                        data-tip={item.title}
-                                    >
-                                        <a
-                                            href={toUrl(item.href)}
-                                            target="_blank"
-                                            rel="noopener noreferrer"
-                                            className="group btn btn-square size-9 btn-ghost"
-                                        >
-                                            {/* The accessible name: daisyUI's CSS tooltip is not in the a11y tree. */}
-                                            <span className="sr-only">
-                                                {item.title}
-                                            </span>
-                                            {item.icon && (
-                                                <item.icon className="size-5 opacity-80 group-hover:opacity-100" />
-                                            )}
-                                        </a>
-                                    </span>
-                                ))}
-                            </div>
                         </div>
                         <DropdownMenu>
                             <DropdownMenuTrigger asChild>

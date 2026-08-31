@@ -61,7 +61,7 @@ test('a light theme does not add the dark class', function () {
 
 test('guests fall back to the theme cookie', function () {
     $this->withUnencryptedCookie('theme', Theme::Dracula->value)
-        ->get('/')
+        ->get(route('login'))
         ->assertOk()
         ->assertSee('data-theme="dracula"', escape: false);
 });

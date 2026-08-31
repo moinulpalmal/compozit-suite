@@ -1,7 +1,43 @@
+import { CircleAlert, CircleCheck, Info, TriangleAlert } from 'lucide-react';
 import { Toaster as Sonner } from 'sonner';
 import type { ToasterProps } from 'sonner';
 import { useAppearance } from '@/hooks/use-appearance';
 import { useFlashToast } from '@/hooks/use-flash-toast';
+import type { FlashToast } from '@/types/ui';
+
+/**
+ * The application's only toast surface, fed by `Inertia::flash('toast', …)`.
+ *
+ * Two things it does differently from stock sonner:
+ *
+ * 1. **Severity is a colour, and the colour is daisyUI's.** `richColors` turns on
+ *    sonner's per-type styling, and {@link soft} then overrides its palette with
+ *    the same `color-mix` formula daisyUI's `alert-soft` uses, so a success toast
+ *    and an inline `<Alert>` are the same green and both follow the theme into
+ *    dark mode. Enabling `richColors` without that override would ship sonner's
+ *    own green next to daisyUI's.
+ * 2. **Everything auto-dismisses after five seconds.** A toast reports an outcome,
+ *    not work in progress — `dialog.tsx` refuses light dismissal because a modal
+ *    holds typed input, and there is none here, so that rule does not carry over.
+ *    sonner pauses the timer while the pointer is over a toast and while the
+ *    window is unfocused, so five seconds is five seconds of attention.
+ *    `closeButton` stays, for dismissing one early.
+ */
+
+/** daisyUI colour tokens, which happen to share sonner's type names exactly. */
+const TOAST_TYPES = ['success', 'info', 'warning', 'error'] as const;
+
+/**
+ * daisyUI's `alert-soft` treatment, expressed as the three CSS variables sonner
+ * reads for one toast type.
+ */
+function soft(type: FlashToast['type']): Record<string, string> {
+    return {
+        [`--${type}-bg`]: `color-mix(in oklab, var(--color-${type}) 8%, var(--color-base-100))`,
+        [`--${type}-text`]: `var(--color-${type})`,
+        [`--${type}-border`]: `color-mix(in oklab, var(--color-${type}) 10%, var(--color-base-100))`,
+    };
+}
 
 function Toaster({ ...props }: ToasterProps) {
     const { isDark } = useAppearance();
@@ -13,11 +49,26 @@ function Toaster({ ...props }: ToasterProps) {
             theme={isDark ? 'dark' : 'light'}
             className="toaster group"
             position="bottom-right"
+            richColors
+            closeButton
+            duration={5000}
+            // lucide, so toasts share the icon vocabulary of every other surface
+            // rather than bringing sonner's second one.
+            icons={{
+                success: <CircleCheck className="size-4" />,
+                info: <Info className="size-4" />,
+                warning: <TriangleAlert className="size-4" />,
+                error: <CircleAlert className="size-4" />,
+            }}
             style={
                 {
                     '--normal-bg': 'var(--color-base-100)',
                     '--normal-text': 'var(--color-base-content)',
                     '--normal-border': 'var(--color-base-300)',
+                    ...TOAST_TYPES.reduce(
+                        (tokens, type) => ({ ...tokens, ...soft(type) }),
+                        {},
+                    ),
                 } as React.CSSProperties
             }
             {...props}

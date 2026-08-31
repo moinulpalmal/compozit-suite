@@ -1,0 +1,1308 @@
+# Compozit Suite — Architecture Map
+
+> **This file is the map of the repository.** It is the single source of truth for *where things
+> live*, *what they are called*, and *which files you must touch* to add something.
+>
+> **Agents:** read this before planning or writing any code, and update it whenever you make a
+> structural change. The sync contract lives in [`CLAUDE.md`](CLAUDE.md) and is restated in
+> [§12 Keeping this file in sync](#12-keeping-this-file-in-sync). A `PostToolUse` hook enforces it.
+>
+> **Status:** volatile. The module list and directory layout will grow. Treat every ⬜ marker as a
+> placeholder awaiting a decision, not as a settled design.
+
+---
+
+## 1. What this application is
+
+Compozit Suite is a garments manufacturing ERP: buyer-scoped merchandising and production
+management, built on a Laravel monolith with an Inertia + React front end. One deployable, one
+database, five functional modules plus a dashboard.
+
+---
+
+## 2. Stack
+
+| Layer | Technology | Version | Notes |
+| --- | --- | --- | --- |
+| Runtime | PHP | 8.4 (`^8.3` required) | `D:\Projects\laragon\bin\php\php-8.4.12-nts-Win32-vs17-x64` — not on the bash `PATH` |
+| Framework | Laravel | `^13.17` | |
+| Auth | Laravel Fortify | `^1.37` | Headless auth backend; routes registered by the package. **Login identifier is `employee_id`**, not email — see [§9.6](#96-authentication-identity) |
+| RBAC | spatie/laravel-permission | `^8.3` | Published and wired, teams off — see [§9.1](#91-rbac-roles--permissions) |
+| Adapter | Inertia.js (Laravel) | `^3.0` | v3 — no Axios, `Inertia::optional()` not `lazy()` |
+| Typed routes | Laravel Wayfinder | `^0.1` | Generates TS from routes/controllers |
+| UI | React | `19.2` | React Compiler enabled via Babel |
+| Styling | Tailwind CSS + daisyUI | `4.x` / `5.x` | daisyUI supplies the theme tokens |
+| Combobox | downshift | `^9.4` | Headless ARIA combobox behind `components/ui/combobox.tsx` — see [§8.5](#85-selects-are-comboboxes). The **only** third-party UI behaviour library; everything else is built on native elements + daisyUI |
+| Build | Vite | `8.x` | |
+| Tests | Pest | `^5.1` | |
+| Static analysis | Larastan / PHPStan | `^3.9` | |
+| Format | Pint (PHP), Prettier + ESLint (TS) | | |
+
+Database: **MySQL** (`compozitsuite` on `127.0.0.1:3306` via Laragon) for local development —
+`.env` sets `DB_CONNECTION=mysql`. Tests run against in-memory SQLite (`phpunit.xml`) — *provided no
+cached config is present*, which is a destructive trap and is now guarded; see
+[§13.1](#131-never-run-the-suite-with-a-cached-config--and-it-can-no-longer-happen).
+
+> This line previously said SQLite at `database/database.sqlite`; the disk disagreed, so the line
+> was wrong. The split matters when writing migrations: InnoDB indexes foreign key columns
+> automatically and SQLite does not, and `->change()` rebuilds the table on SQLite. Write migrations
+> that are correct on both.
+
+---
+
+## 3. Top-level layout
+
+```text
+compozit-suite/
+├── ARCHITECTURE.md          ← you are here; the repository map
+├── CLAUDE.md                ← agent operating contract + sync rules + Boost guidelines
+├── deploy.ps1               ← run ON THE SERVER to deploy; see §15
+├── .env.production.example  ← production env template; copy to .env on the server
+│
+├── .claude/
+│   ├── settings.json        Project hooks (committed)
+│   └── hooks/
+│       └── architecture-sync.mjs   PostToolUse hook enforcing §12
+│
+├── app/
+│   ├── Actions/             Single-purpose invokable operations, grouped by module
+│   │   └── Fortify/         Fortify's auth action contracts (not a module)
+│   ├── Concerns/            Shared traits (validation rule sets, etc.)
+│   ├── Console/Commands/    Artisan commands — flat, `{Verb}{Noun}Command`, not module-grouped
+│   ├── Enums/               Backed enums, grouped by module
+│   ├── Http/
+│   │   ├── Controllers/     Grouped by module
+│   │   ├── Middleware/      App-wide middleware
+│   │   └── Requests/        Form requests, grouped by module
+│   ├── Models/              Eloquent models, grouped by module
+│   │   └── Scopes/          Global query scopes — currently `BuyerScope`, see §9.2
+│   ├── Observers/           Model observers — see §9.3
+│   ├── Policies/            Authorization policies, grouped by module
+│   ├── Providers/           Service providers
+│   ├── Services/            Domain/business services, grouped by module
+│   └── Support/             Framework-agnostic helpers with no module owner
+│
+├── bootstrap/
+│   ├── app.php              Middleware stack, routing entry, exception handling
+│   └── providers.php        Registered service providers
+│
+├── config/                  Laravel config — incl. `admin.php` and `backup.php`, both §15
+├── documentation/           Module references (`{module}.md`) + operational runbooks
+│                            (`deployment.md`); see §14
+├── database/
+│   ├── factories/           Grouped by module (mirrors app/Models/)
+│   ├── migrations/          FLAT — chronological, never nested
+│   └── seeders/             Grouped by module
+│
+├── resources/
+│   ├── css/app.css          Tailwind + daisyUI entry
+│   ├── js/
+│   │   ├── actions/         GENERATED by Wayfinder — never edit
+│   │   ├── routes/          GENERATED by Wayfinder — never edit
+│   │   ├── components/      Grouped by module; `ui/` holds primitives
+│   │   ├── hooks/           Shared React hooks
+│   │   ├── layouts/         Page shells
+│   │   ├── lib/             Client helpers (cn, themes)
+│   │   ├── pages/           Inertia pages — path mirrors the URL
+│   │   ├── types/           Shared TypeScript types
+│   │   └── app.tsx          Client entry + layout resolver
+│   └── views/app.blade.php  Inertia root template
+│
+├── routes/
+│   ├── web.php              Entry point; requires every module route file
+│   ├── settings.php         Module 2
+│   ├── admin.php            Module 1
+│   ├── merchandising.php    Module 3
+│   ├── production.php       Module 4
+│   ├── reports.php          Module 5
+│   └── console.php          The scheduler — every recurring job lives here, see §15
+│
+└── tests/
+    ├── Feature/             Grouped by module — the default place to write a test
+    │   └── Auth/            Fortify auth flows (not a module)
+    └── Unit/                Pure logic only
+```
+
+---
+
+## 4. The organizing rule
+
+**Layer first, module second.**
+
+Laravel's standard top-level directories are kept intact, and each one is subdivided by module:
+
+```text
+app/Http/Controllers/Merchandising/TechPackController.php     ✅ this
+app/Modules/Merchandising/Http/TechPackController.php         ❌ not this
+```
+
+Why this and not a `app/Modules/*` package-per-module layout:
+
+- `php artisan make:*` targets it natively (`make:controller Merchandising/TechPackController`)
+  with no custom generators, autoload entries, or per-module service providers.
+- Wayfinder's generated output mirrors the PSR-4 path, so
+  `App\Http\Controllers\Merchandising\TechPackController` becomes
+  `@/actions/App/Http/Controllers/Merchandising/TechPackController` for free.
+- Laravel's factory resolver maps `App\Models\Merchandising\TechPack` →
+  `Database\Factories\Merchandising\TechPackFactory` automatically.
+- Cross-module reads are common in this domain (a production order reads a merchandising PO), and
+  hard package boundaries would create friction with no isolation benefit in a single deployable.
+
+**Nesting depth is one level.** `app/Models/Merchandising/TechPack.php`, not
+`app/Models/Merchandising/TechPack/TechPack.php`. Sub-areas within a module (tech packs, BQS,
+bookings) are expressed through *file naming*, not deeper folders. Frontend pages are the one
+exception — see [§6.4](#64-frontend-pages).
+
+---
+
+## 5. Module registry
+
+| # | Module | Namespace segment | Route file | Name prefix | URL prefix | Pages root | Status |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 0 | Dashboard | `Dashboard` | `routes/web.php` | `dashboard` | `/dashboard` | `pages/dashboard.tsx` | ✅ built (placeholder content) |
+| 1 | Admin | `Admin` | `routes/admin.php` | `admin.` | `/admin` | `pages/admin/` | 🟡 users + RBAC + designations built, rest scaffolded |
+| 2 | Settings | `Settings` | `routes/settings.php` | *(see note)* | `/settings` | `pages/settings/` | ✅ partly built |
+| 3 | Merchandising | `Merchandising` | `routes/merchandising.php` | `merchandising.` | `/merchandising` | `pages/merchandising/` | 🟡 scaffolded |
+| 4 | Production | `Production` | `routes/production.php` | `production.` | `/production` | `pages/production/` | 🟡 scaffolded |
+| 5 | Reports | `Reports` | `routes/reports.php` | `reports.` | `/reports` | `pages/reports/` | 🟡 scaffolded |
+
+Legend: ✅ built · 🟡 directories exist, no implementation · ⬜ planned, nothing exists.
+
+> **Settings name-prefix note:** the existing account routes (`profile.edit`, `security.edit`,
+> `appearance.edit`, `user-password.update`) are unprefixed because Fortify and the starter kit
+> reference them by those names. **Do not rename them.** All *new* Settings routes use the
+> `settings.` prefix — `settings.master-data.notification-colors.index` is the shipped example.
+
+### Module 0 — Dashboard
+
+Landing surface after login. KPI tiles and cross-module summaries.
+
+| Concern | Path |
+| --- | --- |
+| Route | `routes/web.php` (inside the auth group) |
+| Controller | `app/Http/Controllers/Dashboard/` 🟡 |
+| Aggregation logic | `app/Services/Dashboard/` 🟡 |
+| Page | `resources/js/pages/dashboard.tsx` ✅ |
+| Widgets | `resources/js/components/shared/` |
+
+Dashboard owns **no** models. It composes read-only data from other modules' services. If a
+dashboard tile needs a query, that query belongs in the owning module's service.
+
+### Module 1 — Admin
+
+| Sub-area | Backend home | Pages | Status |
+| --- | --- | --- | --- |
+| a. User management | `Admin\UserController` | `pages/admin/users/` | ✅ |
+| b. RBAC (roles & permissions) | `Admin\RoleController`, `Admin\PermissionController` | `pages/admin/roles/`, `pages/admin/permissions/` | ✅ |
+| c. Buyer-wise user access control | `Admin\UserController::updateBuyerAccess`, `Admin\BuyerAccessService` | a dialog on `pages/admin/users/` | ✅ |
+| d. Buyer setup & management | `Admin\BuyerController` | `pages/admin/buyers/` | ✅ |
+| e. Audit logging | `Admin\AuditLogController` | `pages/admin/audit-logs/` | 🟡 |
+| f. Designations (HR job titles) | `Admin\DesignationController` | `pages/admin/designations/` | ✅ |
+
+Models live in `app/Models/Admin/` (`Role`, `Permission`, `Designation`, `Buyer`, `AuditLog`, …). `Role` and
+`Permission` extend spatie's models so RBAC data is Admin-owned like everything else — see
+[§9.1](#91-rbac-roles--permissions). `User` stays at `app/Models/User.php` — it is an
+authentication concern shared by the whole app, not an Admin-owned model.
+
+Both RBAC screens follow the module's standard path: resource routes (`show` excluded) gated
+per-action by `permission:` middleware, a `{Model}Service` for the write path, form requests that
+enforce the name formats, and `pages/admin/{roles,permissions}/{index,create,edit}.tsx`. Shared
+form pieces live in `resources/js/components/admin/`.
+
+**User management deliberately diverges from that page pattern.** It is a *single* page —
+`pages/admin/users/index.tsx` — where create, edit, role assignment, password reset, soft delete,
+restore and permanent delete all happen in modals, and where the active and historical (soft-deleted)
+lists are two tabs driven by a `?view=active|trashed` query parameter rather than a second route.
+It is also the module's **data-table reference**: sortable headers, a filter cell under each column,
+a page-size selector and numbered pagination, all carried in the query string and validated by
+`UserIndexRequest` against allow-lists on the model. Copy that shape for the next list surface.
+This is a decision, not drift: the owner asked for one screen. Roles and permissions keep their
+`index/create/edit` pages; do not "harmonise" one into the other without a new decision.
+
+**Designations follow the user-management shape, not the RBAC one** — one page,
+`pages/admin/designations/index.tsx`, with create, edit and delete in modals. A designation is a
+*descriptive* HR job title: it grants nothing, and must never appear in an authorization check
+(permissions do that — [§9.1](#91-rbac-roles--permissions)). It is retired by setting its `status`
+to `I`, which removes it from the user form's picker; deleting it is a real delete and is **refused
+by `Admin\DesignationService::deletionBlocker()` while any user — soft-deleted ones included —
+still holds it**. Note the consequence: on this screen *deactivate* and *delete* are two different
+verbs, unlike `users`, where the historical tab is `deleted_at`. The reasoning behind the `status`
+char is in [`documentation/admin.md`](documentation/admin.md).
+
+**Buyers follow the designation shape too** — one page, `pages/admin/buyers/index.tsx`, create/edit/
+delete in modals, retired with `status` rather than soft-deleted. A buyer is the unit
+[§9.2](#92-buyer-scoped-access-control) scopes every buyer-owned row by, so deleting one is refused
+by `Admin\BuyerService::deletionBlocker()` once anything factual references it; access grants are not
+facts and cascade.
+
+**There is no buyer-access page.** Sub-area (c) was planned as `pages/admin/buyer-access/` with its
+own controller; the owner decided a user's buyer access is edited where the user is — a dialog on
+`admin/users`, beside the roles dialog, writing to `admin.users.buyer-access`. Two surfaces editing
+one fact is how they drift, and the per-buyer question ("who can see Zara?") has no screen because
+nothing asked it. `admin.buyer-access.view` gates whether the users list carries buyer data at all;
+`admin.buyer-access.update` gates changing it. If a per-buyer screen is ever wanted, it reuses
+`Admin\BuyerAccessService` rather than growing a second write path.
+
+Every destructive action is confirmed through `components/admin/confirm-action-dialog.tsx` (built on
+the existing `components/ui/dialog.tsx` — a native `<dialog>` styled with daisyUI — not a
+third-party alert library) and reports its outcome through the shared `sonner` toast.
+
+Admin is the only module allowed to write to roles, permissions, buyer-access assignments, and
+audit log records.
+
+### Module 2 — Settings
+
+Two distinct halves, deliberately separated:
+
+| Half | What it holds | Backend | Pages |
+| --- | --- | --- | --- |
+| Account settings | The signed-in user's own profile, security, appearance | `app/Http/Controllers/Settings/` ✅ | `pages/settings/{profile,security,appearance}.tsx` ✅ |
+| Master data | Product/process reference tables: notification colors ✅, then colors, sizes, UOM, seasons, fabric & trim types, machine types, process stages | `app/Http/Controllers/Settings/` 🟡 | `pages/settings/master-data/` 🟡 |
+| App configuration | Optional app-level toggles and defaults | 🟡 | `pages/settings/application/` 🟡 |
+
+Master data models go in `app/Models/Settings/`. Every other module *reads* them and none of them
+write them — that write path belongs to Settings alone.
+
+**The two halves no longer share a layout.** `SettingsLayout` is the account-settings shell and
+nothing else; master data renders under plain `AppLayout` like the Admin lists. See
+[§8.1](#81-layout-resolution--resourcesjsapptsx), which is where the rule was narrowed and why.
+
+**Notification colours are the first master-data surface**, and they set the shape the rest follow:
+one page with modals, `status` rather than `deleted_at`, the shared list apparatus, and the whole
+`settings.master-data.*` permission bucket rather than a permission per table — so a second master
+table adds no seeder entry and no role change. `documentation/settings.md` holds the reasoning,
+including the one thing deliberately left undone: **there is no deletion guard**, because nothing
+references a colour until `notifications` is built.
+
+**Departments are not here.** HR/org-structure reference data (designations, departments) is
+Admin-owned; only product and process reference data is Settings-owned. The split and its reason
+are in [§9.4](#94-master-data).
+
+### Module 3 — Merchandising
+
+| Sub-area | Naming | Pages |
+| --- | --- | --- |
+| a. Development tech pack management | `Merchandising\TechPack*` | `pages/merchandising/tech-packs/` |
+| b. BQS (budget quotation sheet) | `Merchandising\Bqs*` | `pages/merchandising/bqs/` |
+| b. Purchase order management | `Merchandising\PurchaseOrder*` | `pages/merchandising/purchase-orders/` |
+| c. Fabric & accessory booking | `Merchandising\Booking*` | `pages/merchandising/bookings/` |
+
+Merchandising owns the order lifecycle up to the point production begins. It is the upstream
+source of truth for style, buyer order, and consumption data that Production reads.
+
+### Module 4 — Production
+
+Garments production: cutting, sewing, finishing, packing, and the line/output tracking around
+them. Sub-areas are not yet fixed — record them here as they are decided. ⬜
+
+Production **reads** merchandising orders and master data; it does not modify them.
+
+### Module 5 — Reports
+
+Read-only, cross-module reporting.
+
+Hard rule: **reports never write domain data and never contain business rules.** A report
+controller calls report services in `app/Services/Reports/`, which compose queries. If a report
+needs a calculation that a module already performs, call that module's service rather than
+duplicating the arithmetic.
+
+---
+
+## 6. Naming conventions
+
+### 6.1 Backend classes
+
+| Kind | Location | Example |
+| --- | --- | --- |
+| Controller | `app/Http/Controllers/{Module}/` | `Merchandising\TechPackController` |
+| Form request | `app/Http/Requests/{Module}/` | `Merchandising\TechPackStoreRequest` |
+| Model | `app/Models/{Module}/` | `Merchandising\TechPack` |
+| Policy | `app/Policies/{Module}/` | `Merchandising\TechPackPolicy` |
+| Service | `app/Services/{Module}/` | `Merchandising\TechPackService` |
+| Action | `app/Actions/{Module}/` | `Merchandising\DuplicateTechPack` |
+| Enum | `app/Enums/{Module}/` | `Merchandising\TechPackStatus` |
+| Factory | `database/factories/{Module}/` | `Merchandising\TechPackFactory` |
+| Seeder | `database/seeders/{Module}/` | `Settings\ColorSeeder` |
+| Feature test | `tests/Feature/{Module}/` | `Merchandising/TechPackTest.php` |
+
+Request classes are named `{Model}{Action}Request` — `TechPackStoreRequest`,
+`TechPackUpdateRequest`. Actions are named as verbs — `DuplicateTechPack`, not `TechPackDuplicator`.
+
+An index screen's request is `{Model}IndexRequest` and extends `App\Http\Requests\ListRequest`
+rather than `FormRequest` — see [§8.6](#86-every-list-is-paginated-sortable-and-filtered-per-column). That
+base class is the one request that lives at the root of `app/Http/Requests/`, because it belongs to
+no module.
+
+Follow the PHP conventions in `CLAUDE.md`: explicit return types, promoted constructor properties,
+curly braces always, PHPDoc over inline comments, `TitleCase` enum cases.
+
+### 6.2 Routes
+
+- URL segments: lowercase kebab-case — `/merchandising/tech-packs/{techPack}/edit`.
+- Route names: dot-delimited, `{module}.{resource}.{action}` —
+  `merchandising.tech-packs.index`.
+- **There is no public landing page.** `/` is named `home` but renders nothing: it redirects
+  authenticated users to `dashboard` and guests to `login`. The name is retained because the auth
+  layouts and Wayfinder's generated `routes/index.ts` both depend on `home()` resolving. It is
+  served by `App\Http\Controllers\HomeController` — the one controller at the root of
+  `app/Http/Controllers/`, because `/` belongs to no module. It was a closure until deployment work
+  replaced it; that was a readability and testability change, **not** a route-caching fix. Laravel 13
+  serializes closure routes through `SerializableClosure`
+  (`Illuminate\Routing\Route::prepareForSerialization()`), so closures do not break `route:cache` —
+  the `LogicException` that older Laravel threw is gone. Prefer controllers anyway; do not record
+  caching as the reason.
+- Prefer resource routes; prefer `route()` and Wayfinder over hand-written URLs.
+- Every module route file already applies `['auth', 'auth.session', 'verified']`. Add permission
+  middleware per route or per sub-group, not globally.
+
+### 6.3 Migrations
+
+`database/migrations/` is **flat and chronological**. Laravel's migrator does not recurse into
+subdirectories by default, so never nest them. Table names are snake_case plural and carry a
+module hint where collision is plausible: `buyers`, `audit_logs`, `tech_packs`,
+`purchase_orders`, `fabric_bookings`, `production_lines`.
+
+#### Indexing
+
+An index is not a property of a column, it is a property of a **query**. Find the query first.
+
+- **Index what a query filters, joins or sorts on — nothing else.** An index that no `where`,
+  `join` or `order by` touches is pure write cost: every insert and update maintains a B-tree that
+  no select will ever read.
+- **A `unique` constraint already *is* an index.** Never add a second one over the same column.
+- **Don't index low-cardinality flags.** A boolean or a three-value enum is not selective enough to
+  beat a scan. If such a column must be indexed, it belongs *inside a composite*, behind a
+  selective leading column — never on its own.
+- **Composites are ordered, and the order is the whole point.** `(deleted_at, name)` serves
+  `where deleted_at … order by name`; `(name, deleted_at)` does not. Only an equality on the
+  leading column lets the rest of the index supply sort order — a *range* on it (`is not null`,
+  `>`, `between`) forces a filesort.
+- **Foreign keys: InnoDB indexes them automatically, SQLite does not.** Development runs on MySQL
+  and tests on SQLite ([§2](#2-stack)), so do not add an explicit index for a `constrained()`
+  column — on MySQL it is a duplicate.
+- **`LIKE '%term%'` cannot use a B-tree for the *predicate*,** ever — the leading wildcard defeats
+  it. It can still use one for the `ORDER BY`, which is why `users_deleted_at_name_index` survived
+  `name` becoming a contains filter: MySQL walks it in order, applies the wildcard as a residual
+  filter, and stops at the `LIMIT`. So a contains column costs a scan, not the index. The
+  alternatives remain prefix matching (`term%`, which an index *can* seek) or `FULLTEXT` — and if
+  `FULLTEXT`, guard the migration by driver, because Laravel's SQLite grammar has no
+  `compileFullText` and the migration will throw under test.
+- **Choose contains-versus-prefix per column, and declare it.** Each model's `FILTERABLE` map names
+  a `FilterType` for every filterable column ([§8.6](#86-every-list-is-paginated-sortable-and-filtered-per-column)).
+  Names and emails are `Contains`, where finding mid-string is worth the scan; identifiers and phone
+  numbers are `Prefix`, which is both how people type them and what keeps their indexes seekable.
+  **Never infer this from the column type** — every filterable column in this application is a
+  `varchar`, `employee_id` included, so inference would silently make everything `Contains`.
+- **`OR` across several columns defeats indexing; `AND` does not.** One search box matching a term
+  against six columns forces an unreliable index merge, or makes the optimizer pick one index and
+  filter the rest — so indexes built for the other five are never used. A **filter row**, where each
+  cell filters its own column and the cells are `AND`-ed, has no such problem: the leading predicate
+  seeks and the rest are cheap residual filters. That is why the lists have a cell per column and
+  not one box across all of them.
+- **A `unique` index already serves `ORDER BY`,** not just lookups. With a `LIMIT`, MySQL walks it in
+  order and stops early, so a `(deleted_at, that_column)` composite for sorting is usually redundant.
+  Two such "obvious" composites were measured and rejected on `users`.
+- **Selectivity decides whether an index gets used at all.** A prefix matching a seventh of the
+  table will rightly be served by a scan; the same column with a selective prefix wins by 20×.
+  Benchmark the query someone will actually run, not a broad one.
+- **Verify with `EXPLAIN`; do not guess.** MySQL 8+/9 returns tree format. You want the index named
+  in the plan, and `Covering index` where the query only needs indexed columns. A `Sort:` line above
+  a range scan means the index is not supplying order.
+
+Worked example, including what was deliberately *not* indexed and why:
+[`documentation/admin.md` §2.1](documentation/admin.md).
+
+### 6.4 Frontend pages
+
+The Inertia page path **is** the file path under `resources/js/pages/`, lowercase kebab-case:
+
+```php
+Inertia::render('merchandising/tech-packs/index', [...]);
+//               resources/js/pages/merchandising/tech-packs/index.tsx
+```
+
+Pages are the one place where nesting goes deeper than one level, because the path mirrors the URL.
+Conventional file names within a resource directory: `index.tsx`, `create.tsx`, `edit.tsx`,
+`show.tsx`.
+
+### 6.5 Components
+
+| Directory | Holds |
+| --- | --- |
+| `components/ui/` | Unstyled/low-level primitives (button, dialog, sidebar). Framework-level, no domain knowledge. |
+| `components/shared/` | Cross-module composites used by two or more modules (data table, filter bar, page header). |
+| `components/{module}/` | Components used by exactly one module. |
+
+Promotion rule: a component starts in `components/{module}/`. The moment a **second** module
+imports it, move it to `components/shared/` in the same change. Check for an existing component
+before writing a new one.
+
+**The list apparatus has been promoted, and it is the worked example.** `column-filter-row`,
+`list-toolbar`, `pagination`, `sortable-header`, `confirm-action-dialog` and `confirm-delete-dialog`
+all lived in `components/admin/` while Admin was the only module with a list. The Settings
+master-data screen was the second importer, so all six moved to `components/shared/` in that change.
+Both dialogs moved together even though only one was imported directly: `confirm-delete-dialog` is a
+thin preset over `confirm-action-dialog`, and promoting the wrapper alone would have left a shared
+component importing out of `components/admin/` — which is the coupling the rule exists to remove.
+The `*-form-dialog.tsx` files stayed put; they know their module's fields and have one caller each.
+
+File names are kebab-case; the exported component is PascalCase.
+
+### 6.6 TypeScript types
+
+Shared, app-wide types live in `resources/js/types/` and are re-exported from
+`types/index.ts`. Module domain types go in `resources/js/types/{module}.ts` and must also be
+re-exported there so `@/types` stays the single import path.
+
+---
+
+## 7. Request lifecycle
+
+```mermaid
+flowchart LR
+    A["Browser<br/>Inertia visit"] --> B["routes/{module}.php"]
+    B --> C["Middleware<br/>auth · auth.session · verified · permission"]
+    C --> D["{Module}Controller"]
+    D --> E["FormRequest<br/>validation"]
+    D --> F["Policy<br/>authorization"]
+    D --> G["{Module}Service<br/>business rules"]
+    G --> H["Eloquent model"]
+    D --> I["Inertia::render<br/>'module/resource/page'"]
+    I --> J["pages/module/resource/page.tsx"]
+    J --> K["AppLayout<br/>resolved in app.tsx"]
+```
+
+Where logic belongs, in order of preference:
+
+1. **Form request** — validation and authorization gate.
+2. **Policy** — per-record authorization.
+3. **Service** — anything with more than one step, or touching more than one model.
+4. **Action** — one discrete operation with a single caller.
+5. **Controller** — orchestration only. A controller method that exceeds ~20 lines is a service
+   waiting to be extracted.
+
+Models hold relationships, casts, scopes, and accessors. They do not hold workflow.
+
+---
+
+## 8. Frontend wiring
+
+### 8.1 Layout resolution — `resources/js/app.tsx`
+
+Layouts are assigned centrally by page-name prefix, not per page:
+
+| Page name matches | Layout |
+| --- | --- |
+| `auth/*` | `AuthLayout` |
+| exactly `settings/profile`, `settings/security`, `settings/appearance` | `[AppLayout, SettingsLayout]` |
+| everything else — **including the rest of `settings/`** | `AppLayout` |
+
+**New modules need no change here** — they fall through to `AppLayout`. Only edit `app.tsx` if a
+module needs its own sub-layout, and record that decision in this file.
+
+**This rule previously read `settings/*` → `[AppLayout, SettingsLayout]`, and that was wrong.** It
+conflated a URL prefix with a layout. `SettingsLayout` is not a Settings shell; it is the *account
+settings* shell — a fixed three-item nav (Profile, Security, Appearance), a heading that says
+"Manage your profile and account settings", and a `max-w-xl` content column sized for a short form.
+The first master-data screen is a paginated table with a filter row, and it cannot render in that
+column at all. The three account pages are therefore named explicitly, in a
+`ACCOUNT_SETTINGS_PAGES` array, and everything else under `settings/` falls through to `AppLayout`
+and looks like the Admin lists it is a sibling of.
+
+Two consequences worth keeping in mind:
+
+- **The match is exact, not a prefix.** A fourth account page has to be added to that array — which
+  is the intent: joining the account shell should be a decision, not something a filename does by
+  accident.
+- **`SettingsLayout` itself was left untouched.** Teaching it a second nav section and a conditional
+  width was the alternative, and it makes one component serve two unrelated jobs that every future
+  master table then edits. Narrowing the resolver is the smaller and more reversible half.
+
+### 8.2 Wayfinder — generated, never edited
+
+`resources/js/actions/` and `resources/js/routes/` are generated by the Wayfinder Vite plugin.
+
+- Never hand-edit them, and never hand-write a URL string in a page.
+- Import controller actions from `@/actions/...` and named routes from `@/routes/...`.
+- They regenerate on `npm run dev` / `npm run build`, or via
+  **`php artisan wayfinder:generate --with-form`**.
+- After adding routes, regenerate before writing the page that links to them.
+- **`--with-form` is not optional.** `vite.config.ts` configures the plugin with
+  `formVariants: true`, and every `<Form {...submit}>` in this application is built on the
+  `.form()` variant that flag emits. Running the bare command regenerates the same files *without*
+  those variants — roughly 3,500 lines vanish, and `npm run types:check` then fails across pages
+  nobody touched. This line previously omitted the flag and that is exactly what happened; if a
+  routine `types:check` suddenly reports `Property 'form' does not exist` in `auth/login.tsx`, this
+  is the cause, and the fix is to regenerate with the flag rather than to change any page.
+
+### 8.3 Navigation
+
+The sidebar is defined in `resources/js/components/app-sidebar.tsx`. Adding a module surface means
+adding an entry there — see the checklist in [§11](#11-adding-a-new-module).
+
+**Nav items are grouped by module.** `<NavMain>` renders one labelled group; the sidebar composes
+one per module — `mainNavItems` under the default "Platform" label, `adminNavItems` under "Admin",
+and so on as modules land. A module's links never join another module's group. A group whose items
+are all hidden is not rendered at all.
+
+**Every group collapses, and the state is remembered.** With five modules landing, five
+permanently-expanded blocks is not a sidebar anyone can use. The `SidebarGroupLabel` is the toggle;
+the links stay flat and top-level. Rules that come with it:
+
+- **The label toggles, it does not become a parent row.** `SidebarMenuSub` /
+  `SidebarMenuSubButton` exist in `sidebar.tsx` and are deliberately **unused** — the indented-
+  submenu shape was considered and declined, because in the icon rail those parts are
+  `display: none` and a module would become an icon that leads nowhere.
+- **The icon rail always renders groups expanded.** `SidebarGroupLabel` is `opacity-0
+  pointer-events-none` at 3rem, so a collapsed group there would hide its icons with no reachable
+  way to bring them back. `NavMain` overrides the stored state whenever `useSidebar().state` is
+  `collapsed` and the viewport is not mobile.
+- **Collapsed groups live in the `sidebar_groups` cookie**, comma-joined labels, read by
+  `HandleInertiaRequests` into the `collapsedNavGroups` prop — the same treatment `sidebar_state`
+  gets, and for the same reason: read server-side, the sidebar is correct on first paint.
+  `localStorage` was declined for the flash of wrong state on every load. The cookie is in
+  `encryptCookies(except:)`; without that the browser's value is discarded as tampered and the
+  preference silently never persists.
+- **Navigating into a collapsed group opens it, and that counts as opening it** — the label is
+  removed from the cookie, not merely overridden for one render. One invariant, rather than a
+  precedence puzzle between what the cookie says and where the user is. Note that `AppLayout`
+  persists across Inertia visits, so `NavMain` does *not* remount: seeding this at mount is not
+  enough, it has to react to the URL changing.
+- **`useNavGroups` is called once**, in `app-sidebar.tsx`, which is the only place that knows every
+  group and its items; `NavMain` is presentational and takes `expanded` / `onToggle`. Two hook
+  instances would each hold half the collapsed set and overwrite each other's cookie.
+- Group identity is the **label string**. Renaming a group orphans its cookie entry, which reads as
+  the group being expanded once — harmless, and the stale entry is dropped on the next write.
+
+Entries for permission-gated surfaces are appended conditionally with `useCan()` (see
+[§9.1](#91-rbac-roles--permissions)), so a user never sees a link they cannot open. That is
+presentation only — the route's `permission:` middleware is what actually denies access.
+
+### 8.4 Inertia v3 notes
+
+- **No Axios.** Use the built-in XHR client or the `useHttp` hook.
+- `useHttp` owns *form state* — data, errors, `processing`. For a plain JSON **read** that has no
+  form behind it (a live availability check, a typeahead), use `fetch` with an `AbortController`
+  instead: `useHttp` returns a new object every render, so driving it from an effect means either
+  a ref written during render or a dependency loop, both of which the React Compiler lint rules
+  reject. `hooks/use-availability.ts` is the reference implementation. This is not licence to reach
+  for Axios — the ban stands.
+- `Inertia::optional()` — `Inertia::lazy()` / `LazyProp` are removed.
+- Deferred props must render a pulsing skeleton as their empty state.
+- Event renames: `invalid` → `httpException`, `exception` → `networkError`;
+  `router.cancel()` → `router.cancelAll()`.
+
+### 8.5 Selects are comboboxes
+
+**There are no native `<select>` elements in this application.** Every one is
+`components/ui/combobox.tsx`, a searchable listbox built on `downshift`.
+
+- **One component, not two idioms.** It renders a plain listbox below
+  `SEARCH_THRESHOLD` (10) options and reveals the search input above it, so a three-option Gender
+  select stays one click while a long designation list is typeable. Call sites never choose.
+- **It submits through a hidden `<input>`.** Every form here is an uncontrolled
+  `<Form {...submit}>` reading `name=` off native elements; a `<div role="combobox">` submits
+  nothing. Any new control that replaces a native form element must do the same.
+- **`multiple` renders removable chips** and emits one hidden `name[]` input per selection, so the
+  server sees exactly what a checkbox list would have sent.
+- **The hidden-input contract binds every compound control, not just this one.**
+  `components/ui/color-input.tsx` is the second: a native `<input type="color">` for picking and a
+  text `<Input>` for typing the same hex, of which **only the text field carries `name`** — the
+  colour swatch is an unnamed visual control that writes into it. Two named inputs would submit the
+  field twice and the last one would win, which is a bug that looks like nothing until the values
+  disagree. Any further control built from more than one element does the same.
+- **Why a dependency at all**, when `dropdown-menu.tsx` deliberately replaced Radix by hand: that
+  file's docblock states the rule — hand-roll the simple primitive, buy the complicated one.
+  `aria-activedescendant`, roving virtual focus and filtered-result announcements are the
+  complicated one. downshift is headless, so every class name is still ours.
+- Placement for both is `lib/anchored-position.ts`.
+
+#### Options endpoints — the async source
+
+A combobox given `searchUrl` fetches its options per keystroke instead of filtering locally. Use it
+when a list outgrows being shipped to the browser whole. The convention:
+
+```php
+Route::get('{resource}/options', [{Resource}Controller::class, 'options'])
+    ->name('{resource}.options')
+    ->middleware('permission:{module}.{resource}.view');
+```
+
+Takes `?q=`, returns `{"data": [{"value": …, "label": …, "hint": …}]}`, and **caps its result set** —
+shipping fewer rows is the entire point. Match `q` as a **prefix** so the query stays indexable
+([§6.3](#63-migrations)). `admin.designations.options` is the worked example; the client half is
+`hooks/use-option-search.ts`, which follows `use-availability.ts` including its
+`X-Requested-With` header — omit that and Laravel records the JSON URL as the session's previous
+URL, sending every later `back()` to it.
+
+### 8.6 Every list is paginated, sortable and filtered per column
+
+**A list screen is never a bare `->get()`.** All six lists — the five Admin ones and Settings'
+notification colours — go through one apparatus, and a new one inherits it rather than
+re-implementing it:
+
+| Piece | Job |
+| --- | --- |
+| `app/Enums/FilterType` | `Contains` / `Prefix` / `Equals` / `Scope` — how one cell matches |
+| `app/Concerns/Listable` | `scopeFilterColumns()` and `scopeSortBy()`. The model declares `FILTERABLE` and `SORTABLE` |
+| `app/Http/Requests/ListRequest` | Abstract base validating `sort` / `direction` / `per_page` / `filter[…]` / `page`. Subclasses add anything else through `filterRules()` and `filterValues()` |
+| `components/shared/column-filter-row.tsx` | The row of filter cells under the headers |
+| `hooks/use-list-filters.ts` | The 400 ms debounce, page reset, and one-visit clear |
+| `components/shared/list-toolbar.tsx` | The thin bar above: page size, Clear filters, surface extras |
+| `components/shared/sortable-header.tsx` | Clickable `<th>`, and `nextSort()` |
+| `components/shared/pagination.tsx` | Numbered pages with prev/next and "Showing x–y of z" |
+
+These six front-end files sat in `components/admin/` until Settings became the second module with a
+list — see [§6.5](#65-components) for the promotion.
+
+The wire format is `?filter[name]=man&sort=name&direction=asc&per_page=50&page=2`.
+
+Rules that come with it:
+
+- **The allow-lists are a security control, not a convenience.** Request input reaching `orderBy()`
+  is a SQL injection, and a filter key outside `FILTERABLE` must be a validation **error**, not a
+  silent ignore. Both are checked in the request *and* clamped in the scope; keep both.
+- **Filters are per column and `AND`-ed.** Never an `OR` across columns — see
+  [§6.3](#63-migrations), which also governs whether a column is `Contains` or `Prefix`.
+- **Page size is an allow-list, not a cap.** `ListRequest::PER_PAGE_OPTIONS`; an unvalidated
+  `?per_page=999999` is a denial-of-service that costs nothing to send.
+- **Text cells debounce, dropdowns do not.** A contains filter is a table scan, so every visit the
+  debounce saves is a scan that never runs.
+- **A partial reload must name every prop that varies with the rows.** `useListFilters`' `only`
+  list is not just an optimization — the users list has to include `designations`, because that prop
+  is derived from the rows currently on screen and would otherwise go stale.
+- **Paginate with `->paginate($filters['per_page'])->withQueryString()->through(…)`.** Without
+  `withQueryString`, page 2 silently drops the sort and filters.
+- **`SORTABLE` and `FILTERABLE` hold columns, not aggregates.** A `withCount` alias needs `HAVING`
+  and a different path; `Role` records why `users_count` is in neither.
+- **A filter that selects the record set is not a filter cell.** The users list's
+  `?view=active|trashed` chooses between the live table and the soft-deleted history, so it lives in
+  the toolbar. It is also why that parameter is `view` and not `filter`: a scalar and an array
+  cannot share one query-string key.
+- **A list and its picker are different queries.** Paginating a list must never paginate the
+  dropdown that offers the same records elsewhere —
+  `DesignationService::assignableOptions()` and `PermissionService::groupedByModule()` are both
+  deliberately unpaginated, and both have a test pinning it.
+- **Grouped rendering and pagination are incompatible.** A group gets cut across a page boundary.
+  The permissions list traded its module grouping for a Module column and filter; if a future list
+  wants grouping, it does not get pagination, and that trade must be recorded.
+
+`ListRequest` sits at the root of `app/Http/Requests/` rather than a module folder, because it
+belongs to no module — a deliberate exception to [§6.1](#61-backend-classes).
+
+The contract is tested once for every surface in `tests/Feature/ListBehaviourTest.php`. **Add a new
+list to its `surfaces()` dataset** and it inherits the whole set. It sits at the root of
+`tests/Feature/` rather than under a module directory, for the same reason `ListRequest` sits at the
+root of `app/Http/Requests/`: it tests apparatus that belongs to no module, and it stopped being an
+Admin file the moment a Settings surface joined its dataset.
+
+### 8.7 Modals never light-dismiss; menus always do
+
+**A dialog closes only when the user says so.** `components/ui/dialog.tsx` refuses both of the
+browser's escape routes: there is no `.modal-backdrop` form, so clicking outside does nothing, and
+`cancel` is `preventDefault()`ed, so Escape does nothing. Every dialog in this application holds
+typed work or a destructive confirmation, and a stray click outside one was discarding it.
+
+- **Escape is refused twice, not forever.** Chrome's close watcher permits a page to cancel only a
+  short run of close requests before forcing one through: the first two Escapes do nothing, the
+  third closes the panel, and a click inside the panel does not reset the count. This was measured
+  in the browser, not assumed, and no script can disable it — it is Chrome guaranteeing that a user
+  is never trapped. What the rule buys is that a single reflexive Escape no longer discards a form.
+- **The close button is not optional.** With both dismissal paths gone it is the only way out, so
+  `showCloseButton` no longer exists — `DialogContent` always renders it. `sidebar.tsx` used to
+  pass `showCloseButton={false}` for the mobile drawer; under this rule that would have been a
+  trap with no exit, and it now shows the X like everything else.
+- **`Sheet` inherits it**, being the same primitive with a different placement. The mobile
+  navigation drawer therefore closes by its X, not by tapping the page behind it.
+- **Menus are the opposite case and keep light dismiss.** `dropdown-menu.tsx` keeps
+  `popover="auto"` — the browser's dismissal *and* its focus restoration — and `combobox.tsx`
+  keeps downshift's outside-click and Escape handling. A menu holds no work, so there is nothing
+  to protect and a user who opens one by accident must be able to leave. Do not extend the modal
+  rule to them.
+- `.modal-box` is `position: static` in daisyUI, so `DialogContent` adds `relative`; without it
+  the close button anchors to `.modal` (`position: fixed; inset: 0`) and lands in the viewport
+  corner rather than the panel's.
+
+One trap worth knowing in `combobox.tsx`: downshift's reducer treats a click on its input as
+`isOpen: !isOpen`, which closed the menu when the user clicked the search box *inside* it. Every
+`useCombobox` there needs a `stateReducer` holding `isOpen` steady for `InputClick`.
+
+### 8.8 Toasts carry severity, and they clear themselves
+
+Every outcome message is `Inertia::flash('toast', ['type' => …, 'message' => …])`, rendered by
+`components/ui/sonner.tsx` through `hooks/use-flash-toast.ts`. There is no other notification
+surface.
+
+- **The four types mean something.** `success` — it worked. `warning` — refused because another
+  record's state blocks it and **the actor can clear that themselves**, e.g. a designation still
+  held by users (`DesignationController::destroy`) or a role still assigned to some
+  (`RoleController::destroy`). `error` — refused by a rule no amount of work lifts, e.g. the last
+  super admin or your own account (`UserController::refuse()`), and the super-admin role. `info` —
+  something happened that the user did not ask for.
+- **Colour comes from daisyUI, not from sonner.** `richColors` is on, but every one of its
+  `--{type}-bg/-text/-border` variables is overridden with daisyUI's `alert-soft` `color-mix`
+  formula, so a toast and an inline `<Alert>` are the same colour and both follow the theme into
+  dark mode. Enabling `richColors` alone ships a second palette.
+- **Everything auto-dismisses after 5s**, `closeButton` still on for dismissing one early. This
+  line previously read "nothing auto-dismisses", `duration: Infinity`, justified by analogy to
+  [§8.7](#87-modals-never-light-dismiss-menus-always-do). **The owner reversed it**: the analogy
+  does not hold. A modal refuses dismissal because it holds *typed work* that a stray click would
+  destroy; a toast holds a *report of something already finished*, and nothing is lost by its
+  going. What the rule actually produced was litter — every save left a card the user had to sweep
+  up by hand. sonner pauses the timer on hover and on window blur, so 5s is 5s of attention, not
+  wall clock. Do not restore `Infinity` for the `warning`/`error` types either; that was
+  considered and declined.
+- `error` messages are wrapped in `role="alert"` so they interrupt; everything else is
+  `role="status"`. sonner announces through one polite live region, and this is the only lever it
+  exposes.
+- **Severity is asserted, not assumed.** `assertToast($response, 'warning')` in `tests/Pest.php`
+  reaches into the `inertia.flash_data` session key; use it on both sides of every guard.
+
+---
+
+## 9. Cross-cutting concerns
+
+### 9.1 RBAC (roles & permissions)
+
+`spatie/laravel-permission ^8.3` is **installed and wired**. The shape:
+
+| Piece | Where |
+| --- | --- |
+| Config | `config/permission.php` — published, pointed at the app's own models |
+| Tables | `database/migrations/2026_08_26_065123_create_permission_tables.php` (teams **off**) |
+| Models | `App\Models\Admin\Role` / `App\Models\Admin\Permission`, each extending the spatie model |
+| User trait | `App\Models\User` uses `Spatie\Permission\Traits\HasRoles` |
+| Middleware aliases | `bootstrap/app.php` → `role`, `permission`, `role_or_permission` |
+| Super-admin bypass | `AppServiceProvider::configureAuthorization()` — `Gate::before` for `Role::SUPER_ADMIN` |
+| Catalogue + seeding | `Database\Seeders\Admin\RolePermissionSeeder`, run from `DatabaseSeeder` |
+| Admin UI | `Admin\RoleController`, `Admin\PermissionController` → `pages/admin/{roles,permissions}/` |
+
+Rules:
+
+- Permission names read `{module}.{resource}.{action}` — `merchandising.tech-packs.update`. The
+  format is enforced by `RoleStoreRequest`/`PermissionStoreRequest` validation.
+- Roles are data, not code. Never hardcode a role name in a check; check the permission. The one
+  exception is `Role::SUPER_ADMIN` (`super-admin`), which exists only so the `Gate::before` bypass
+  and the "you may not edit this role" guards have something to name.
+- Route-level gating uses spatie's `permission:` middleware; record-level gating uses the module's
+  policy in `app/Policies/{Module}/`.
+- **A guard that must also bind a super admin does not belong in a policy.** `Gate::before` grants a
+  super admin every ability, so a policy denial is bypassed for exactly the account the guard is
+  usually protecting against. Such rules live in the module's service — see
+  `Admin\UserService::roleAssignmentBlocker()` / `deletionBlocker()`, which stop a user editing their
+  own roles, deleting their own account from Admin, or removing the last super admin — or in the form
+  request, as `Concerns\RoleAssignmentRules::assignableRoleRule()` does for granting `super-admin`.
+  `Admin\RoleController`'s super-admin guard is the original instance of this pattern.
+- User administration is gated by eight permissions: `admin.users.` `view`, `create`, `update`,
+  `delete` (soft delete), `restore`, `force-delete` (permanent), `reset-password` and `assign-roles`.
+  `assign-roles` is separate from `update` on purpose, so editing a profile does not imply the power
+  to widen someone's access.
+- **Teams are deliberately off.** Buyer scoping ([§9.2](#92-buyer-scoped-access-control)) is
+  row-level data filtering, not per-team roles; spatie's teams feature does not solve it and would
+  add a `team_id` to every pivot for nothing.
+- `HandleInertiaRequests` shares `auth.permissions` (a flat array of the signed-in user's effective
+  permission names, `['*']` for a super admin) so the front end can hide surfaces the user cannot
+  reach. Use the `useCan()` hook in `resources/js/hooks/use-can.ts`, never a role-name check.
+  Hiding a link is **not** authorization — the route middleware and policy are.
+
+### 9.2 Buyer-scoped access control
+
+A user is granted access to a set of buyers, and every buyer-owned record must be filtered by that
+set. This is a **data-scoping** concern that is separate from RBAC: a permission says *what* a user
+may do, buyer scope says *which rows* they may do it to.
+
+**The mechanism is a global scope.** The shape:
+
+| Piece | Where |
+| --- | --- |
+| Buyers | `App\Models\Admin\Buyer`, table `buyers` |
+| Per-user grants | `buyer_user`, both keys cascading |
+| The wildcard | `users.all_buyer_access` |
+| The one question | `App\Models\User::seesAllBuyers()` |
+| The scope | `App\Models\Scopes\BuyerScope` |
+| Opting a model in | `use App\Concerns\BuyerScoped;` — that is the whole registration |
+| Editing access | `Admin\BuyerAccessService`, from the users screen |
+
+Rules, each of which is a decision rather than an accident:
+
+- **A model opts in with one `use`, and the scope is then unavoidable.** The alternative — an
+  explicit `->visibleTo($user)` in each service — was rejected because forgetting it once is a
+  cross-buyer data leak that no test would fail on. Escape it deliberately with
+  `->withoutBuyerScope()`, which reads as the exception it is.
+- **The column is `buyer_id`, on the buyer-owned table itself.** A model that reaches its buyer
+  through a parent cannot use this scope as written; give it its own `buyer_id` rather than teaching
+  the scope to join.
+- **"All buyer access" is a flag, never materialised rows.** A user carrying it has *no* `buyer_user`
+  rows and needs none, so a buyer created a second from now is visible with nothing to synchronise.
+  Copying each new buyer into a row per all-access user — the original request — was rejected: it
+  makes revocation lossy, since a row granted by the wildcard is indistinguishable from one granted
+  deliberately; it needs a second job for the symmetric case (a user newly granted the wildcard); and
+  its failure mode is silent invisibility that reads as a permissions bug. `BuyerAccessService::assign()`
+  clears the pivot when the flag goes on, so the two representations can never disagree.
+- **A super admin is exempt through the same method.** `seesAllBuyers()` is the flag *or*
+  `Role::SUPER_ADMIN` — `Gate::before` grants abilities and does nothing for row scoping, so without
+  this a newly promoted super admin would see an empty application. This is the [§9.1](#91-rbac-roles--permissions)
+  exception that permits naming the role.
+- **With no authenticated actor the scope does not filter.** Seeders, queue jobs, the scheduler and
+  console commands are system context; failing closed there would make them silently no-op, and every
+  web path is behind `auth` already. **This is deliberate and pinned by a test** — do not "fix" it.
+- **`status` is not in the scope.** Deactivating a buyer retires it from the pickers; its orders stay
+  visible, per [§9.3.1](#931-activeinactive-status).
+- **Zero buyers is a valid state** — a new hire pending assignment. Buyer-scoped lists render
+  `components/shared/no-buyer-access.tsx` rather than an empty table, so "no access" never reads as
+  "no data".
+- **The id list is memoised on the `User` instance.** A global scope runs on *every* query; a fresh
+  `buyer_user` round trip per query is not affordable.
+
+The scope ships with no buyer-owned models — `purchase_orders`, `tech_packs` and the rest do not
+exist yet — so it is proven against a throwaway model declared inside
+`tests/Feature/Admin/BuyerScopeTest.php`. The first real buyer-owned table adds `use BuyerScoped;`
+and inherits tested behaviour.
+
+### 9.3 Audit logging
+
+Every mutation to a buyer-owned or administrative record is auditable. The general mechanism — what
+gets written to `audit_logs`, and by what — is still undecided. ⬜
+
+**Actor stamping is decided and built.** `app/Observers/` holds a single `ActorObserver`, which sets
+`inserted_by` on create and `last_updated_by` on update from `Auth::id()` for **every** model that
+carries those two columns — currently `User` and `Admin\Designation`. Both columns are nullable
+foreign keys to `users.id` with `nullOnDelete`, and both stay null for writes with no authenticated
+actor (seeders, migrations, console). Neither is mass-assignable on any stamped model — the observer
+is the only writer, so every write path is stamped identically.
+
+It is *one shared observer typed against `Model`*, not one per model. That was previously
+`UserObserver`, renamed and generalised when `designations` became the second stamped table: the
+guarantee above ("every write path is stamped identically") is exactly what a second hand-copied
+observer stops being able to make. A model opts in by carrying the two columns and the attribute —
+there is nothing else to write.
+
+Observers are registered with the `#[ObservedBy]` attribute on the model, not in a service provider.
+When the full audit-log mechanism is chosen, it belongs here alongside this.
+
+### 9.3.1 Active/inactive status
+
+`App\Enums\RecordStatus` (`'A'` / `'I'`) is the application's **one** active/inactive vocabulary, and
+`App\Concerns\HasStatus` is how a model gets it: the cast, `scopeActive()`, `scopeInactive()` and
+`isActive()` from a single `use`. A table opts in with a `string(1) status` column defaulting to
+`'A'`, and adds `'status'` to `#[Fillable]` if a form writes it. Currently `users` and
+`designations`.
+
+- **The enum lives at the root of `app/Enums/`**, like `Theme`, because it belongs to no module — an
+  exception to [§6.1](#61-backend-classes).
+- **It is `RecordStatus`, not `Status`.** A workflow status (Draft → Approved → Cancelled on a BQS or
+  PO) is a different concept with a different lifecycle and belongs in a module-scoped enum. The
+  generic name is left free so that enum has an obvious home.
+- **`status` is not `deleted_at`.** Deactivating retires a record from pickers while leaving it in
+  place and leaving its holders alone; deleting is a separate verb with its own guard. A table can
+  have both.
+- **Do not add a second boolean active flag.** `users.approved` was one, and was migrated to
+  `users.status` when this became the convention. A boolean like `approval_authority` is fine when it
+  means something else — that one is a *power* flag, not an active flag. `users.all_buyer_access`
+  ([§9.2](#92-buyer-scoped-access-control)) is the second power flag and follows the same reasoning:
+  it widens what its holder may see, and says nothing about whether the account is live.
+
+### 9.4 Master data
+
+Reference master data by foreign key, never by copying its label into another table.
+
+**Ownership splits in two, by subject matter:**
+
+| Kind | Owner | Examples | Models | Seeders |
+| --- | --- | --- | --- | --- |
+| **Product / process** reference data | Settings | notification colors ✅, colors, sizes, UOM, seasons, fabric & trim types, machine types, process stages | `app/Models/Settings/` | `database/seeders/Settings/` |
+| **HR / org-structure** reference data | Admin | designations ✅, departments | `app/Models/Admin/` | `database/seeders/Admin/` |
+
+Everyone else *reads* both and writes neither.
+
+> This section previously said master data was Settings-owned without exception, and listed
+> departments among the Settings tables. The owner decided otherwise when `designations` was built:
+> HR reference data is administered next to the users who hold it, on the same screen family and
+> behind the same `admin.*` permissions, not on a Settings page beside colors and sizes. The split
+> is by *subject*, not by table shape — the test is "does an Admin administering people need this?"
+> **Departments move to Admin when they are built**; the §5 Module 2 row still lists them and is
+> the line to correct at that point.
+
+### 9.5 Shared props
+
+`app/Http/Middleware/HandleInertiaRequests.php` shares `name`, `auth.user`, `sidebarOpen`,
+`collapsedNavGroups` and `theme` with every page. Anything added there is paid for on **every**
+request — prefer per-page props, and use `Inertia::optional()` for anything expensive.
+
+The last three are all cookie reads rather than queries, which is what makes them affordable here:
+each is a preference the *first paint* needs, so deferring it to the client would trade a byte on
+the wire for a visible flicker. That is the bar for adding a fourth — not "it is small".
+
+### 9.6 Authentication identity
+
+**Users log in with `employee_id`, not email.** `config/fortify.php` sets
+`'username' => 'employee_id'`, so the login form posts `employee_id` and the login rate limiter keys
+on it automatically.
+
+- `lowercase_usernames` is **`false`**. Employee IDs may contain uppercase letters
+  (`/^[A-Za-z0-9-]{3,10}$/`) and are stored exactly as HR issued them; lowercasing the submitted
+  value would make any uppercase ID impossible to log in with. Matching is therefore case-sensitive.
+- **Password reset stays keyed on `email`** (`config('fortify.email')`). Laravel's password broker
+  and the `password_reset_tokens` table are both email-keyed, and the link has to be emailed
+  regardless — so the forgot-password form still asks for the email address. `email` remains required
+  and unique on `users`.
+- `users` uses `SoftDeletes`, so a deleted user cannot authenticate: the default user provider
+  applies the global scope. Their `employee_id` and `email` stay reserved by the unique indexes,
+  which is intentional — reusing one is refused with a message pointing at the Historical tab.
+
+---
+
+## 10. Adding a feature to an existing module
+
+The end-to-end path, in order:
+
+1. **Migration** — `php artisan make:migration create_tech_packs_table` (stays flat), then
+   **`php artisan migrate`**. Writing it is not running it — see the warning below.
+2. **Model** — `php artisan make:model Merchandising/TechPack -f` (`-f` puts the factory in
+   `database/factories/Merchandising/` automatically).
+3. **Policy** — `php artisan make:policy Merchandising/TechPackPolicy --model=Merchandising/TechPack`.
+4. **Form requests** — `php artisan make:request Merchandising/TechPackStoreRequest`.
+5. **Service** — `php artisan make:class Services/Merchandising/TechPackService` if the operation
+   is multi-step.
+6. **Controller** — `php artisan make:controller Merchandising/TechPackController --resource`.
+7. **Routes** — add to `routes/merchandising.php` inside the existing prefixed group.
+8. **Regenerate Wayfinder** — `php artisan wayfinder:generate --with-form` (or just run the dev
+   server). The flag is required; [§8.2](#82-wayfinder--generated-never-edited) says what breaks
+   without it.
+9. **Pages** — `resources/js/pages/merchandising/tech-packs/{index,create,edit}.tsx`.
+10. **Test** — `php artisan make:test --pest Merchandising/TechPackTest`, then
+    `php artisan test --compact --filter=TechPack`.
+11. **Format** — `vendor/bin/pint --dirty --format agent` and `npm run format`.
+12. **Update this file** if the change was structural.
+
+Pass `--no-interaction` to every `make:` command.
+
+### A green suite does not mean the feature runs
+
+**Step 1's `php artisan migrate` is the one step the test suite cannot remind you about**, and
+forgetting it produces the most misleading failure in this project.
+
+Tests run against in-memory SQLite and `RefreshDatabase` builds the schema from the migration files
+on every run, so a brand-new table exists in every test whether or not it exists in MySQL.
+Development runs against MySQL ([§2](#2-stack)), where it exists only once someone has migrated. The
+result: the full suite passes, `types:check` passes, the build passes — and the first browser request
+dies with `SQLSTATE[42S02]: Base table or view not found`. Nothing in the automated gate can catch
+it, because every part of that gate builds its own schema.
+
+Two habits close it:
+
+- Run `php artisan migrate` in the same breath as writing the migration, not at the end.
+- Treat `php artisan migrate:status` as part of finishing a feature that added a table. One line of
+  output tells you whether the thing you just tested actually exists where the app will look for it.
+
+This is also the reason a feature is not "verified" until it has been opened in a browser — the same
+point [§13.1](#131-never-run-the-suite-with-a-cached-config--and-it-can-no-longer-happen) makes about
+form controls, arriving from a different direction.
+
+---
+
+## 11. Adding a new module
+
+A module is not "added" until every one of these is done:
+
+- [ ] `routes/{module}.php` created with the prefixed group, and `require`d from `routes/web.php`.
+- [ ] `app/Http/Controllers/{Module}/` created.
+- [ ] `app/Http/Requests/{Module}/`, `app/Models/{Module}/`, `app/Policies/{Module}/`,
+      `app/Services/{Module}/` created as the module needs them.
+- [ ] `database/factories/{Module}/` and `database/seeders/{Module}/` created.
+- [ ] `resources/js/pages/{module}/` created.
+- [ ] `resources/js/components/{module}/` created.
+- [ ] `tests/Feature/{Module}/` created.
+- [ ] Sidebar group added to `resources/js/components/app-sidebar.tsx` — a `{module}NavItems` array
+      rendered as its own `<NavMain items={…} label="{Module}" />` (see [§8.3](#83-navigation)).
+- [ ] Permission names for the module decided and seeded.
+- [ ] **A row added to the module registry in [§5](#5-module-registry) of this file, plus a
+      per-module section.**
+
+---
+
+## 12. Keeping this file in sync
+
+This file is worthless the moment it drifts. It is **volatile by design** — the layout it describes
+is expected to change as the project's needs become clearer.
+
+**Update `ARCHITECTURE.md` in the same change** that does any of the following:
+
+| Trigger | What to update |
+| --- | --- |
+| A module is added, renamed, removed, or re-scoped | [§5](#5-module-registry) registry + section |
+| A top-level or module-level directory is created or removed | [§3](#3-top-level-layout) tree |
+| A route file is added or its prefix changes | [§5](#5-module-registry) registry |
+| A naming convention is established or changed | [§6](#6-naming-conventions) |
+| A cross-cutting mechanism is chosen (RBAC wiring, buyer scoping, audit logging) | [§9](#9-cross-cutting-concerns) — replace the ⬜ with the decision *and its rationale* |
+| A dependency that shapes the architecture is added or upgraded | [§2](#2-stack) |
+| `app.tsx` layout resolution changes | [§8.1](#81-layout-resolution--resourcesjsapptsx) |
+| A status marker becomes true (🟡 → ✅) | the relevant table |
+| A module's surfaces change in a way its reference doc describes | `documentation/{module}.md` — see [§14](#14-documentation) |
+| A table is created, or a query pattern against one changes | Nothing here — but apply [§6.3 Indexing](#63-migrations) and record the `EXPLAIN` reasoning in the module's doc |
+| A deploy step, scheduled job, or server-side service changes | [§15](#15-deployment) for the *decision*, [`documentation/deployment.md`](documentation/deployment.md) for the *procedure* — and `deploy.ps1` / `.env.production.example` in the same change |
+| An operational runbook is added to `documentation/` | [§14](#14-documentation) table |
+
+**Do not** update it for ordinary feature work that follows the existing conventions — a new
+controller inside an existing module is not a structural change.
+
+This is machine-enforced. `.claude/hooks/architecture-sync.mjs` runs on every Write/Edit and pushes
+back when a structural file (`routes/*.php`, `resources/js/app.tsx`, `composer.json`,
+`package.json`, `bootstrap/*.php`) is touched while this file has no pending edits, or when a file
+is written into a module directory whose name appears nowhere below. Both checks are self-clearing.
+The hook is a backstop, not a substitute — it cannot see a renamed convention or a resolved ⬜.
+
+When a decision recorded here turns out to be wrong, **change the decision in place and say why**.
+Do not append a contradicting note that leaves both readings live.
+
+---
+
+## 13. Commands
+
+```bash
+# Run everything (server :8000 + queue + vite) — the app is only live while this runs
+composer run dev
+
+# Migrations — against the MySQL development database. The suite never runs these
+# for you; it builds its own SQLite schema (see §10).
+php artisan migrate
+php artisan migrate:status
+php artisan db:table tech_packs          # confirm what actually landed on MySQL
+
+# Tests
+php artisan test --compact
+php artisan test --compact --filter=TechPack
+
+# Seed the RBAC catalogue (idempotent — re-run after adding permissions)
+php artisan db:seed --class="Database\Seeders\Admin\RolePermissionSeeder"
+
+# Deployment (§15) — these run on the SERVER, not here
+php artisan admin:create-super           # bootstrap super admin from config/admin.php; idempotent
+php artisan backup:database              # mysqldump + prune; --keep-all skips the prune
+php artisan schedule:list                # what the server's one Task Scheduler entry actually fires
+
+# Quality gate (lint + types + tests)
+composer run ci:check
+
+# Format
+vendor/bin/pint --dirty --format agent   # PHP — required before finalizing PHP changes
+npm run format                           # TS/TSX
+npm run types:check                      # tsc --noEmit
+
+# Discovery
+php artisan route:list --except-vendor
+php artisan route:list --path=merchandising
+php artisan wayfinder:generate --with-form   # the flag is required — see §8.2
+```
+
+Local URL is **http://localhost:8000** (port 8080 is the Laragon landing page, not this app).
+PHP is not on the bash `PATH`; invoke it via
+`D:\Projects\laragon\bin\php\php-8.4.12-nts-Win32-vs17-x64\php.exe` or use PowerShell.
+
+### 13.1 Never run the suite with a cached config — and it can no longer happen
+
+`bootstrap/cache/config.php` is not merely stale in a test run, it is **destructive**.
+`LoadConfiguration` short-circuits on it and never builds config from the environment, so every
+`<env>` entry in `phpunit.xml` becomes inert — `DB_CONNECTION=sqlite` and `DB_DATABASE=:memory:`
+included. `RefreshDatabase` then runs `migrate:fresh` against whatever the cache names, which here
+is the **MySQL development database**. This has happened: every table in `compozitsuite` was dropped,
+twice, silently.
+
+The same file bakes `app.env => local`, so `$app->runningUnitTests()` is false and
+`PreventRequestForgery` answers every non-GET request with **419**. That is what the failure looks
+like from the outside — dozens of unrelated auth, settings and admin tests failing on a status code
+— and it looks like anything but a caching problem. Recognise it by the 419s.
+
+Two guards now close it, and neither is optional:
+
+| Guard | Where | Does |
+| --- | --- | --- |
+| Removes the hazard | `tests/Pest.php`, above `pest()->extend()` | Deletes `bootstrap/cache/{config.php,routes-v7.php}` before the framework boots, and says so on STDERR |
+| Refuses a real database | `Tests\TestCase::createApplication()` | Throws unless the connection is `sqlite` / `:memory:`, from a hook that runs **before** `setUpTraits()` boots `RefreshDatabase` |
+
+Deleting rather than refusing is deliberate: a cached config is invalid for a test run by definition
+— `composer.json`'s `test` script has always begun with `config:clear` — so there is nothing to
+preserve. What was missing is that **`php artisan test`, the command this file and `CLAUDE.md` tell
+everyone to run, had no such protection**; the guard puts it on every entry point instead of one.
+
+⬜ **No DOM-level test harness exists.** A `<Combobox multiple name="buyers[]">` shipped emitting
+`buyers[][]`, which no submit could have survived, while the feature tests stayed green because they
+post arrays straight to the controller. It was caught by driving a browser by hand. Adding
+`pestphp/pest-plugin-browser` would close the gap and is a dependency decision the owner has not yet
+made; until then, **a change to a form control is not proven by the PHP suite** and needs a manual
+pass.
+
+---
+
+## 14. Documentation
+
+`documentation/` holds two kinds of file, and they are named differently on purpose:
+
+| Kind | Naming | Currently |
+| --- | --- | --- |
+| **Module reference** — one per module | `{module}.md` | [`admin.md`](documentation/admin.md), [`settings.md`](documentation/settings.md) |
+| **Operational runbook** — one per cross-cutting operational concern | `{concern}.md` | [`deployment.md`](documentation/deployment.md) |
+
+> This folder was previously module docs only. A runbook was added when deployment produced
+> instructions that are neither architecture nor any one module's business, and that a non-developer
+> has to be able to follow. Add a second runbook only for a concern of that shape.
+
+**These files and this one do different jobs. Do not let them overlap.**
+
+| | `ARCHITECTURE.md` | `{module}.md` | `{concern}.md` runbook |
+| --- | --- | --- | --- |
+| Answers | *Where* does this go, *what* is it called, *why* is it decided this way | *What* does this surface do, and why is it built this way | *How* do I do it — the commands, in order |
+| Scope | The whole repository | One module | One operational task |
+| Read it | Before planning or writing any code | When working inside that module | When performing the task |
+| Reader | An engineer | An engineer | Possibly not an engineer |
+
+When two of them would say the same thing, the module doc or runbook **links to the section here**
+rather than restating it. Two copies of a decision means one of them is silently wrong later. In
+particular, [§15](#15-deployment) holds deployment *decisions* and
+[`deployment.md`](documentation/deployment.md) holds the *procedure*; a command sequence belongs in
+exactly one of them.
+
+A module doc is updated in the same change as the module surface it describes, and a runbook in the
+same change as the mechanism it drives — the same standing obligation as
+[§12](#12-keeping-this-file-in-sync), though the `PostToolUse` hook does not check it.
+
+---
+
+## 15. Deployment
+
+The application is deployed to **one Windows PC on the office LAN**, running Laragon. There is no
+cloud, no container, no CI-driven release: GitHub's runners cannot reach a private LAN box, so a
+deploy is a person running one script on the server. It serves real order data.
+
+**Development and production are different machines.** `composer run dev` (§13) is a development
+harness only — it serves assets from the Vite dev server, runs with `APP_DEBUG=true`, and dies with
+the terminal. Nothing in production uses it.
+
+> **This section holds the decisions. The procedure is
+> [`documentation/deployment.md`](documentation/deployment.md)** — first-time server setup, the
+> commands, backups, restores and troubleshooting. Read that to *do* a deploy; read this to
+> understand why it is shaped the way it is. Nothing is stated in both.
+
+### 15.1 Topology
+
+| | Development | LAN production |
+| --- | --- | --- |
+| Web server | `php artisan serve` | Laragon's **Apache**, vhost on **port 8787**, docroot `…/compozit-suite/public` |
+| Address | `http://localhost:8000` | `http://<static-lan-ip>:8787` — plain IP, no DNS, no HTTPS |
+| Assets | Vite dev server (`public/hot`) | `public/build`, produced by `npm run build` on the server |
+| `APP_ENV` / `APP_DEBUG` | `local` / `true` | `production` / `false` — `deploy.ps1` refuses to run otherwise |
+| Queue | `queue:listen` in the dev script | `queue:work` as a Windows service (NSSM), automatic startup |
+| Scheduler | not running | **one** Task Scheduler entry: `schedule:run`, every minute |
+
+**Plain HTTP and a bare IP are deliberate, and they are the two weakest points.** A hostname needs
+DNS the owner would have to administer, and HTTPS on a LAN means either a warning on every browser
+or distributing a private CA. Both were weighed and declined for an internal tool. Consequences that
+follow from that choice and must not be "fixed" in isolation:
+
+- `SESSION_SECURE_COOKIE` **must stay false**. Set it true with no HTTPS and the session cookie is
+  never sent — every login fails silently, with no error anywhere.
+- `APP_URL` bakes the IP in. Give the machine a static IP or a DHCP reservation. If it ever changes,
+  edit `.env` and re-run `php artisan optimize`, or the app builds URLs to an address nobody answers.
+
+### 15.2 Why the deploy order is what it is
+
+[`deploy.ps1`](deploy.ps1) is the only supported way to deploy; its steps are listed in
+[the runbook](documentation/deployment.md). Four properties of that order are load-bearing, and a
+change that breaks one of them is a mistake even if the script still runs:
+
+1. **The pull happens before maintenance mode.** A pull that fails costs no downtime.
+2. **The backup happens immediately before migrations.** A migration that goes wrong has a dump from
+   seconds ago, not from last night.
+3. **Any failed step aborts the run and leaves the app in maintenance mode.** A 503 is a better
+   outcome than a half-updated ERP serving real orders. The script says so, and says how to recover.
+4. **`optimize` comes last.** It writes the config cache; run it earlier and every step after it
+   would read a stale `.env`.
+
+### 15.3 What is seeded in production, and what must never be
+
+`deploy.ps1` runs **`RolePermissionSeeder` and `DesignationSeeder` only**, on every deploy. Both are
+idempotent — `findOrCreate`/`firstOrCreate` plus a role re-sync — so re-running is how a release that
+adds a permission grants it to the right roles with no manual step.
+
+**`DatabaseSeeder` must never run in production.** It creates `test@example.com` with the password
+`password`. It is the local-development entry point and nothing else.
+
+That leaves nobody to log in as, because the login identifier is `employee_id`
+([§9.6](#96-authentication-identity)) and production seeds no users. `php artisan admin:create-super`
+is the answer: it provisions one super administrator from `config/admin.php` (`ADMIN_*` in `.env`),
+holds the password to the application's own `Password::default()` policy, and is idempotent — a
+second run re-asserts the role and **never** resets a password the admin has since changed. It runs
+on every deploy and does nothing after the first.
+
+`DesignationSeeder`'s 40 filler rows are gated behind `App::environment('local')`, so production gets
+its 17 real titles only. ⬜ **Those 17 titles are placeholders**, flagged as such in the seeder's own
+docblock — they are a plausible garments set, not the owner's HR list. Replace them.
+
+Buyers are **not** seeded. The first admin enters them through the Admin UI before adding users;
+the application is buyer-scoped ([§9.2](#92-buyer-scoped-access-control)) and an empty buyer table is
+the correct starting point, not a bug.
+
+### 15.4 Backups
+
+`php artisan backup:database` writes a timestamped `mysqldump` to `BACKUP_PATH` and deletes dumps
+past `BACKUP_RETENTION_DAYS`. It runs nightly from the scheduler and once per deploy.
+
+- Credentials come from the `mysql` connection, never a second copy, so rotating the database
+  password cannot silently break backups.
+- They reach `mysqldump` through a **temporary defaults-file**, never `--password=` on the command
+  line: arguments are readable by every account on the machine in the Windows process list.
+- A failed dump deletes its own partial file and **prunes nothing**. A truncated `.sql` is
+  indistinguishable from a good one to whoever reaches for it in an emergency, and a broken backup
+  must not eat the good history behind it.
+- **Exit code 0 is not proof of success.** mysqldump prints `Error: …` and still exits 0 when it
+  cannot read tablespace metadata — observed on MySQL 9.6. The command therefore also fails on an
+  `Error:` in stderr, matched on that string rather than on stderr being non-empty, because a routine
+  password notice is written there on every run.
+- `mysqldump` is not on the PATH under Laragon, and the *client* version must match the *server*
+  version — an older client against a newer server can be lossy. Set `BACKUP_MYSQLDUMP_PATH` to the
+  absolute path of the binary belonging to the running MySQL.
+
+Two flags exist because a restore drill failed without them, and removing either silently breaks
+recovery rather than the backup:
+
+- `--set-gtid-purged=OFF` — the server has GTIDs on, so the dump otherwise carries
+  `SET @@GLOBAL.GTID_PURGED=…` and restoring it **onto the same server** dies with *ERROR 3546*,
+  which is the only restore anyone here is likely to attempt.
+- `--no-tablespaces` — reading tablespace metadata needs the global `PROCESS` privilege, which the
+  schema-scoped MySQL user does not have.
+
+Configuration is `config/backup.php`, fed from `.env`. It is **not** in the `settings/application`
+admin surface, because that surface does not exist yet — it is still a 🟡 scaffold
+([§5](#5-module-registry), Module 2). When it is built it should write these same config keys; the
+command reads `config()` and will not need to change.
+
+A dump has now been restored end to end into a scratch schema — table and row counts matched — and
+the verified procedure is [the runbook §7](documentation/deployment.md). ⬜ **Off-machine copies are
+still open**: `BACKUP_PATH` survives a bad migration but not a dead disk or a stolen PC.
+
+### 15.5 Recurring work belongs in `routes/console.php`
+
+The server holds exactly **one** Task Scheduler entry — `php artisan schedule:run`, every minute.
+Every recurring job is a `Schedule::command(...)` line in
+[`routes/console.php`](routes/console.php), so it ships with the code, is reviewable in a diff, and
+is visible to `php artisan schedule:list`. **Do not add a second Windows scheduled task**; that
+would be a job living on one machine, in a dialog, that no one reading this repository can see.
+
+### 15.6 Server facts worth knowing before you change something
+
+The setup procedure, and the Windows-specific traps in it, are
+[the runbook §3](documentation/deployment.md) — do not copy them here. Two facts about the server
+shape decisions in *this* file and so are recorded here as well:
+
+- **Laragon regenerates `etc/apache2/sites-enabled/auto.*.conf` and overwrites them**, so the
+  production vhost is a file without the `auto.` prefix. Anything that generates Apache config for
+  this project has to respect that or it will be silently discarded.
+- **The MySQL user is scoped to the one schema**, so nothing the application or its backups do may
+  require a global privilege. That is what makes `--no-tablespaces` mandatory rather than tidy
+  (§15.4), and it constrains any future tooling that reaches for `information_schema`.
+
+Laragon's PHP is NTS, which is correct here: its Apache uses FastCGI, not mod_php.
+
+⬜ **No queued work exists yet.** `app/Jobs/` and `app/Notifications/` are empty and nothing calls
+`Mail::`, so the `queue:work` service idles. It is installed as pre-wiring, not because anything
+needs it — do not take its presence as evidence that a feature is using the queue.

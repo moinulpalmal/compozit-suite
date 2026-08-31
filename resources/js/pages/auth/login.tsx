@@ -22,6 +22,7 @@ export default function Login({ status, canResetPassword }: Props) {
 
             <Form
                 {...store.form()}
+                resetOnError={['password']}
                 resetOnSuccess={['password']}
                 className="flex flex-col gap-6"
             >
@@ -29,18 +30,19 @@ export default function Login({ status, canResetPassword }: Props) {
                     <>
                         <div className="grid gap-6">
                             <div className="grid gap-2">
-                                <Label htmlFor="email">Email address</Label>
+                                <Label htmlFor="employee_id">Employee ID</Label>
                                 <Input
-                                    id="email"
-                                    type="email"
-                                    name="email"
+                                    id="employee_id"
+                                    type="text"
+                                    name="employee_id"
                                     required
                                     autoFocus
                                     tabIndex={1}
-                                    autoComplete="email"
-                                    placeholder="email@example.com"
+                                    maxLength={10}
+                                    autoComplete="username"
+                                    placeholder="15868"
                                 />
-                                <InputError message={errors.email} />
+                                <InputError message={errors.employee_id} />
                             </div>
 
                             <div className="grid gap-2">
@@ -100,7 +102,11 @@ export default function Login({ status, canResetPassword }: Props) {
     );
 }
 
+/**
+ * No `title` — the app name is the heading here, and the form itself already
+ * says what the screen is. The other auth pages do pass one, to distinguish
+ * themselves from login.
+ */
 Login.layout = {
-    title: 'Log in to your account',
-    description: 'Enter your email and password below to log in',
+    description: 'Enter your employee ID and password below to log in',
 };

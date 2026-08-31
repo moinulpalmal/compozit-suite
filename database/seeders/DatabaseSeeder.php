@@ -2,7 +2,12 @@
 
 namespace Database\Seeders;
 
+use App\Models\Admin\Designation;
+use App\Models\Admin\Role;
 use App\Models\User;
+use Database\Seeders\Admin\BuyerSeeder;
+use Database\Seeders\Admin\DesignationSeeder;
+use Database\Seeders\Admin\RolePermissionSeeder;
 use Illuminate\Database\Console\Seeds\WithoutModelEvents;
 use Illuminate\Database\Seeder;
 
@@ -15,11 +20,16 @@ class DatabaseSeeder extends Seeder
      */
     public function run(): void
     {
-        // User::factory(10)->create();
+        $this->call(RolePermissionSeeder::class);
+        $this->call(DesignationSeeder::class);
+        $this->call(BuyerSeeder::class);
 
         User::factory()->create([
             'name' => 'Test User',
+            'employee_id' => '15868',
             'email' => 'test@example.com',
-        ]);
+            'approval_authority' => true,
+            'designation_id' => Designation::query()->where('name', 'Managing Director')->value('id'),
+        ])->assignRole(Role::SUPER_ADMIN);
     }
 }
