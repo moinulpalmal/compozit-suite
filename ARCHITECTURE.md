@@ -85,7 +85,7 @@ compozit-suite/
 │   └── providers.php        Registered service providers
 │
 ├── config/                  Laravel config
-├── documentation/           Per-module reference docs — one `{module}.md` each; see §14
+├── documentation/           Module reference docs, plus operational runbooks; see §14
 ├── database/
 │   ├── factories/           Grouped by module (mirrors app/Models/)
 │   ├── migrations/          FLAT — chronological, never nested
@@ -1035,7 +1035,8 @@ is expected to change as the project's needs become clearer.
 | A dependency that shapes the architecture is added or upgraded | [§2](#2-stack) |
 | `app.tsx` layout resolution changes | [§8.1](#81-layout-resolution--resourcesjsapptsx) |
 | A status marker becomes true (🟡 → ✅) | the relevant table |
-| A module's surfaces change in a way its reference doc describes | `documentation/{module}.md` — see [§14](#14-module-reference-documentation) |
+| A module's surfaces change in a way its reference doc describes | `documentation/{module}.md` — see [§14](#14-documentation) |
+| A deploy step, prerequisite or server-side command changes | [`documentation/deployment.md`](documentation/deployment.md) — see [§14](#14-documentation) |
 | A table is created, or a query pattern against one changes | Nothing here — but apply [§6.3 Indexing](#63-migrations) and record the `EXPLAIN` reasoning in the module's doc |
 
 **Do not** update it for ordinary feature work that follows the existing conventions — a new
@@ -1124,22 +1125,37 @@ pass.
 
 ---
 
-## 14. Module reference documentation
+## 14. Documentation
 
-`documentation/` holds one `{module}.md` per module — currently
-[`documentation/admin.md`](documentation/admin.md) and
-[`documentation/settings.md`](documentation/settings.md).
+`documentation/` holds two kinds of file, and only these two:
+
+| Kind | Files | Answers |
+| --- | --- | --- |
+| **Module reference** — one `{module}.md` per module | [`admin.md`](documentation/admin.md), [`settings.md`](documentation/settings.md) | *What* does this surface do, and *why* is it built this way |
+| **Operational runbook** — one per operation | [`deployment.md`](documentation/deployment.md) | *What do I type*, in what order, to carry this out |
+
+The second kind was added when `deployment.md` was written: a runbook is not a module doc — it is
+addressed to whoever is installing or updating the application, not to whoever is changing its code —
+and filing it as a module would have been a lie about what it is. The rule stays "one file per
+subject"; there are now two kinds of subject.
 
 **These files and this one do different jobs. Do not let them overlap.**
 
-| | `ARCHITECTURE.md` | `documentation/{module}.md` |
+| | `ARCHITECTURE.md` | `documentation/*.md` |
 | --- | --- | --- |
-| Answers | *Where* does this go, *what* is it called | *What* does this surface do, and *why* is it built this way |
-| Scope | The whole repository | One module |
-| Read it | Before planning or writing any code | When working inside that module |
+| Answers | *Where* does this go, *what* is it called | What a surface does and why, or what to type to run it |
+| Scope | The whole repository | One module, or one operation |
+| Read it | Before planning or writing any code | When working inside that module, or when deploying |
 
-When the two would say the same thing, the module doc **links to the section here** rather than
-restating it. Two copies of a decision means one of them is silently wrong later.
+When the two would say the same thing, the file in `documentation/` **links to the section here**
+rather than restating it. Two copies of a decision means one of them is silently wrong later.
 
-A module doc is updated in the same change as the module surface it describes — the same standing
-obligation as [§12](#12-keeping-this-file-in-sync), though the `PostToolUse` hook does not check it.
+Both kinds are updated in the same change as the thing they describe — a module doc with the surface
+it covers, a runbook with any change to a deploy step, prerequisite or server-side command. That is
+the same standing obligation as [§12](#12-keeping-this-file-in-sync), though the `PostToolUse` hook
+does not check it.
+
+**A runbook may only document what the repository actually ships.** `deployment.md` is written
+against hand-run commands because there is no deploy script, no backup command and no first-admin
+command to document; if one is ever added, the runbook changes with it rather than describing an
+intention.
