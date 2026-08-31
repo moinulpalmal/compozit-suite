@@ -56,8 +56,6 @@ cached config is present*, which is a destructive trap and is now guarded; see
 compozit-suite/
 ├── ARCHITECTURE.md          ← you are here; the repository map
 ├── CLAUDE.md                ← agent operating contract + sync rules + Boost guidelines
-├── deploy.ps1               ← run ON THE SERVER to deploy; see §15
-├── .env.production.example  ← production env template; copy to .env on the server
 │
 ├── .claude/
 │   ├── settings.json        Project hooks (committed)
@@ -68,7 +66,7 @@ compozit-suite/
 │   ├── Actions/             Single-purpose invokable operations, grouped by module
 │   │   └── Fortify/         Fortify's auth action contracts (not a module)
 │   ├── Concerns/            Shared traits (validation rule sets, etc.)
-│   ├── Console/Commands/    Artisan commands — flat, `{Verb}{Noun}Command`, not module-grouped
+│   ├── Console/Commands/    Artisan commands
 │   ├── Enums/               Backed enums, grouped by module
 │   ├── Http/
 │   │   ├── Controllers/     Grouped by module
@@ -86,9 +84,8 @@ compozit-suite/
 │   ├── app.php              Middleware stack, routing entry, exception handling
 │   └── providers.php        Registered service providers
 │
-├── config/                  Laravel config — incl. `admin.php` and `backup.php`, both §15
-├── documentation/           Module references (`{module}.md`) + operational runbooks
-│                            (`deployment.md`); see §14
+├── config/                  Laravel config
+├── documentation/           Per-module reference docs — one `{module}.md` each; see §14
 ├── database/
 │   ├── factories/           Grouped by module (mirrors app/Models/)
 │   ├── migrations/          FLAT — chronological, never nested
@@ -115,7 +112,7 @@ compozit-suite/
 │   ├── merchandising.php    Module 3
 │   ├── production.php       Module 4
 │   ├── reports.php          Module 5
-│   └── console.php          The scheduler — every recurring job lives here, see §15
+│   └── console.php          Scheduled/CLI routes
 │
 └── tests/
     ├── Feature/             Grouped by module — the default place to write a test
@@ -343,14 +340,14 @@ curly braces always, PHPDoc over inline comments, `TitleCase` enum cases.
   `merchandising.tech-packs.index`.
 - **There is no public landing page.** `/` is named `home` but renders nothing: it redirects
   authenticated users to `dashboard` and guests to `login`. The name is retained because the auth
-  layouts and Wayfinder's generated `routes/index.ts` both depend on `home()` resolving. It is
-  served by `App\Http\Controllers\HomeController` — the one controller at the root of
-  `app/Http/Controllers/`, because `/` belongs to no module. It was a closure until deployment work
-  replaced it; that was a readability and testability change, **not** a route-caching fix. Laravel 13
-  serializes closure routes through `SerializableClosure`
+  layouts and Wayfinder's generated `routes/index.ts` both depend on `home()` resolving. It is served
+  by `App\Http\Controllers\HomeController` — the one controller at the root of
+  `app/Http/Controllers/`, because `/` belongs to no module. It was an inline closure until it was
+  made testable; that was a readability change, **not** a route-caching fix. Laravel 13 serializes
+  closure routes through `SerializableClosure`
   (`Illuminate\Routing\Route::prepareForSerialization()`), so closures do not break `route:cache` —
-  the `LogicException` that older Laravel threw is gone. Prefer controllers anyway; do not record
-  caching as the reason.
+  the `LogicException` older Laravel threw is gone. Prefer controllers anyway; do not record caching
+  as the reason.
 - Prefer resource routes; prefer `route()` and Wayfinder over hand-written URLs.
 - Every module route file already applies `['auth', 'auth.session', 'verified']`. Add permission
   middleware per route or per sub-group, not globally.
@@ -1038,10 +1035,8 @@ is expected to change as the project's needs become clearer.
 | A dependency that shapes the architecture is added or upgraded | [§2](#2-stack) |
 | `app.tsx` layout resolution changes | [§8.1](#81-layout-resolution--resourcesjsapptsx) |
 | A status marker becomes true (🟡 → ✅) | the relevant table |
-| A module's surfaces change in a way its reference doc describes | `documentation/{module}.md` — see [§14](#14-documentation) |
+| A module's surfaces change in a way its reference doc describes | `documentation/{module}.md` — see [§14](#14-module-reference-documentation) |
 | A table is created, or a query pattern against one changes | Nothing here — but apply [§6.3 Indexing](#63-migrations) and record the `EXPLAIN` reasoning in the module's doc |
-| A deploy step, scheduled job, or server-side service changes | [§15](#15-deployment) for the *decision*, [`documentation/deployment.md`](documentation/deployment.md) for the *procedure* — and `deploy.ps1` / `.env.production.example` in the same change |
-| An operational runbook is added to `documentation/` | [§14](#14-documentation) table |
 
 **Do not** update it for ordinary feature work that follows the existing conventions — a new
 controller inside an existing module is not a structural change.
@@ -1075,11 +1070,6 @@ php artisan test --compact --filter=TechPack
 
 # Seed the RBAC catalogue (idempotent — re-run after adding permissions)
 php artisan db:seed --class="Database\Seeders\Admin\RolePermissionSeeder"
-
-# Deployment (§15) — these run on the SERVER, not here
-php artisan admin:create-super           # bootstrap super admin from config/admin.php; idempotent
-php artisan backup:database              # mysqldump + prune; --keep-all skips the prune
-php artisan schedule:list                # what the server's one Task Scheduler entry actually fires
 
 # Quality gate (lint + types + tests)
 composer run ci:check
@@ -1134,175 +1124,22 @@ pass.
 
 ---
 
-## 14. Documentation
+## 14. Module reference documentation
 
-`documentation/` holds two kinds of file, and they are named differently on purpose:
-
-| Kind | Naming | Currently |
-| --- | --- | --- |
-| **Module reference** — one per module | `{module}.md` | [`admin.md`](documentation/admin.md), [`settings.md`](documentation/settings.md) |
-| **Operational runbook** — one per cross-cutting operational concern | `{concern}.md` | [`deployment.md`](documentation/deployment.md) |
-
-> This folder was previously module docs only. A runbook was added when deployment produced
-> instructions that are neither architecture nor any one module's business, and that a non-developer
-> has to be able to follow. Add a second runbook only for a concern of that shape.
+`documentation/` holds one `{module}.md` per module — currently
+[`documentation/admin.md`](documentation/admin.md) and
+[`documentation/settings.md`](documentation/settings.md).
 
 **These files and this one do different jobs. Do not let them overlap.**
 
-| | `ARCHITECTURE.md` | `{module}.md` | `{concern}.md` runbook |
-| --- | --- | --- | --- |
-| Answers | *Where* does this go, *what* is it called, *why* is it decided this way | *What* does this surface do, and why is it built this way | *How* do I do it — the commands, in order |
-| Scope | The whole repository | One module | One operational task |
-| Read it | Before planning or writing any code | When working inside that module | When performing the task |
-| Reader | An engineer | An engineer | Possibly not an engineer |
-
-When two of them would say the same thing, the module doc or runbook **links to the section here**
-rather than restating it. Two copies of a decision means one of them is silently wrong later. In
-particular, [§15](#15-deployment) holds deployment *decisions* and
-[`deployment.md`](documentation/deployment.md) holds the *procedure*; a command sequence belongs in
-exactly one of them.
-
-A module doc is updated in the same change as the module surface it describes, and a runbook in the
-same change as the mechanism it drives — the same standing obligation as
-[§12](#12-keeping-this-file-in-sync), though the `PostToolUse` hook does not check it.
-
----
-
-## 15. Deployment
-
-The application is deployed to **one Windows PC on the office LAN**, running Laragon. There is no
-cloud, no container, no CI-driven release: GitHub's runners cannot reach a private LAN box, so a
-deploy is a person running one script on the server. It serves real order data.
-
-**Development and production are different machines.** `composer run dev` (§13) is a development
-harness only — it serves assets from the Vite dev server, runs with `APP_DEBUG=true`, and dies with
-the terminal. Nothing in production uses it.
-
-> **This section holds the decisions. The procedure is
-> [`documentation/deployment.md`](documentation/deployment.md)** — first-time server setup, the
-> commands, backups, restores and troubleshooting. Read that to *do* a deploy; read this to
-> understand why it is shaped the way it is. Nothing is stated in both.
-
-### 15.1 Topology
-
-| | Development | LAN production |
+| | `ARCHITECTURE.md` | `documentation/{module}.md` |
 | --- | --- | --- |
-| Web server | `php artisan serve` | Laragon's **Apache**, vhost on **port 8787**, docroot `…/compozit-suite/public` |
-| Address | `http://localhost:8000` | `http://<static-lan-ip>:8787` — plain IP, no DNS, no HTTPS |
-| Assets | Vite dev server (`public/hot`) | `public/build`, produced by `npm run build` on the server |
-| `APP_ENV` / `APP_DEBUG` | `local` / `true` | `production` / `false` — `deploy.ps1` refuses to run otherwise |
-| Queue | `queue:listen` in the dev script | `queue:work` as a Windows service (NSSM), automatic startup |
-| Scheduler | not running | **one** Task Scheduler entry: `schedule:run`, every minute |
+| Answers | *Where* does this go, *what* is it called | *What* does this surface do, and *why* is it built this way |
+| Scope | The whole repository | One module |
+| Read it | Before planning or writing any code | When working inside that module |
 
-**Plain HTTP and a bare IP are deliberate, and they are the two weakest points.** A hostname needs
-DNS the owner would have to administer, and HTTPS on a LAN means either a warning on every browser
-or distributing a private CA. Both were weighed and declined for an internal tool. Consequences that
-follow from that choice and must not be "fixed" in isolation:
+When the two would say the same thing, the module doc **links to the section here** rather than
+restating it. Two copies of a decision means one of them is silently wrong later.
 
-- `SESSION_SECURE_COOKIE` **must stay false**. Set it true with no HTTPS and the session cookie is
-  never sent — every login fails silently, with no error anywhere.
-- `APP_URL` bakes the IP in. Give the machine a static IP or a DHCP reservation. If it ever changes,
-  edit `.env` and re-run `php artisan optimize`, or the app builds URLs to an address nobody answers.
-
-### 15.2 Why the deploy order is what it is
-
-[`deploy.ps1`](deploy.ps1) is the only supported way to deploy; its steps are listed in
-[the runbook](documentation/deployment.md). Four properties of that order are load-bearing, and a
-change that breaks one of them is a mistake even if the script still runs:
-
-1. **The pull happens before maintenance mode.** A pull that fails costs no downtime.
-2. **The backup happens immediately before migrations.** A migration that goes wrong has a dump from
-   seconds ago, not from last night.
-3. **Any failed step aborts the run and leaves the app in maintenance mode.** A 503 is a better
-   outcome than a half-updated ERP serving real orders. The script says so, and says how to recover.
-4. **`optimize` comes last.** It writes the config cache; run it earlier and every step after it
-   would read a stale `.env`.
-
-### 15.3 What is seeded in production, and what must never be
-
-`deploy.ps1` runs **`RolePermissionSeeder` and `DesignationSeeder` only**, on every deploy. Both are
-idempotent — `findOrCreate`/`firstOrCreate` plus a role re-sync — so re-running is how a release that
-adds a permission grants it to the right roles with no manual step.
-
-**`DatabaseSeeder` must never run in production.** It creates `test@example.com` with the password
-`password`. It is the local-development entry point and nothing else.
-
-That leaves nobody to log in as, because the login identifier is `employee_id`
-([§9.6](#96-authentication-identity)) and production seeds no users. `php artisan admin:create-super`
-is the answer: it provisions one super administrator from `config/admin.php` (`ADMIN_*` in `.env`),
-holds the password to the application's own `Password::default()` policy, and is idempotent — a
-second run re-asserts the role and **never** resets a password the admin has since changed. It runs
-on every deploy and does nothing after the first.
-
-`DesignationSeeder`'s 40 filler rows are gated behind `App::environment('local')`, so production gets
-its 17 real titles only. ⬜ **Those 17 titles are placeholders**, flagged as such in the seeder's own
-docblock — they are a plausible garments set, not the owner's HR list. Replace them.
-
-Buyers are **not** seeded. The first admin enters them through the Admin UI before adding users;
-the application is buyer-scoped ([§9.2](#92-buyer-scoped-access-control)) and an empty buyer table is
-the correct starting point, not a bug.
-
-### 15.4 Backups
-
-`php artisan backup:database` writes a timestamped `mysqldump` to `BACKUP_PATH` and deletes dumps
-past `BACKUP_RETENTION_DAYS`. It runs nightly from the scheduler and once per deploy.
-
-- Credentials come from the `mysql` connection, never a second copy, so rotating the database
-  password cannot silently break backups.
-- They reach `mysqldump` through a **temporary defaults-file**, never `--password=` on the command
-  line: arguments are readable by every account on the machine in the Windows process list.
-- A failed dump deletes its own partial file and **prunes nothing**. A truncated `.sql` is
-  indistinguishable from a good one to whoever reaches for it in an emergency, and a broken backup
-  must not eat the good history behind it.
-- **Exit code 0 is not proof of success.** mysqldump prints `Error: …` and still exits 0 when it
-  cannot read tablespace metadata — observed on MySQL 9.6. The command therefore also fails on an
-  `Error:` in stderr, matched on that string rather than on stderr being non-empty, because a routine
-  password notice is written there on every run.
-- `mysqldump` is not on the PATH under Laragon, and the *client* version must match the *server*
-  version — an older client against a newer server can be lossy. Set `BACKUP_MYSQLDUMP_PATH` to the
-  absolute path of the binary belonging to the running MySQL.
-
-Two flags exist because a restore drill failed without them, and removing either silently breaks
-recovery rather than the backup:
-
-- `--set-gtid-purged=OFF` — the server has GTIDs on, so the dump otherwise carries
-  `SET @@GLOBAL.GTID_PURGED=…` and restoring it **onto the same server** dies with *ERROR 3546*,
-  which is the only restore anyone here is likely to attempt.
-- `--no-tablespaces` — reading tablespace metadata needs the global `PROCESS` privilege, which the
-  schema-scoped MySQL user does not have.
-
-Configuration is `config/backup.php`, fed from `.env`. It is **not** in the `settings/application`
-admin surface, because that surface does not exist yet — it is still a 🟡 scaffold
-([§5](#5-module-registry), Module 2). When it is built it should write these same config keys; the
-command reads `config()` and will not need to change.
-
-A dump has now been restored end to end into a scratch schema — table and row counts matched — and
-the verified procedure is [the runbook §7](documentation/deployment.md). ⬜ **Off-machine copies are
-still open**: `BACKUP_PATH` survives a bad migration but not a dead disk or a stolen PC.
-
-### 15.5 Recurring work belongs in `routes/console.php`
-
-The server holds exactly **one** Task Scheduler entry — `php artisan schedule:run`, every minute.
-Every recurring job is a `Schedule::command(...)` line in
-[`routes/console.php`](routes/console.php), so it ships with the code, is reviewable in a diff, and
-is visible to `php artisan schedule:list`. **Do not add a second Windows scheduled task**; that
-would be a job living on one machine, in a dialog, that no one reading this repository can see.
-
-### 15.6 Server facts worth knowing before you change something
-
-The setup procedure, and the Windows-specific traps in it, are
-[the runbook §3](documentation/deployment.md) — do not copy them here. Two facts about the server
-shape decisions in *this* file and so are recorded here as well:
-
-- **Laragon regenerates `etc/apache2/sites-enabled/auto.*.conf` and overwrites them**, so the
-  production vhost is a file without the `auto.` prefix. Anything that generates Apache config for
-  this project has to respect that or it will be silently discarded.
-- **The MySQL user is scoped to the one schema**, so nothing the application or its backups do may
-  require a global privilege. That is what makes `--no-tablespaces` mandatory rather than tidy
-  (§15.4), and it constrains any future tooling that reaches for `information_schema`.
-
-Laragon's PHP is NTS, which is correct here: its Apache uses FastCGI, not mod_php.
-
-⬜ **No queued work exists yet.** `app/Jobs/` and `app/Notifications/` are empty and nothing calls
-`Mail::`, so the `queue:work` service idles. It is installed as pre-wiring, not because anything
-needs it — do not take its presence as evidence that a feature is using the queue.
+A module doc is updated in the same change as the module surface it describes — the same standing
+obligation as [§12](#12-keeping-this-file-in-sync), though the `PostToolUse` hook does not check it.
