@@ -301,9 +301,13 @@ export type BqsRow = {
     line_no: number;
     vendor_style_no: string | null;
     item_description: string | null;
+    /* All four of the workbook's colour fields. `other_colour` is empty in every
+       file received so far, and is rendered anyway — the column exists in the
+       source, and a silently dropped field is worse than a column of dashes. */
     pantone_colour: string | null;
     colour_family: string | null;
     colour_variant: string | null;
+    other_colour: string | null;
     total_stores: number | null;
     initial_set_units_store: number | null;
     initial_set_units_ecomm: number | null;

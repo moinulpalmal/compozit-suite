@@ -885,6 +885,39 @@ One trap worth knowing in `combobox.tsx`: downshift's reducer treats a click on 
 `isOpen: !isOpen`, which closed the menu when the user clicked the search box *inside* it. Every
 `useCombobox` there needs a `stateReducer` holding `isOpen` steady for `InputClick`.
 
+### 8.9 A detail page goes back to the list *as it was*
+
+**A detail page carries a back control, and it is not the breadcrumb.** The two do different
+jobs, deliberately:
+
+| Control | Goes to |
+| --- | --- |
+| Breadcrumb (`BQS`, `Purchase orders`) | The top of the list — page 1, unfiltered |
+| Back button (`components/merchandising/back-link.tsx`) | The list **as the reader left it** — same filters, sort, page size and page |
+
+A list's whole state lives in its query string ([§8.6](#86-every-list-is-paginated-sortable-and-filtered-per-column)),
+and `index()` has none of it — so opening a record from page 3 of a filtered list and returning
+by the crumb lands on page 1 with the filtering gone. The list therefore hands its own address
+forward: `buildReturnQuery(filters, currentPage)` encodes it into a `back` parameter on each row's
+link, and `BackLink` reads it out of `usePage().url` again. Missing — a pasted URL, a bookmark, a
+new tab — it falls back to the bare index, which is the honest answer when there is no list state
+to return to.
+
+Two things follow that a later reader will otherwise try to "fix":
+
+- **`page` is not part of `ListRequest::filters()`** and comes from the paginator instead. That is
+  why `buildReturnQuery` takes two arguments; without the second, back returns you to the right
+  filters on the wrong page.
+- **The breadcrumb was left alone on purpose.** The owner asked for the button and for the crumb
+  to stay as it is, so the divergence in the table above is a decision, not drift.
+
+Read the state from the `filters` prop, never from `window.location.search`: SSR runs in Vite dev
+mode ([§2](#2-stack)), where `window` does not exist during render.
+
+The component sits in `components/merchandising/` because both callers are Merchandising pages;
+per [§6.5](#65-components) it moves to `components/shared/` the moment a second module imports it,
+which is likely as soon as any other detail page wants one.
+
 ### 8.8 Toasts carry severity, and they clear themselves
 
 Every outcome message is `Inertia::flash('toast', ['type' => …, 'message' => …])`, rendered by

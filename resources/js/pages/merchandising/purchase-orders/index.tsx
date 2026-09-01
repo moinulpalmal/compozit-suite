@@ -2,6 +2,10 @@ import { Head, Link } from '@inertiajs/react';
 import { AlertTriangle, FileUp } from 'lucide-react';
 import { useState } from 'react';
 import Heading from '@/components/heading';
+import {
+    buildReturnQuery,
+    RETURN_PARAM,
+} from '@/components/merchandising/back-link';
 import PurchaseOrderImportDialog from '@/components/merchandising/purchase-order-import-dialog';
 import ColumnFilterRow from '@/components/shared/column-filter-row';
 import ListToolbar from '@/components/shared/list-toolbar';
@@ -93,6 +97,13 @@ export default function PurchaseOrdersIndex({
         filters,
         onSort: (target: string) => visit(nextSort(filters, target)),
     });
+
+    /*
+     * Handed to every row's link so the detail page can come back to *this* list —
+     * these filters, this sort, this page — rather than to the top of an unfiltered
+     * one. See `BackLink`.
+     */
+    const back = buildReturnQuery(filters, purchaseOrders.current_page);
 
     return (
         <>
@@ -308,7 +319,12 @@ export default function PurchaseOrdersIndex({
                                                 asChild
                                             >
                                                 <Link
-                                                    href={show(order.id)}
+                                                    href={show(order.id, {
+                                                        query: {
+                                                            [RETURN_PARAM]:
+                                                                back,
+                                                        },
+                                                    })}
                                                     data-test="open-purchase-order"
                                                 >
                                                     Open

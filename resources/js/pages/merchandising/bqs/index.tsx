@@ -2,6 +2,10 @@ import { Head, Link } from '@inertiajs/react';
 import { AlertTriangle, FileUp } from 'lucide-react';
 import { useState } from 'react';
 import Heading from '@/components/heading';
+import {
+    buildReturnQuery,
+    RETURN_PARAM,
+} from '@/components/merchandising/back-link';
 import BqsImportDialog from '@/components/merchandising/bqs-import-dialog';
 import ColumnFilterRow from '@/components/shared/column-filter-row';
 import ListToolbar from '@/components/shared/list-toolbar';
@@ -89,6 +93,13 @@ export default function BqsIndex({
         filters,
         onSort: (target: string) => visit(nextSort(filters, target)),
     });
+
+    /*
+     * Handed to every row's link so the detail page can come back to *this* list —
+     * these filters, this sort, this page — rather than to the top of an unfiltered
+     * one. See `BackLink`.
+     */
+    const back = buildReturnQuery(filters, sheets.current_page);
 
     return (
         <>
@@ -312,7 +323,12 @@ export default function BqsIndex({
                                                 asChild
                                             >
                                                 <Link
-                                                    href={show(sheet.id)}
+                                                    href={show(sheet.id, {
+                                                        query: {
+                                                            [RETURN_PARAM]:
+                                                                back,
+                                                        },
+                                                    })}
                                                     data-test="open-bqs"
                                                 >
                                                     Open

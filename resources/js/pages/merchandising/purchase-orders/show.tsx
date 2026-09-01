@@ -1,6 +1,7 @@
 import { Head } from '@inertiajs/react';
 import { AlertTriangle } from 'lucide-react';
 import Heading from '@/components/heading';
+import BackLink from '@/components/merchandising/back-link';
 import { index, show } from '@/routes/merchandising/purchase-orders';
 import type { PoPack, PoWarning, PurchaseOrderDetail } from '@/types';
 
@@ -30,6 +31,12 @@ export default function PurchaseOrderShow({
             <Head title={`PO ${purchaseOrder.po_number}`} />
 
             <div className="flex h-full flex-1 flex-col gap-6 p-4">
+                {/* Returns to the list *as it was* — filters, sort and page —
+                    which the breadcrumb above deliberately does not. */}
+                <div>
+                    <BackLink fallback={index().url} label="Purchase orders" />
+                </div>
+
                 <Heading
                     title={`Purchase order ${purchaseOrder.po_number}`}
                     description={`${purchaseOrder.buyer} · revision ${purchaseOrder.revision_no}${

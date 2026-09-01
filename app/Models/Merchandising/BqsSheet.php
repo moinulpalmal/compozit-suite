@@ -173,13 +173,19 @@ class BqsSheet extends Model
     }
 
     /**
-     * The style/colour lines of this BQS.
+     * The style/colour lines of this BQS, in the workbook's own row order.
+     *
+     * **Ordered, like {@see BqsRow::months()} and {@see BqsRow::packSizes()} are.**
+     * Without it the detail page renders whatever order the database happens to
+     * return, which is not insertion order and is not stable — a BQS is read against
+     * the workbook it came from, so any other order is wrong even when it is
+     * consistent.
      *
      * @return HasMany<BqsRow, $this>
      */
     public function rows(): HasMany
     {
-        return $this->hasMany(BqsRow::class);
+        return $this->hasMany(BqsRow::class)->orderBy('line_no');
     }
 
     /**

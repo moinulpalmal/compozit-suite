@@ -1,6 +1,7 @@
 import { Head } from '@inertiajs/react';
 import { AlertTriangle } from 'lucide-react';
 import Heading from '@/components/heading';
+import BackLink from '@/components/merchandising/back-link';
 import { index, show } from '@/routes/merchandising/bqs';
 import type {
     BqsDynamicColumn,
@@ -43,6 +44,12 @@ export default function BqsShow({
             <Head title={sheet.title} />
 
             <div className="flex h-full flex-1 flex-col gap-6 p-4">
+                {/* Returns to the list *as it was* — filters, sort and page —
+                    which the breadcrumb above deliberately does not. */}
+                <div>
+                    <BackLink fallback={index().url} label="BQS" />
+                </div>
+
                 <Heading
                     title={sheet.title}
                     description={`${sheet.buyer} · ${sheet.fye ?? '—'} ${sheet.season ?? ''} · ${sheet.department ?? '—'}`}
@@ -112,7 +119,15 @@ export default function BqsShow({
                             {/* Row one mirrors the workbook's own merged bands,
                                 which is how the buyer reads it. */}
                             <tr>
-                                <th colSpan={4} />
+                                <th />
+                                {/* The workbook keeps its four colour fields in
+                                    the ungrouped block; they are banded here
+                                    because four adjacent columns all called some
+                                    kind of "colour" are unreadable otherwise. */}
+                                <th colSpan={4} className="text-center">
+                                    Colour
+                                </th>
+                                <th />
                                 <th colSpan={3} className="text-center">
                                     Initial set units
                                 </th>
@@ -142,8 +157,14 @@ export default function BqsShow({
 
                             <tr>
                                 <th>Style</th>
-                                <th>Colour</th>
+                                {/* Named in full. This column read simply
+                                    "Colour" and was mistaken for missing data —
+                                    with four colour fields in the source, none
+                                    of them can be labelled generically. */}
+                                <th>Pantone</th>
+                                <th>Family</th>
                                 <th>Variant</th>
+                                <th>Other</th>
                                 <th>On floor</th>
                                 <th className="text-right">Store</th>
                                 <th className="text-right">Ecomm</th>
@@ -184,8 +205,14 @@ export default function BqsShow({
                                     <td className="whitespace-nowrap">
                                         {row.pantone_colour ?? '—'}
                                     </td>
+                                    <td className="whitespace-nowrap">
+                                        {row.colour_family ?? '—'}
+                                    </td>
                                     <td className="font-mono">
                                         {row.colour_variant ?? '—'}
+                                    </td>
+                                    <td className="whitespace-nowrap">
+                                        {row.other_colour ?? '—'}
                                     </td>
                                     <td className="whitespace-nowrap">
                                         {row.on_floor_month ?? '—'}

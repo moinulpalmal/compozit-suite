@@ -622,3 +622,36 @@ test('the detail page pivots months and sizes back into columns', function () {
             ->has('rows', 6)
             ->where('monthColumns.0.label', 'November-2026'));
 });
+
+test('all four of the workbook colour fields reach the detail page', function () {
+    $this->actingAs(bqsImporter($this->buyer));
+
+    $this->post(route('merchandising.bqs.import.store'), [
+        'buyer_id' => $this->buyer->id,
+        'bqs_date' => $this->date,
+        'file' => bqsUpload(),
+    ]);
+
+    $sheet = BqsSheet::withoutBuyerScope()->sole();
+
+    /*
+     * The source has four separate colour columns and the detail table renders all
+     * of them. They arrive through `BqsController::rowFields()`, which is a hand-kept
+     * list — trimming an entry there empties a column on the page with nothing else
+     * failing, which is exactly what this pins.
+     *
+     * `other_colour` is null in every row of this file and is asserted as present
+     * rather than as a value: the column exists in the workbook, so it is rendered,
+     * and a silently dropped field would be worse than a column of dashes.
+     */
+    $this->get(route('merchandising.bqs.show', $sheet))
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page
+            // Row 3 of the workbook, which is also row 0 here — the rows relation
+            // is ordered by `line_no`, so the page reads in the buyer's own order.
+            ->where('rows.0.line_no', 3)
+            ->where('rows.0.pantone_colour', 'SMOKE GREEN')
+            ->where('rows.0.colour_family', 'GRNLGT')
+            ->where('rows.0.colour_variant', '503441')
+            ->has('rows.0.other_colour'));
+});
