@@ -3,35 +3,41 @@
 namespace App\DataTransferObjects\Merchandising;
 
 use App\Models\Merchandising\PoImport;
+use App\Services\Merchandising\PurchaseOrderImportService;
 
 /**
- * What one import actually did, so the controller can report it accurately.
+ * What one upload actually did, so the controller can report it accurately.
  *
- * A single document holds several purchase orders and they need not all land: some
- * may be revisions of orders already held, and some may be byte-identical re-uploads
- * that are refused. Returning only the {@see PoImport} would leave the controller
- * guessing which message to show.
+ * A single document holds several purchase orders and they need not all land the same
+ * way: some are new, some are byte-identical re-uploads that are refused, and some
+ * collide with an order already held and are **staged** for the uploader to decide
+ * about ({@see PurchaseOrderImportService::resolve()}). Returning only the
+ * {@see PoImport} would leave the controller guessing which message to show.
+ *
+ * There is no `revisedPoNumbers` here any more. A revision is now something a person
+ * confirms rather than something the upload decides, so it belongs to
+ * {@see PoResolveResult}.
  */
 final readonly class PoImportResult
 {
     /**
-     * @param  list<string>  $importedPoNumbers  orders newly stored
-     * @param  list<string>  $revisedPoNumbers  orders stored as a new revision of one already held
+     * @param  list<string>  $importedPoNumbers  orders newly stored, colliding with nothing
      * @param  list<string>  $duplicatePoNumbers  orders refused as an identical re-upload
+     * @param  list<string>  $stagedPoNumbers  orders held back, waiting on a decision
      */
     public function __construct(
         public PoImport $import,
         public array $importedPoNumbers,
-        public array $revisedPoNumbers,
         public array $duplicatePoNumbers,
+        public array $stagedPoNumbers,
     ) {}
 
     /**
-     * How many orders were written, revisions included.
+     * How many orders were written outright.
      */
     public function storedCount(): int
     {
-        return count($this->importedPoNumbers) + count($this->revisedPoNumbers);
+        return count($this->importedPoNumbers);
     }
 
     /**
@@ -43,10 +49,18 @@ final readonly class PoImportResult
     }
 
     /**
-     * Whether the document produced nothing at all — every order was a duplicate.
+     * Whether the upload is waiting on the uploader before it is finished.
+     */
+    public function needsDecisions(): bool
+    {
+        return $this->stagedPoNumbers !== [];
+    }
+
+    /**
+     * Whether the document produced nothing and asks nothing — every order was already held.
      */
     public function storedNothing(): bool
     {
-        return $this->storedCount() === 0;
+        return $this->storedCount() === 0 && ! $this->needsDecisions();
     }
 }

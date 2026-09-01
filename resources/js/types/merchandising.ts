@@ -148,3 +148,57 @@ export type ImportableBuyer = {
     value: number;
     label: string;
 };
+
+/**
+ * What to do with an imported order that collides with one already held —
+ * `App\Enums\Merchandising\PoConflictDecision`.
+ */
+export type ConflictDecision = 'skip' | 'revise' | 'overwrite';
+
+/** One decision, as the conflict step renders it. */
+export type ConflictDecisionOption = {
+    value: ConflictDecision;
+    label: string;
+    /** `overwrite` alone. Hidden from anyone without the delete permission. */
+    destructive: boolean;
+};
+
+/**
+ * How an order already on file compares to the one arriving.
+ *
+ * Both sides are shown because the question is otherwise unanswerable: a purchase
+ * order number alone cannot tell a genuine reissue from a stale re-upload. `held`
+ * describes the current revision; `incoming` describes the document just uploaded.
+ */
+export type ImportConflict = {
+    po_number: string;
+    held: {
+        revision_no: number;
+        revised_at: string | null;
+        revised_by: string | null;
+        total_qty: number | null;
+        line_item_count: number;
+        imported_at: string | null;
+    };
+    incoming: {
+        revised_at: string | null;
+        revised_by: string | null;
+        total_qty: number | null;
+        line_item_count: number;
+    };
+};
+
+/**
+ * An upload of the signed-in user's that is waiting on decisions.
+ *
+ * The staged rows themselves stay on the server — this carries only what the dialog
+ * has to show. Present on the list page after an upload that collided, and again on
+ * any later visit until it is answered.
+ */
+export type PendingImport = {
+    id: number;
+    source_file_name: string;
+    /** Orders from the same document that collided with nothing and are already stored. */
+    imported_count: number;
+    conflicts: ImportConflict[];
+};

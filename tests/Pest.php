@@ -1,9 +1,11 @@
 <?php
 
+use App\Models\Admin\Buyer;
 use App\Models\Admin\Permission;
 use App\Models\Admin\Role;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Testing\TestResponse;
 use Spatie\Permission\PermissionRegistrar;
 use Tests\TestCase;
@@ -135,6 +137,75 @@ function userWithPermissions(string ...$permissions): User
 function assertToast(TestResponse $response, string $type): TestResponse
 {
     return $response->assertSessionHas('inertia.flash_data.toast.type', $type);
+}
+
+/*
+|--------------------------------------------------------------------------
+| Purchase-order import helpers
+|--------------------------------------------------------------------------
+|
+| Shared by `PurchaseOrderImportTest` and `PurchaseOrderResolveTest`, which is
+| why they are here rather than in either file — a global function defined in
+| one test file and used from another works only by accident of load order.
+|
+| The names carry a `po` prefix for the reason `poFixture()` does: Pest defines
+| its own `fixture()`, and a collision in the global namespace is a fatal error
+| rather than a warning.
+|
+*/
+
+/** Every purchase-order permission a test might name. */
+const PO_IMPORT_PERMISSION = 'merchandising.purchase-orders.import';
+
+const PO_VIEW_PERMISSION = 'merchandising.purchase-orders.view';
+
+const PO_DELETE_PERMISSION = 'merchandising.purchase-orders.delete';
+
+/**
+ * The redacted fixture, as a real upload.
+ *
+ * The `.docx` is used throughout because it is the only format that needs no
+ * external binary, which keeps these files fast. That the other two formats
+ * produce identical data is `PoParserTest`'s job.
+ */
+function poUpload(string $extension = 'docx'): UploadedFile
+{
+    $path = __DIR__.'/Fixtures/Merchandising/PO-SAMPLE-WALMART.'.$extension;
+
+    return new UploadedFile($path, 'PO-SAMPLE-WALMART.'.$extension, null, null, true);
+}
+
+/**
+ * The same document with one value altered, so it parses to the same purchase
+ * orders with different content — which is what a genuine Walmart reissue is.
+ *
+ * The replacement is the **same length** as what it replaces: the parser reads
+ * fixed-width columns, so a longer factory name would shift the block and change
+ * far more than intended.
+ */
+function poReissuedUpload(): UploadedFile
+{
+    $source = __DIR__.'/Fixtures/Merchandising/PO-SAMPLE-WALMART.docx';
+    $target = tempnam(sys_get_temp_dir(), 'po').'.docx';
+
+    copy($source, $target);
+
+    $zip = new ZipArchive;
+    $zip->open($target);
+    $xml = $zip->getFromName('word/document.xml');
+    $zip->addFromString('word/document.xml', str_replace('SAMPLERY', 'SAMPLERZ', $xml));
+    $zip->close();
+
+    return new UploadedFile($target, 'PO-SAMPLE-WALMART-REV.docx', null, null, true);
+}
+
+/** A user who may import, and who holds the buyer being imported for. */
+function poImporter(Buyer $buyer, string ...$permissions): User
+{
+    $user = userWithPermissions(...($permissions ?: [PO_IMPORT_PERMISSION, PO_VIEW_PERMISSION]));
+    $user->buyers()->attach($buyer);
+
+    return $user;
 }
 
 /**

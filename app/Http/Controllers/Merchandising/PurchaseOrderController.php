@@ -2,10 +2,12 @@
 
 namespace App\Http\Controllers\Merchandising;
 
+use App\Enums\Merchandising\PoConflictDecision;
 use App\Enums\Merchandising\PoParseStatus;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Merchandising\PurchaseOrderIndexRequest;
 use App\Models\Merchandising\PurchaseOrder;
+use App\Services\Merchandising\PurchaseOrderImportService;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -24,8 +26,19 @@ use Inertia\Response;
  */
 class PurchaseOrderController extends Controller
 {
+    public function __construct(protected PurchaseOrderImportService $imports) {}
+
     /**
      * List imported purchase orders.
+     *
+     * This page also hosts the import dialog, so it carries what that dialog needs:
+     * the buyers the actor may import for, and any import of theirs still waiting on a
+     * decision. **Both are gated on the import permission** — a `production-manager`
+     * reads this list and can never import, so they pay for neither query.
+     *
+     * They are sent eagerly rather than through `Inertia::optional()`: a user's buyer
+     * set is short by construction, and one `pluck` costs less than a round trip plus
+     * a loading state inside the modal.
      */
     public function index(PurchaseOrderIndexRequest $request): Response
     {
@@ -72,8 +85,15 @@ class PurchaseOrderController extends Controller
                 'line_items_count' => $order->line_items_count,
             ]);
 
+        $canImport = (bool) $request->user()?->can('merchandising.purchase-orders.import');
+
         return Inertia::render('merchandising/purchase-orders/index', [
             'purchaseOrders' => $purchaseOrders,
+            'importBuyers' => $canImport ? $this->imports->assignableBuyerOptions() : [],
+            'pendingImport' => $canImport ? $this->imports->pendingFor($request->user()) : null,
+            'acceptedExtensions' => config('po-parser.accepted_extensions'),
+            'maxFileSizeKb' => (int) config('po-parser.limits.max_file_size_kb'),
+            'conflictDecisions' => PoConflictDecision::options(),
             'parseStatuses' => PoParseStatus::options(),
             'views' => PurchaseOrderIndexRequest::VIEWS,
             'sortable' => PurchaseOrder::SORTABLE,

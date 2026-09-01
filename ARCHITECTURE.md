@@ -317,6 +317,19 @@ There is **no create form.** A purchase order is imported by uploading the buyer
 `app/Services/Merchandising/PoParser/` — the [§4](#4-the-organizing-rule) nesting exception. That is
 why `import` is its own permission rather than an alias for `create`.
 
+**The upload is a modal on the list page**, and there is no `GET` route for it — the standalone
+import page it replaced was this application's last exception to "one page with modals". The list
+controller therefore carries the dialog's two props, `importBuyers` and `pendingImport`, both gated
+on the import permission so a read-only role pays for neither.
+
+**An upload takes two requests when it collides.** A document holds up to fifty orders
+(`po-parser.limits.max_pos_per_file`), and an order matching one already held is a question only a
+person can answer — a genuine Walmart reissue and a re-uploaded stale document are identical to the
+parser. Orders that collide with nothing are written immediately; the rest are **staged** on
+`po_imports.staged_orders` and answered through `purchase-orders.import.resolve` with one of
+**skip / revise / overwrite** per order. `overwrite` destroys the current revision and so requires
+`merchandising.purchase-orders.delete` on top of `import`.
+
 **The parser is specific to Walmart's import purchase-order template**, despite the general class
 names. It recognises pages by a header of the form `Purchase Order: <10 digits> … Page: <n>` and
 finds nothing in any other document. A second buyer's template is a second parser, not a wider
@@ -328,14 +341,16 @@ Three tables, and the split between them is the module's central decision:
 
 | Table | Holds |
 | --- | --- |
-| `po_imports` | One row per uploaded file: the document, the whole parse result, every warning |
+| `po_imports` | One row per uploaded file: the document, the whole parse result, every warning, and any orders still awaiting a decision |
 | `purchase_orders` | One row per order per revision. Header fields are columns; the remaining ~10 sections ride in a `payload` JSON column |
 | `po_line_items` | The colour/size lines — the only part of a document that becomes rows |
 
 Line items are rows because Production computes consumption from quantity × colour × size and must
 join to them; everything else is display-only and nothing queries it. Revisions are keyed on the
 document's own `Revised Date … By:`, with a `source_hash` making a byte-identical re-upload
-idempotent. **Orders that fail to parse are stored and flagged**, so their warnings stay next to the
+idempotent and silently skipped — nothing changed, so there is nothing to ask about. A revision is
+now something the uploader **confirms**, not something the upload decides.
+**Orders that fail to parse are stored and flagged**, so their warnings stay next to the
 document — which means every downstream reader must exclude them, and `PurchaseOrder::scopeUsable()`
 is how. The reasoning for all of this, and the trade-offs declined along the way, are in
 [`documentation/merchandising.md`](documentation/merchandising.md).
@@ -795,6 +810,12 @@ typed work or a destructive confirmation, and a stray click outside one was disc
 - `.modal-box` is `position: static` in daisyUI, so `DialogContent` adds `relative`; without it
   the close button anchors to `.modal` (`position: fixed; inset: 0`) and lands in the viewport
   corner rather than the panel's.
+- **A multi-step dialog needs nothing extra**, and this was checked rather than assumed.
+  `purchase-order-import-dialog.tsx` is the first: step two holds decisions about orders already
+  parsed and staged on the server, which is squarely the "typed work" case the rule protects. Its
+  one addition is that closing it is *safe* — the staging survives on `po_imports`, and the list
+  offers the import back. Do not read that as licence to make dialogs dismissible; it is what let
+  the close button stay the only exit without the work being lost.
 
 One trap worth knowing in `combobox.tsx`: downshift's reducer treats a click on its input as
 `isOpen: !isOpen`, which closed the menu when the user clicked the search box *inside* it. Every

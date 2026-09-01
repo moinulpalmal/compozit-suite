@@ -6,7 +6,6 @@ use App\Models\Admin\Buyer;
 use App\Models\Merchandising\PoImport;
 use App\Models\Merchandising\PoLineItem;
 use App\Models\Merchandising\PurchaseOrder;
-use App\Models\User;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
 
@@ -25,87 +24,43 @@ use Illuminate\Support\Facades\Storage;
 |
 */
 
-const IMPORT_PERMISSION = 'merchandising.purchase-orders.import';
-
-const VIEW_PERMISSION = 'merchandising.purchase-orders.view';
-
 beforeEach(function (): void {
     Storage::fake('local');
 
     $this->buyer = Buyer::factory()->create(['name' => 'Walmart']);
 });
 
-/** The redacted fixture, as a real upload. */
-function upload(string $extension = 'docx'): UploadedFile
-{
-    $path = __DIR__.'/../../Fixtures/Merchandising/PO-SAMPLE-WALMART.'.$extension;
-
-    return new UploadedFile($path, 'PO-SAMPLE-WALMART.'.$extension, null, null, true);
-}
-
-/**
- * The same document with one value altered, so it parses to the same purchase
- * orders with different content — which is what a genuine Walmart reissue is.
- *
- * The replacement is the **same length** as what it replaces: the parser reads
- * fixed-width columns, so a longer factory name would shift the block and change
- * far more than intended.
- */
-function reissuedUpload(): UploadedFile
-{
-    $source = __DIR__.'/../../Fixtures/Merchandising/PO-SAMPLE-WALMART.docx';
-    $target = tempnam(sys_get_temp_dir(), 'po').'.docx';
-
-    copy($source, $target);
-
-    $zip = new ZipArchive;
-    $zip->open($target);
-    $xml = $zip->getFromName('word/document.xml');
-    $zip->addFromString('word/document.xml', str_replace('SAMPLERY', 'SAMPLERZ', $xml));
-    $zip->close();
-
-    return new UploadedFile($target, 'PO-SAMPLE-WALMART-REV.docx', null, null, true);
-}
-
-/** A user who may import, and who holds the buyer being imported for. */
-function importer(Buyer $buyer, string ...$permissions): User
-{
-    $user = userWithPermissions(...($permissions ?: [IMPORT_PERMISSION, VIEW_PERMISSION]));
-    $user->buyers()->attach($buyer);
-
-    return $user;
-}
-
-test('a guest cannot reach the import form', function () {
-    $this->get(route('merchandising.purchase-orders.import.create'))
-        ->assertRedirect(route('login'));
+test('a guest cannot upload', function () {
+    $this->post(route('merchandising.purchase-orders.import.store'), [
+        'buyer_id' => $this->buyer->id,
+        'file' => poUpload(),
+    ])->assertRedirect(route('login'));
 });
 
 test('the import permission is required, and view alone is not enough', function () {
-    $this->actingAs(importer($this->buyer, VIEW_PERMISSION));
+    $this->actingAs(poImporter($this->buyer, PO_VIEW_PERMISSION));
 
     // `import` is deliberately separate from `view` and from `create` — running a
     // parser over an upload is its own power. See RolePermissionSeeder.
-    $this->get(route('merchandising.purchase-orders.import.create'))->assertForbidden();
-
     $this->post(route('merchandising.purchase-orders.import.store'), [
         'buyer_id' => $this->buyer->id,
-        'file' => upload(),
+        'file' => poUpload(),
     ])->assertForbidden();
 });
 
-test('the import form offers only buyers the user may see', function () {
+test('the import dialog offers only buyers the user may see', function () {
     $mine = $this->buyer;
     $theirs = Buyer::factory()->create(['name' => 'Someone Else']);
 
-    $this->actingAs(importer($mine));
+    $this->actingAs(poImporter($mine));
 
-    $this->get(route('merchandising.purchase-orders.import.create'))
+    // The form is a modal on the list, so its options ride on the list page.
+    $this->get(route('merchandising.purchase-orders.index'))
         ->assertOk()
         ->assertInertia(fn ($page) => $page
-            ->component('merchandising/purchase-orders/import')
-            ->has('buyers', 1)
-            ->where('buyers.0.value', $mine->id));
+            ->component('merchandising/purchase-orders/index')
+            ->has('importBuyers', 1)
+            ->where('importBuyers.0.value', $mine->id));
 
     expect($theirs->exists)->toBeTrue();
 });
@@ -113,19 +68,33 @@ test('the import form offers only buyers the user may see', function () {
 test('an inactive buyer is not offered', function () {
     $this->buyer->update(['status' => RecordStatus::Inactive]);
 
-    $this->actingAs(importer($this->buyer));
+    $this->actingAs(poImporter($this->buyer));
 
     // Deactivating retires a buyer from the pickers without touching its orders —
     // ARCHITECTURE.md §9.3.1.
-    $this->get(route('merchandising.purchase-orders.import.create'))
+    $this->get(route('merchandising.purchase-orders.index'))
         ->assertOk()
-        ->assertInertia(fn ($page) => $page->has('buyers', 0));
+        ->assertInertia(fn ($page) => $page->has('importBuyers', 0));
+});
+
+test('a user who cannot import pays for neither of the dialog queries', function () {
+    $this->actingAs(poImporter($this->buyer, PO_VIEW_PERMISSION));
+
+    /*
+     * `production-manager` reads this list and can never import. Both props are
+     * gated so the buyer lookup and the pending-import lookup never run for them.
+     */
+    $this->get(route('merchandising.purchase-orders.index'))
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page
+            ->has('importBuyers', 0)
+            ->where('pendingImport', null));
 });
 
 test('importing for a buyer the user cannot see is refused', function () {
     $theirs = Buyer::factory()->create();
 
-    $this->actingAs(importer($this->buyer));
+    $this->actingAs(poImporter($this->buyer));
 
     /*
      * The guarantee behind picking the buyer on the form: an import into a buyer
@@ -134,18 +103,18 @@ test('importing for a buyer the user cannot see is refused', function () {
      */
     $this->post(route('merchandising.purchase-orders.import.store'), [
         'buyer_id' => $theirs->id,
-        'file' => upload(),
+        'file' => poUpload(),
     ])->assertSessionHasErrors('buyer_id');
 
     expect(PurchaseOrder::withoutBuyerScope()->count())->toBe(0);
 });
 
 test('a document imports every purchase order it holds', function () {
-    $this->actingAs(importer($this->buyer));
+    $this->actingAs(poImporter($this->buyer));
 
     $response = $this->post(route('merchandising.purchase-orders.import.store'), [
         'buyer_id' => $this->buyer->id,
-        'file' => upload(),
+        'file' => poUpload(),
     ]);
 
     $response->assertRedirect(route('merchandising.purchase-orders.index'));
@@ -170,12 +139,12 @@ test('a document imports every purchase order it holds', function () {
 });
 
 test('the uploader is stamped as the actor', function () {
-    $user = importer($this->buyer);
+    $user = poImporter($this->buyer);
     $this->actingAs($user);
 
     $this->post(route('merchandising.purchase-orders.import.store'), [
         'buyer_id' => $this->buyer->id,
-        'file' => upload(),
+        'file' => poUpload(),
     ]);
 
     // ActorObserver, ARCHITECTURE.md §9.3 — neither column is mass assignable.
@@ -184,11 +153,11 @@ test('the uploader is stamped as the actor', function () {
 });
 
 test('the uploaded document is retained beside the import', function () {
-    $this->actingAs(importer($this->buyer));
+    $this->actingAs(poImporter($this->buyer));
 
     $this->post(route('merchandising.purchase-orders.import.store'), [
         'buyer_id' => $this->buyer->id,
-        'file' => upload(),
+        'file' => poUpload(),
     ]);
 
     // What makes a failed import diagnosable later rather than merely reported.
@@ -199,9 +168,9 @@ test('the uploaded document is retained beside the import', function () {
 });
 
 test('re-importing the identical document is refused, and writes nothing', function () {
-    $this->actingAs(importer($this->buyer));
+    $this->actingAs(poImporter($this->buyer));
 
-    $payload = fn (): array => ['buyer_id' => $this->buyer->id, 'file' => upload()];
+    $payload = fn (): array => ['buyer_id' => $this->buyer->id, 'file' => poUpload()];
 
     $this->post(route('merchandising.purchase-orders.import.store'), $payload());
 
@@ -217,37 +186,91 @@ test('re-importing the identical document is refused, and writes nothing', funct
         ->and(PoLineItem::count())->toBe(60);
 });
 
-test('a reissued document is stored as a new revision and supersedes the old one', function () {
-    $this->actingAs(importer($this->buyer));
+test('a reissued document is staged, not written, and waits for a decision', function () {
+    $this->actingAs(poImporter($this->buyer));
 
     $this->post(route('merchandising.purchase-orders.import.store'), [
         'buyer_id' => $this->buyer->id,
-        'file' => upload(),
+        'file' => poUpload(),
     ]);
 
     $response = $this->post(route('merchandising.purchase-orders.import.store'), [
         'buyer_id' => $this->buyer->id,
-        'file' => reissuedUpload(),
+        'file' => poReissuedUpload(),
     ]);
 
-    assertToast($response, 'success');
+    /*
+     * The parser cannot tell a genuine Walmart reissue from someone re-uploading a
+     * stale document — both are the same order number with different content. So
+     * nothing is written until the uploader says which it is.
+     */
+    assertToast($response, 'warning');
 
-    $revisions = PurchaseOrder::where('po_number', '1000000001')
-        ->orderBy('revision_no')
-        ->get();
+    expect(PurchaseOrder::where('po_number', '1000000001')->count())->toBe(1)
+        ->and(PurchaseOrder::where('po_number', '1000000001')->first()->revision_no)->toBe(1);
 
-    expect($revisions)->toHaveCount(2)
-        ->and($revisions[0]->revision_no)->toBe(1)
-        ->and($revisions[0]->is_current)->toBeFalse()
-        ->and($revisions[1]->revision_no)->toBe(2)
-        ->and($revisions[1]->is_current)->toBeTrue();
+    $pending = PoImport::query()->pending()->sole();
 
-    // Only the newest shows on the default list view.
-    expect(PurchaseOrder::query()->current()->where('po_number', '1000000001')->count())->toBe(1);
+    expect($pending->staged_orders)->toHaveCount(3)
+        ->and(array_column($pending->staged_orders, 'po_number'))
+        ->toContain('1000000001');
+});
+
+test('the pending import is offered back on the list, with both sides of each conflict', function () {
+    $this->actingAs(poImporter($this->buyer));
+
+    $this->post(route('merchandising.purchase-orders.import.store'), [
+        'buyer_id' => $this->buyer->id,
+        'file' => poUpload(),
+    ]);
+
+    $this->post(route('merchandising.purchase-orders.import.store'), [
+        'buyer_id' => $this->buyer->id,
+        'file' => poReissuedUpload(),
+    ]);
+
+    $this->get(route('merchandising.purchase-orders.index'))
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page
+            ->where('pendingImport.source_file_name', 'PO-SAMPLE-WALMART-REV.docx')
+            ->has('pendingImport.conflicts', 3)
+            // What makes the question answerable: a PO number alone cannot tell a
+            // reissue from a stale re-upload.
+            ->has('pendingImport.conflicts.0.held.revision_no')
+            ->has('pendingImport.conflicts.0.incoming.line_item_count')
+            // The rows to be written stay on the server; the browser sends back a
+            // decision per order, not data.
+            ->missing('pendingImport.conflicts.0.attributes')
+            ->missing('pendingImport.conflicts.0.line_items'));
+});
+
+test('a colliding document still imports the orders that collide with nothing', function () {
+    $this->actingAs(poImporter($this->buyer));
+
+    // One order already held, so only that one collides on the second upload.
+    PurchaseOrder::factory()->create([
+        'buyer_id' => $this->buyer->id,
+        'po_number' => '1000000001',
+    ]);
+
+    $this->post(route('merchandising.purchase-orders.import.store'), [
+        'buyer_id' => $this->buyer->id,
+        'file' => poUpload(),
+    ]);
+
+    /*
+     * Holding back all three because one was already on file would lose two good
+     * orders to protect nothing — merchandising.md §3.4.
+     */
+    expect(PurchaseOrder::where('po_number', '1000000002')->count())->toBe(1)
+        ->and(PurchaseOrder::where('po_number', '1000000003')->count())->toBe(1)
+        ->and(PurchaseOrder::where('po_number', '1000000001')->count())->toBe(1);
+
+    expect(PoImport::query()->pending()->sole()->staged_orders)->toHaveCount(1);
 });
 
 test('a file that is not a purchase-order document is reported, not stored', function () {
-    $this->actingAs(importer($this->buyer));
+    $this->actingAs(poImporter($this->buyer));
 
     $path = tempnam(sys_get_temp_dir(), 'po').'.pdf';
     file_put_contents($path, '%PDF-1.4 not really a pdf');
@@ -270,7 +293,7 @@ test('a file that is not a purchase-order document is reported, not stored', fun
 });
 
 test('an oversized or wrong-typed file never reaches the parser', function () {
-    $this->actingAs(importer($this->buyer));
+    $this->actingAs(poImporter($this->buyer));
 
     $this->post(route('merchandising.purchase-orders.import.store'), [
         'buyer_id' => $this->buyer->id,
@@ -296,7 +319,7 @@ test('failed orders are stored but excluded from the usable set', function () {
 });
 
 test('the list separates current orders, revisions and failures', function () {
-    $this->actingAs(importer($this->buyer));
+    $this->actingAs(poImporter($this->buyer));
 
     PurchaseOrder::factory()->create(['buyer_id' => $this->buyer->id]);
     PurchaseOrder::factory()->superseded()->create(['buyer_id' => $this->buyer->id]);
@@ -315,11 +338,11 @@ test('the list separates current orders, revisions and failures', function () {
 });
 
 test('one order can be opened in full', function () {
-    $this->actingAs(importer($this->buyer));
+    $this->actingAs(poImporter($this->buyer));
 
     $this->post(route('merchandising.purchase-orders.import.store'), [
         'buyer_id' => $this->buyer->id,
-        'file' => upload(),
+        'file' => poUpload(),
     ]);
 
     $order = PurchaseOrder::where('po_number', '1000000002')->firstOrFail();

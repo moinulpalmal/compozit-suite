@@ -1,154 +1,138 @@
-import {
-    queryParams,
-    type RouteQueryOptions,
-    type RouteDefinition,
-    type RouteFormDefinition,
-} from './../../../../../wayfinder';
+import { queryParams, type RouteQueryOptions, type RouteDefinition, type RouteFormDefinition, applyUrlDefaults } from './../../../../../wayfinder'
 /**
- * @see \App\Http\Controllers\Merchandising\PurchaseOrderImportController::create
- * @see app/Http/Controllers/Merchandising/PurchaseOrderImportController.php:33
- * @route '/merchandising/purchase-orders/import'
- */
-export const create = (
-    options?: RouteQueryOptions,
-): RouteDefinition<'get'> => ({
-    url: create.url(options),
-    method: 'get',
-});
-
-create.definition = {
-    methods: ['get', 'head'],
-    url: '/merchandising/purchase-orders/import',
-} satisfies RouteDefinition<['get', 'head']>;
-
-/**
- * @see \App\Http\Controllers\Merchandising\PurchaseOrderImportController::create
- * @see app/Http/Controllers/Merchandising/PurchaseOrderImportController.php:33
- * @route '/merchandising/purchase-orders/import'
- */
-create.url = (options?: RouteQueryOptions) => {
-    return create.definition.url + queryParams(options);
-};
-
-/**
- * @see \App\Http\Controllers\Merchandising\PurchaseOrderImportController::create
- * @see app/Http/Controllers/Merchandising/PurchaseOrderImportController.php:33
- * @route '/merchandising/purchase-orders/import'
- */
-create.get = (options?: RouteQueryOptions): RouteDefinition<'get'> => ({
-    url: create.url(options),
-    method: 'get',
-});
-/**
- * @see \App\Http\Controllers\Merchandising\PurchaseOrderImportController::create
- * @see app/Http/Controllers/Merchandising/PurchaseOrderImportController.php:33
- * @route '/merchandising/purchase-orders/import'
- */
-create.head = (options?: RouteQueryOptions): RouteDefinition<'head'> => ({
-    url: create.url(options),
-    method: 'head',
-});
-
-/**
- * @see \App\Http\Controllers\Merchandising\PurchaseOrderImportController::create
- * @see app/Http/Controllers/Merchandising/PurchaseOrderImportController.php:33
- * @route '/merchandising/purchase-orders/import'
- */
-const createForm = (
-    options?: RouteQueryOptions,
-): RouteFormDefinition<'get'> => ({
-    action: create.url(options),
-    method: 'get',
-});
-
-/**
- * @see \App\Http\Controllers\Merchandising\PurchaseOrderImportController::create
- * @see app/Http/Controllers/Merchandising/PurchaseOrderImportController.php:33
- * @route '/merchandising/purchase-orders/import'
- */
-createForm.get = (options?: RouteQueryOptions): RouteFormDefinition<'get'> => ({
-    action: create.url(options),
-    method: 'get',
-});
-/**
- * @see \App\Http\Controllers\Merchandising\PurchaseOrderImportController::create
- * @see app/Http/Controllers/Merchandising/PurchaseOrderImportController.php:33
- * @route '/merchandising/purchase-orders/import'
- */
-createForm.head = (
-    options?: RouteQueryOptions,
-): RouteFormDefinition<'get'> => ({
-    action: create.url({
-        [options?.mergeQuery ? 'mergeQuery' : 'query']: {
-            _method: 'HEAD',
-            ...(options?.query ?? options?.mergeQuery ?? {}),
-        },
-    }),
-    method: 'get',
-});
-
-create.form = createForm;
-/**
- * @see \App\Http\Controllers\Merchandising\PurchaseOrderImportController::store
+* @see \App\Http\Controllers\Merchandising\PurchaseOrderImportController::store
  * @see app/Http/Controllers/Merchandising/PurchaseOrderImportController.php:45
  * @route '/merchandising/purchase-orders/import'
  */
-export const store = (
-    options?: RouteQueryOptions,
-): RouteDefinition<'post'> => ({
+export const store = (options?: RouteQueryOptions): RouteDefinition<'post'> => ({
     url: store.url(options),
     method: 'post',
-});
+})
 
 store.definition = {
-    methods: ['post'],
+    methods: ["post"],
     url: '/merchandising/purchase-orders/import',
-} satisfies RouteDefinition<['post']>;
+} satisfies RouteDefinition<["post"]>
 
 /**
- * @see \App\Http\Controllers\Merchandising\PurchaseOrderImportController::store
+* @see \App\Http\Controllers\Merchandising\PurchaseOrderImportController::store
  * @see app/Http/Controllers/Merchandising/PurchaseOrderImportController.php:45
  * @route '/merchandising/purchase-orders/import'
  */
 store.url = (options?: RouteQueryOptions) => {
-    return store.definition.url + queryParams(options);
-};
+    return store.definition.url + queryParams(options)
+}
 
 /**
- * @see \App\Http\Controllers\Merchandising\PurchaseOrderImportController::store
+* @see \App\Http\Controllers\Merchandising\PurchaseOrderImportController::store
  * @see app/Http/Controllers/Merchandising/PurchaseOrderImportController.php:45
  * @route '/merchandising/purchase-orders/import'
  */
 store.post = (options?: RouteQueryOptions): RouteDefinition<'post'> => ({
     url: store.url(options),
     method: 'post',
-});
+})
 
-/**
- * @see \App\Http\Controllers\Merchandising\PurchaseOrderImportController::store
+    /**
+* @see \App\Http\Controllers\Merchandising\PurchaseOrderImportController::store
  * @see app/Http/Controllers/Merchandising/PurchaseOrderImportController.php:45
  * @route '/merchandising/purchase-orders/import'
  */
-const storeForm = (
-    options?: RouteQueryOptions,
-): RouteFormDefinition<'post'> => ({
-    action: store.url(options),
-    method: 'post',
-});
+    const storeForm = (options?: RouteQueryOptions): RouteFormDefinition<'post'> => ({
+        action: store.url(options),
+        method: 'post',
+    })
 
-/**
- * @see \App\Http\Controllers\Merchandising\PurchaseOrderImportController::store
+            /**
+* @see \App\Http\Controllers\Merchandising\PurchaseOrderImportController::store
  * @see app/Http/Controllers/Merchandising/PurchaseOrderImportController.php:45
  * @route '/merchandising/purchase-orders/import'
  */
-storeForm.post = (
-    options?: RouteQueryOptions,
-): RouteFormDefinition<'post'> => ({
-    action: store.url(options),
+        storeForm.post = (options?: RouteQueryOptions): RouteFormDefinition<'post'> => ({
+            action: store.url(options),
+            method: 'post',
+        })
+    
+    store.form = storeForm
+/**
+* @see \App\Http\Controllers\Merchandising\PurchaseOrderImportController::resolve
+ * @see app/Http/Controllers/Merchandising/PurchaseOrderImportController.php:84
+ * @route '/merchandising/purchase-orders/imports/{poImport}/resolve'
+ */
+export const resolve = (args: { poImport: number | { id: number } } | [poImport: number | { id: number } ] | number | { id: number }, options?: RouteQueryOptions): RouteDefinition<'post'> => ({
+    url: resolve.url(args, options),
     method: 'post',
-});
+})
 
-store.form = storeForm;
-const PurchaseOrderImportController = { create, store };
+resolve.definition = {
+    methods: ["post"],
+    url: '/merchandising/purchase-orders/imports/{poImport}/resolve',
+} satisfies RouteDefinition<["post"]>
 
-export default PurchaseOrderImportController;
+/**
+* @see \App\Http\Controllers\Merchandising\PurchaseOrderImportController::resolve
+ * @see app/Http/Controllers/Merchandising/PurchaseOrderImportController.php:84
+ * @route '/merchandising/purchase-orders/imports/{poImport}/resolve'
+ */
+resolve.url = (args: { poImport: number | { id: number } } | [poImport: number | { id: number } ] | number | { id: number }, options?: RouteQueryOptions) => {
+    if (typeof args === 'string' || typeof args === 'number') {
+        args = { poImport: args }
+    }
+
+            if (typeof args === 'object' && !Array.isArray(args) && 'id' in args) {
+            args = { poImport: args.id }
+        }
+    
+    if (Array.isArray(args)) {
+        args = {
+                    poImport: args[0],
+                }
+    }
+
+    args = applyUrlDefaults(args)
+
+    const parsedArgs = {
+                        poImport: typeof args.poImport === 'object'
+                ? args.poImport.id
+                : args.poImport,
+                }
+
+    return resolve.definition.url
+            .replace('{poImport}', parsedArgs.poImport.toString())
+            .replace(/\/+$/, '') + queryParams(options)
+}
+
+/**
+* @see \App\Http\Controllers\Merchandising\PurchaseOrderImportController::resolve
+ * @see app/Http/Controllers/Merchandising/PurchaseOrderImportController.php:84
+ * @route '/merchandising/purchase-orders/imports/{poImport}/resolve'
+ */
+resolve.post = (args: { poImport: number | { id: number } } | [poImport: number | { id: number } ] | number | { id: number }, options?: RouteQueryOptions): RouteDefinition<'post'> => ({
+    url: resolve.url(args, options),
+    method: 'post',
+})
+
+    /**
+* @see \App\Http\Controllers\Merchandising\PurchaseOrderImportController::resolve
+ * @see app/Http/Controllers/Merchandising/PurchaseOrderImportController.php:84
+ * @route '/merchandising/purchase-orders/imports/{poImport}/resolve'
+ */
+    const resolveForm = (args: { poImport: number | { id: number } } | [poImport: number | { id: number } ] | number | { id: number }, options?: RouteQueryOptions): RouteFormDefinition<'post'> => ({
+        action: resolve.url(args, options),
+        method: 'post',
+    })
+
+            /**
+* @see \App\Http\Controllers\Merchandising\PurchaseOrderImportController::resolve
+ * @see app/Http/Controllers/Merchandising/PurchaseOrderImportController.php:84
+ * @route '/merchandising/purchase-orders/imports/{poImport}/resolve'
+ */
+        resolveForm.post = (args: { poImport: number | { id: number } } | [poImport: number | { id: number } ] | number | { id: number }, options?: RouteQueryOptions): RouteFormDefinition<'post'> => ({
+            action: resolve.url(args, options),
+            method: 'post',
+        })
+    
+    resolve.form = resolveForm
+const PurchaseOrderImportController = { store, resolve }
+
+export default PurchaseOrderImportController

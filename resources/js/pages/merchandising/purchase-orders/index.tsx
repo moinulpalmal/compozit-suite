@@ -1,6 +1,8 @@
 import { Head, Link } from '@inertiajs/react';
-import { FileUp } from 'lucide-react';
+import { AlertTriangle, FileUp } from 'lucide-react';
+import { useState } from 'react';
 import Heading from '@/components/heading';
+import PurchaseOrderImportDialog from '@/components/merchandising/purchase-order-import-dialog';
 import ColumnFilterRow from '@/components/shared/column-filter-row';
 import ListToolbar from '@/components/shared/list-toolbar';
 import Pagination from '@/components/shared/pagination';
@@ -9,10 +11,12 @@ import { Button } from '@/components/ui/button';
 import { useCan } from '@/hooks/use-can';
 import { useListFilters } from '@/hooks/use-list-filters';
 import { index, show } from '@/routes/merchandising/purchase-orders';
-import { create } from '@/routes/merchandising/purchase-orders/import';
 import type {
+    ConflictDecisionOption,
     Filterable,
+    ImportableBuyer,
     Paginated,
+    PendingImport,
     PurchaseOrderFilters,
     PurchaseOrderListItem,
     PurchaseOrderView,
@@ -21,6 +25,12 @@ import type {
 
 type Props = {
     purchaseOrders: Paginated<PurchaseOrderListItem>;
+    /** Empty for anyone who cannot import — the query is not even run. */
+    importBuyers: ImportableBuyer[];
+    pendingImport: PendingImport | null;
+    acceptedExtensions: string[];
+    maxFileSizeKb: number;
+    conflictDecisions: ConflictDecisionOption[];
     parseStatuses: StatusOption[];
     views: PurchaseOrderView[];
     sortable: string[];
@@ -49,10 +59,17 @@ const VIEW_LABELS: Record<PurchaseOrderView, string> = {
  * next to the document it came from — but neither is an order in force, and a
  * list that mixed them would need a caveat on every row.
  *
- * There is no create button. An order arrives by importing the buyer's document.
+ * There is no create button. An order arrives by importing the buyer's document,
+ * through the dialog this page hosts — the same "one page with modals" shape as
+ * every Admin and Settings surface.
  */
 export default function PurchaseOrdersIndex({
     purchaseOrders,
+    importBuyers,
+    pendingImport,
+    acceptedExtensions,
+    maxFileSizeKb,
+    conflictDecisions,
     parseStatuses,
     views,
     sortable,
@@ -61,6 +78,8 @@ export default function PurchaseOrdersIndex({
     filters,
 }: Props) {
     const canImport = useCan('merchandising.purchase-orders.import');
+
+    const [importOpen, setImportOpen] = useState(false);
 
     const { draft, visit, setFilter, clear, hasActiveFilter } = useListFilters({
         filters,
@@ -87,13 +106,55 @@ export default function PurchaseOrdersIndex({
                     />
 
                     {canImport && (
-                        <Button asChild data-test="import-purchase-orders">
-                            <Link href={create()}>
-                                <FileUp /> Import
-                            </Link>
+                        <Button
+                            onClick={() => setImportOpen(true)}
+                            data-test="import-purchase-orders"
+                        >
+                            <FileUp /> Import
                         </Button>
                     )}
                 </div>
+
+                {canImport && (
+                    <PurchaseOrderImportDialog
+                        buyers={importBuyers}
+                        acceptedExtensions={acceptedExtensions}
+                        maxFileSizeKb={maxFileSizeKb}
+                        decisions={conflictDecisions}
+                        pendingImport={pendingImport}
+                        open={importOpen}
+                        onOpenChange={setImportOpen}
+                    />
+                )}
+
+                {/* An import left unanswered survives on the server, so it is
+                    offered back rather than thrown at the reader as a modal
+                    they did not open. */}
+                {canImport && pendingImport && !importOpen && (
+                    <div
+                        role="status"
+                        className="alert alert-soft alert-warning"
+                        data-test="pending-import"
+                    >
+                        <AlertTriangle className="size-5" />
+                        <span>
+                            {pendingImport.source_file_name} has{' '}
+                            {pendingImport.conflicts.length} purchase order
+                            {pendingImport.conflicts.length === 1
+                                ? ''
+                                : 's'}{' '}
+                            already on file, waiting on your decision.
+                        </span>
+                        <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => setImportOpen(true)}
+                            data-test="resume-import"
+                        >
+                            Resolve
+                        </Button>
+                    </div>
+                )}
 
                 <ListToolbar
                     perPage={filters.per_page}

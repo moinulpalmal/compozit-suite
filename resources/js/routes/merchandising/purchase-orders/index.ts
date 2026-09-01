@@ -1,249 +1,189 @@
-import {
-    queryParams,
-    type RouteQueryOptions,
-    type RouteDefinition,
-    type RouteFormDefinition,
-    applyUrlDefaults,
-} from './../../../wayfinder';
-import importMethod from './import';
+import { queryParams, type RouteQueryOptions, type RouteDefinition, type RouteFormDefinition, applyUrlDefaults } from './../../../wayfinder'
+import importMethod from './import'
 /**
- * @see \App\Http\Controllers\Merchandising\PurchaseOrderController::index
- * @see app/Http/Controllers/Merchandising/PurchaseOrderController.php:30
+* @see \App\Http\Controllers\Merchandising\PurchaseOrderController::index
+ * @see app/Http/Controllers/Merchandising/PurchaseOrderController.php:43
  * @route '/merchandising/purchase-orders'
  */
 export const index = (options?: RouteQueryOptions): RouteDefinition<'get'> => ({
     url: index.url(options),
     method: 'get',
-});
+})
 
 index.definition = {
-    methods: ['get', 'head'],
+    methods: ["get","head"],
     url: '/merchandising/purchase-orders',
-} satisfies RouteDefinition<['get', 'head']>;
+} satisfies RouteDefinition<["get","head"]>
 
 /**
- * @see \App\Http\Controllers\Merchandising\PurchaseOrderController::index
- * @see app/Http/Controllers/Merchandising/PurchaseOrderController.php:30
+* @see \App\Http\Controllers\Merchandising\PurchaseOrderController::index
+ * @see app/Http/Controllers/Merchandising/PurchaseOrderController.php:43
  * @route '/merchandising/purchase-orders'
  */
 index.url = (options?: RouteQueryOptions) => {
-    return index.definition.url + queryParams(options);
-};
+    return index.definition.url + queryParams(options)
+}
 
 /**
- * @see \App\Http\Controllers\Merchandising\PurchaseOrderController::index
- * @see app/Http/Controllers/Merchandising/PurchaseOrderController.php:30
+* @see \App\Http\Controllers\Merchandising\PurchaseOrderController::index
+ * @see app/Http/Controllers/Merchandising/PurchaseOrderController.php:43
  * @route '/merchandising/purchase-orders'
  */
 index.get = (options?: RouteQueryOptions): RouteDefinition<'get'> => ({
     url: index.url(options),
     method: 'get',
-});
+})
 /**
- * @see \App\Http\Controllers\Merchandising\PurchaseOrderController::index
- * @see app/Http/Controllers/Merchandising/PurchaseOrderController.php:30
+* @see \App\Http\Controllers\Merchandising\PurchaseOrderController::index
+ * @see app/Http/Controllers/Merchandising/PurchaseOrderController.php:43
  * @route '/merchandising/purchase-orders'
  */
 index.head = (options?: RouteQueryOptions): RouteDefinition<'head'> => ({
     url: index.url(options),
     method: 'head',
-});
+})
 
-/**
- * @see \App\Http\Controllers\Merchandising\PurchaseOrderController::index
- * @see app/Http/Controllers/Merchandising/PurchaseOrderController.php:30
+    /**
+* @see \App\Http\Controllers\Merchandising\PurchaseOrderController::index
+ * @see app/Http/Controllers/Merchandising/PurchaseOrderController.php:43
  * @route '/merchandising/purchase-orders'
  */
-const indexForm = (
-    options?: RouteQueryOptions,
-): RouteFormDefinition<'get'> => ({
-    action: index.url(options),
-    method: 'get',
-});
+    const indexForm = (options?: RouteQueryOptions): RouteFormDefinition<'get'> => ({
+        action: index.url(options),
+        method: 'get',
+    })
 
-/**
- * @see \App\Http\Controllers\Merchandising\PurchaseOrderController::index
- * @see app/Http/Controllers/Merchandising/PurchaseOrderController.php:30
+            /**
+* @see \App\Http\Controllers\Merchandising\PurchaseOrderController::index
+ * @see app/Http/Controllers/Merchandising/PurchaseOrderController.php:43
  * @route '/merchandising/purchase-orders'
  */
-indexForm.get = (options?: RouteQueryOptions): RouteFormDefinition<'get'> => ({
-    action: index.url(options),
-    method: 'get',
-});
-/**
- * @see \App\Http\Controllers\Merchandising\PurchaseOrderController::index
- * @see app/Http/Controllers/Merchandising/PurchaseOrderController.php:30
+        indexForm.get = (options?: RouteQueryOptions): RouteFormDefinition<'get'> => ({
+            action: index.url(options),
+            method: 'get',
+        })
+            /**
+* @see \App\Http\Controllers\Merchandising\PurchaseOrderController::index
+ * @see app/Http/Controllers/Merchandising/PurchaseOrderController.php:43
  * @route '/merchandising/purchase-orders'
  */
-indexForm.head = (options?: RouteQueryOptions): RouteFormDefinition<'get'> => ({
-    action: index.url({
-        [options?.mergeQuery ? 'mergeQuery' : 'query']: {
-            _method: 'HEAD',
-            ...(options?.query ?? options?.mergeQuery ?? {}),
-        },
-    }),
-    method: 'get',
-});
-
-index.form = indexForm;
+        indexForm.head = (options?: RouteQueryOptions): RouteFormDefinition<'get'> => ({
+            action: index.url({
+                        [options?.mergeQuery ? 'mergeQuery' : 'query']: {
+                            _method: 'HEAD',
+                            ...(options?.query ?? options?.mergeQuery ?? {}),
+                        }
+                    }),
+            method: 'get',
+        })
+    
+    index.form = indexForm
 /**
- * @see \App\Http\Controllers\Merchandising\PurchaseOrderController::show
- * @see app/Http/Controllers/Merchandising/PurchaseOrderController.php:94
+* @see \App\Http\Controllers\Merchandising\PurchaseOrderController::show
+ * @see app/Http/Controllers/Merchandising/PurchaseOrderController.php:114
  * @route '/merchandising/purchase-orders/{purchaseOrder}'
  */
-export const show = (
-    args:
-        | { purchaseOrder: number | { id: number } }
-        | [purchaseOrder: number | { id: number }]
-        | number
-        | { id: number },
-    options?: RouteQueryOptions,
-): RouteDefinition<'get'> => ({
+export const show = (args: { purchaseOrder: number | { id: number } } | [purchaseOrder: number | { id: number } ] | number | { id: number }, options?: RouteQueryOptions): RouteDefinition<'get'> => ({
     url: show.url(args, options),
     method: 'get',
-});
+})
 
 show.definition = {
-    methods: ['get', 'head'],
+    methods: ["get","head"],
     url: '/merchandising/purchase-orders/{purchaseOrder}',
-} satisfies RouteDefinition<['get', 'head']>;
+} satisfies RouteDefinition<["get","head"]>
 
 /**
- * @see \App\Http\Controllers\Merchandising\PurchaseOrderController::show
- * @see app/Http/Controllers/Merchandising/PurchaseOrderController.php:94
+* @see \App\Http\Controllers\Merchandising\PurchaseOrderController::show
+ * @see app/Http/Controllers/Merchandising/PurchaseOrderController.php:114
  * @route '/merchandising/purchase-orders/{purchaseOrder}'
  */
-show.url = (
-    args:
-        | { purchaseOrder: number | { id: number } }
-        | [purchaseOrder: number | { id: number }]
-        | number
-        | { id: number },
-    options?: RouteQueryOptions,
-) => {
+show.url = (args: { purchaseOrder: number | { id: number } } | [purchaseOrder: number | { id: number } ] | number | { id: number }, options?: RouteQueryOptions) => {
     if (typeof args === 'string' || typeof args === 'number') {
-        args = { purchaseOrder: args };
+        args = { purchaseOrder: args }
     }
 
-    if (typeof args === 'object' && !Array.isArray(args) && 'id' in args) {
-        args = { purchaseOrder: args.id };
-    }
-
+            if (typeof args === 'object' && !Array.isArray(args) && 'id' in args) {
+            args = { purchaseOrder: args.id }
+        }
+    
     if (Array.isArray(args)) {
         args = {
-            purchaseOrder: args[0],
-        };
+                    purchaseOrder: args[0],
+                }
     }
 
-    args = applyUrlDefaults(args);
+    args = applyUrlDefaults(args)
 
     const parsedArgs = {
-        purchaseOrder:
-            typeof args.purchaseOrder === 'object'
+                        purchaseOrder: typeof args.purchaseOrder === 'object'
                 ? args.purchaseOrder.id
                 : args.purchaseOrder,
-    };
+                }
 
-    return (
-        show.definition.url
+    return show.definition.url
             .replace('{purchaseOrder}', parsedArgs.purchaseOrder.toString())
             .replace(/\/+$/, '') + queryParams(options)
-    );
-};
+}
 
 /**
- * @see \App\Http\Controllers\Merchandising\PurchaseOrderController::show
- * @see app/Http/Controllers/Merchandising/PurchaseOrderController.php:94
+* @see \App\Http\Controllers\Merchandising\PurchaseOrderController::show
+ * @see app/Http/Controllers/Merchandising/PurchaseOrderController.php:114
  * @route '/merchandising/purchase-orders/{purchaseOrder}'
  */
-show.get = (
-    args:
-        | { purchaseOrder: number | { id: number } }
-        | [purchaseOrder: number | { id: number }]
-        | number
-        | { id: number },
-    options?: RouteQueryOptions,
-): RouteDefinition<'get'> => ({
+show.get = (args: { purchaseOrder: number | { id: number } } | [purchaseOrder: number | { id: number } ] | number | { id: number }, options?: RouteQueryOptions): RouteDefinition<'get'> => ({
     url: show.url(args, options),
     method: 'get',
-});
+})
 /**
- * @see \App\Http\Controllers\Merchandising\PurchaseOrderController::show
- * @see app/Http/Controllers/Merchandising/PurchaseOrderController.php:94
+* @see \App\Http\Controllers\Merchandising\PurchaseOrderController::show
+ * @see app/Http/Controllers/Merchandising/PurchaseOrderController.php:114
  * @route '/merchandising/purchase-orders/{purchaseOrder}'
  */
-show.head = (
-    args:
-        | { purchaseOrder: number | { id: number } }
-        | [purchaseOrder: number | { id: number }]
-        | number
-        | { id: number },
-    options?: RouteQueryOptions,
-): RouteDefinition<'head'> => ({
+show.head = (args: { purchaseOrder: number | { id: number } } | [purchaseOrder: number | { id: number } ] | number | { id: number }, options?: RouteQueryOptions): RouteDefinition<'head'> => ({
     url: show.url(args, options),
     method: 'head',
-});
+})
 
-/**
- * @see \App\Http\Controllers\Merchandising\PurchaseOrderController::show
- * @see app/Http/Controllers/Merchandising/PurchaseOrderController.php:94
+    /**
+* @see \App\Http\Controllers\Merchandising\PurchaseOrderController::show
+ * @see app/Http/Controllers/Merchandising/PurchaseOrderController.php:114
  * @route '/merchandising/purchase-orders/{purchaseOrder}'
  */
-const showForm = (
-    args:
-        | { purchaseOrder: number | { id: number } }
-        | [purchaseOrder: number | { id: number }]
-        | number
-        | { id: number },
-    options?: RouteQueryOptions,
-): RouteFormDefinition<'get'> => ({
-    action: show.url(args, options),
-    method: 'get',
-});
+    const showForm = (args: { purchaseOrder: number | { id: number } } | [purchaseOrder: number | { id: number } ] | number | { id: number }, options?: RouteQueryOptions): RouteFormDefinition<'get'> => ({
+        action: show.url(args, options),
+        method: 'get',
+    })
 
-/**
- * @see \App\Http\Controllers\Merchandising\PurchaseOrderController::show
- * @see app/Http/Controllers/Merchandising/PurchaseOrderController.php:94
+            /**
+* @see \App\Http\Controllers\Merchandising\PurchaseOrderController::show
+ * @see app/Http/Controllers/Merchandising/PurchaseOrderController.php:114
  * @route '/merchandising/purchase-orders/{purchaseOrder}'
  */
-showForm.get = (
-    args:
-        | { purchaseOrder: number | { id: number } }
-        | [purchaseOrder: number | { id: number }]
-        | number
-        | { id: number },
-    options?: RouteQueryOptions,
-): RouteFormDefinition<'get'> => ({
-    action: show.url(args, options),
-    method: 'get',
-});
-/**
- * @see \App\Http\Controllers\Merchandising\PurchaseOrderController::show
- * @see app/Http/Controllers/Merchandising/PurchaseOrderController.php:94
+        showForm.get = (args: { purchaseOrder: number | { id: number } } | [purchaseOrder: number | { id: number } ] | number | { id: number }, options?: RouteQueryOptions): RouteFormDefinition<'get'> => ({
+            action: show.url(args, options),
+            method: 'get',
+        })
+            /**
+* @see \App\Http\Controllers\Merchandising\PurchaseOrderController::show
+ * @see app/Http/Controllers/Merchandising/PurchaseOrderController.php:114
  * @route '/merchandising/purchase-orders/{purchaseOrder}'
  */
-showForm.head = (
-    args:
-        | { purchaseOrder: number | { id: number } }
-        | [purchaseOrder: number | { id: number }]
-        | number
-        | { id: number },
-    options?: RouteQueryOptions,
-): RouteFormDefinition<'get'> => ({
-    action: show.url(args, {
-        [options?.mergeQuery ? 'mergeQuery' : 'query']: {
-            _method: 'HEAD',
-            ...(options?.query ?? options?.mergeQuery ?? {}),
-        },
-    }),
-    method: 'get',
-});
-
-show.form = showForm;
+        showForm.head = (args: { purchaseOrder: number | { id: number } } | [purchaseOrder: number | { id: number } ] | number | { id: number }, options?: RouteQueryOptions): RouteFormDefinition<'get'> => ({
+            action: show.url(args, {
+                        [options?.mergeQuery ? 'mergeQuery' : 'query']: {
+                            _method: 'HEAD',
+                            ...(options?.query ?? options?.mergeQuery ?? {}),
+                        }
+                    }),
+            method: 'get',
+        })
+    
+    show.form = showForm
 const purchaseOrders = {
     index: Object.assign(index, index),
-    import: Object.assign(importMethod, importMethod),
-    show: Object.assign(show, show),
-};
+import: Object.assign(importMethod, importMethod),
+show: Object.assign(show, show),
+}
 
-export default purchaseOrders;
+export default purchaseOrders

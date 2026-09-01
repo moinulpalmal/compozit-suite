@@ -162,9 +162,15 @@ Revised Date: 07/06/2026 20:35:01 By: AUTOQP
 Two columns carry the identity:
 
 - **`source_hash`** — a SHA-256 of the parsed order's payload. Unique per `(buyer_id, po_number)`,
-  so re-uploading the *same file* is refused rather than becoming an identical "revision 2".
+  so re-uploading the *same file* is refused rather than becoming an identical "revision 2". Nothing
+  changed, so nobody is asked about it — it is skipped silently and reported in the toast.
 - **`revision_no`** — increments for content that genuinely differs. Unique per
   `(buyer_id, po_number)`.
+
+**A revision is confirmed, not assumed.** Content that differs is *not* stored as revision 2 on its
+own authority. A genuine Walmart reissue and someone re-uploading a stale document are identical to
+the parser — same order number, different bytes — and only the person holding the file knows which
+it is. Those orders are staged and answered; see [§3.5](#35-a-collision-is-a-question-not-a-rule).
 
 `revised_at` alone cannot carry this. It is nullable, and both MySQL and SQLite permit repeated
 NULLs in a unique index — the same behaviour `create_buyers_table` relies on for `code`. An order
@@ -183,15 +189,75 @@ cosmetic change but the same revision date lands as a new revision. The alternat
 One file holds several orders. If the second of three is already held, the other two still land and
 the toast names what was skipped. Refusing all three to protect nothing loses two good orders.
 
+The same holds for collisions: orders that match nothing are written during the upload, and only
+the ones that collide wait for an answer.
+
 The severities follow [§8.8](../ARCHITECTURE.md#88-toasts-carry-severity-and-they-clear-themselves)
 exactly:
 
 | Outcome | Type | Because |
 | --- | --- | --- |
 | Everything imported | `success` | — |
-| Some already held | `warning` | The actor can clear it themselves by deleting what is there |
+| Some already held, or waiting on a decision | `warning` | The actor can clear it themselves |
 | Nothing imported, all held | `warning` | Same |
 | Unreadable file, no Walmart pages, missing converter | `error` | No work by the actor lifts it |
+| Every conflict skipped | `info` | Something finished that the actor did not ask for |
+| Anything overwritten | `warning` | Data was destroyed and the message has to say so |
+
+### 3.5 A collision is a question, not a rule
+
+An order arriving under a number already on file, with different content, is **staged** rather than
+written. The uploader answers one of three per order:
+
+| Answer | What happens |
+| --- | --- |
+| **Skip** (the default) | Nothing. The held order is untouched |
+| **Revise** | Stored as `max(revision_no) + 1`; the held order keeps its content and loses `is_current` |
+| **Overwrite** | The *current* revision is replaced in place. `revision_no` does not move |
+
+**Skip is pre-selected on every row**, so confirming without reading changes nothing that already
+exists. Cancelling sends no decisions at all, which is the same thing — the discard path and the
+all-skip path are deliberately one code path on the server.
+
+**Overwrite requires `merchandising.purchase-orders.delete`** on top of `import`. Destroying a
+stored order is a different power from adding one, the same split that keeps
+`admin.users.assign-roles` apart from `admin.users.update`. Without it the option is not rendered
+at all, and `PurchaseOrderResolveRequest::authorize()` refuses a hand-made request.
+
+**Overwrite touches only the current revision.** Revisions 1 and 2 survive an overwrite of revision
+3, and `revision_no` stays where it is — the count must never lie about how many times Walmart
+reissued the order.
+
+#### The hazard overwrite creates
+
+> Overwriting discards the superseded `source_hash`. Re-uploading the **original** document
+> afterwards is no longer recognised as already imported and presents as a fresh conflict. This
+> cannot be mitigated while still replacing the row, and it is the price of the instruction.
+
+#### Why the rows are staged and not the parse
+
+A document holds up to fifty orders (`po-parser.limits.max_pos_per_file`), so fifty questions cannot
+be asked inside one `POST`. What survives to the second request is the **insertable row**, on
+`po_imports.staged_orders`:
+
+- Re-parsing on confirm was the simplest code and was declined — it makes the user wait through
+  LibreOffice a second time on every import that collides.
+- Rehydrating the parse from `po_imports.payload` needs a `fromArray()` on each of the nineteen
+  DTOs, written to serve one flow.
+
+That makes one rule load-bearing: `PurchaseOrderImportService::orderAttributes()` returns **scalars
+and arrays only** — `po_type` is reduced to its backing value, dates stay strings — so a row that
+has been through JSON is identical to one that has not. `PurchaseOrderResolveTest` pins it by
+running the same document down both paths and comparing the results column by column.
+
+**Pending is `staged_orders IS NOT NULL`.** There is no companion status column: that is the whole
+of the state and a second field would only be a way for the two to disagree.
+
+**An unanswered import survives.** Closing the dialog writes nothing, and the list offers it back —
+naming the file and the count — until it is answered. Only the uploader sees it and only the
+uploader may answer: buyer scope already hides another buyer's import, and a colleague deciding
+"reissue or stale?" about a document they have not seen is not a decision, it is a guess. Only the
+latest pending import is offered; a second upload replaces it.
 
 ---
 
@@ -285,7 +351,8 @@ The fingerprint is the cheapest available signal that this has happened, and
 | File | Covers |
 | --- | --- |
 | `PoParserTest` | All three formats against the redacted fixtures — counts, fields, fingerprint, date order, refusals |
-| `PurchaseOrderImportTest` | Permissions, buyer access, persistence, revisions, duplicates, actor stamping, retention, toast severities, the view tabs |
+| `PurchaseOrderImportTest` | Permissions, buyer access, persistence, staging, duplicates, actor stamping, retention, toast severities, the view tabs |
+| `PurchaseOrderResolveTest` | The three decisions, the `delete` gate on overwrite, the JSON round trip, and who may answer |
 | `PurchaseOrderScopeTest` | `BuyerScoped` on the first real buyer-owned tables, including the `po_line_items` limit |
 | `ListBehaviourTest` | The whole §8.6 contract, inherited |
 

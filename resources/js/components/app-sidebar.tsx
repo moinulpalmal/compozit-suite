@@ -120,7 +120,7 @@ export function AppSidebar() {
     // A group whose items are all hidden is not rendered at all, so it never
     // reaches the collapse state either.
     const navGroups: NavGroup[] = [
-        { label: 'Platform', items: mainNavItems },       
+        { label: 'Platform', items: mainNavItems },
         { label: 'Admin', items: adminNavItems },
         { label: 'Settings', items: settingsNavItems },
         { label: 'Merchandising', items: merchandisingNavItems },
