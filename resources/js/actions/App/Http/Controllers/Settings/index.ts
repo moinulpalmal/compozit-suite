@@ -2,11 +2,13 @@ import ProfileController from './ProfileController'
 import SecurityController from './SecurityController'
 import AppearanceController from './AppearanceController'
 import NotificationColorController from './NotificationColorController'
+import TnaTemplateController from './TnaTemplateController'
 const Settings = {
     ProfileController: Object.assign(ProfileController, ProfileController),
 SecurityController: Object.assign(SecurityController, SecurityController),
 AppearanceController: Object.assign(AppearanceController, AppearanceController),
 NotificationColorController: Object.assign(NotificationColorController, NotificationColorController),
+TnaTemplateController: Object.assign(TnaTemplateController, TnaTemplateController),
 }
 
 export default Settings

@@ -418,3 +418,54 @@ export type BqsPendingImport = {
     overlapping_rows: number;
     warnings: BqsWarning[];
 };
+
+/**
+ * One milestone cell on the TNA board.
+ *
+ * `color` is resolved server-side by `TnaCalculator` from the matched template's
+ * ladder — the cell never decides urgency for itself, so the board and the register
+ * can never disagree. It is null when no template matched, or when the ladder has no
+ * rung covering this many days.
+ */
+export type TnaMilestoneCell = {
+    milestone: string;
+    label: string;
+    /** `YYYY-MM-DD`, or null when the template does not schedule this milestone. */
+    date: string | null;
+    /** Signed: negative means the date has passed. */
+    days_remaining: number | null;
+    color: { name: string; color_code: string } | null;
+};
+
+/**
+ * One purchase order's schedule, or the reason it has none.
+ *
+ * **`reason` is the point.** Blank cells alone cannot distinguish an order nobody
+ * has linked from a lead time no template covers, and the two need different
+ * actions in different places. When `template` is null, `reason` says which.
+ */
+export type TnaPlan = {
+    bqs_date: string | null;
+    ship_date: string | null;
+    /** Ship date minus BQS date, in whole days. */
+    lead_time_days: number | null;
+    template: {
+        id: number;
+        name: string;
+        lead_time_from: number;
+        lead_time_to: number;
+    } | null;
+    milestones: TnaMilestoneCell[];
+    reason: string | null;
+};
+
+export type TnaListItem = {
+    id: number;
+    po_number: string;
+    buyer: string;
+    vendor_name: string | null;
+    factory_name: string | null;
+    total_qty: number | null;
+    parse_status: string;
+    tna: TnaPlan;
+};

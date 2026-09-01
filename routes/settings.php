@@ -4,6 +4,7 @@ use App\Http\Controllers\Settings\AppearanceController;
 use App\Http\Controllers\Settings\NotificationColorController;
 use App\Http\Controllers\Settings\ProfileController;
 use App\Http\Controllers\Settings\SecurityController;
+use App\Http\Controllers\Settings\TnaTemplateController;
 use Illuminate\Auth\Middleware\RequirePassword;
 use Illuminate\Support\Facades\Route;
 
@@ -67,6 +68,18 @@ Route::middleware(['auth', 'auth.session', 'verified'])
     ->name('settings.master-data.')
     ->group(function (): void {
         Route::resource('notification-colors', NotificationColorController::class)
+            ->only(['index', 'store', 'update', 'destroy'])
+            ->middlewareFor(['index'], 'permission:settings.master-data.view')
+            ->middlewareFor(['store'], 'permission:settings.master-data.create')
+            ->middlewareFor(['update'], 'permission:settings.master-data.update')
+            ->middlewareFor(['destroy'], 'permission:settings.master-data.delete');
+
+        /*
+         * TNA schedules, read by the Merchandising TNA board. The second master table,
+         * and the demonstration of the claim above: this group is the entire cost —
+         * no permission, no seeder entry, no role change.
+         */
+        Route::resource('tna-templates', TnaTemplateController::class)
             ->only(['index', 'store', 'update', 'destroy'])
             ->middlewareFor(['index'], 'permission:settings.master-data.view')
             ->middlewareFor(['store'], 'permission:settings.master-data.create')

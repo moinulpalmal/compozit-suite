@@ -10,6 +10,7 @@ use App\Models\Merchandising\BqsImport;
 use App\Models\Merchandising\BqsSheet;
 use App\Models\Merchandising\PurchaseOrder;
 use App\Models\Settings\NotificationColor;
+use App\Models\Settings\TnaTemplate;
 use App\Models\User;
 use Illuminate\Support\Facades\Auth;
 
@@ -150,7 +151,52 @@ function surfaces(): array
             'bqs_date',
             'title',
         ],
+        /*
+         * Settings' second master-data surface, proving the one-bucket permission
+         * really does serve a second table with no entry of its own.
+         */
+        'tna templates' => [
+            'settings.master-data.tna-templates.index',
+            'templates',
+            'settings.master-data.view',
+            fn (int $count) => seedTnaTemplates($count),
+            fn (string $name) => TnaTemplate::factory()->create(['name' => $name]),
+            'name',
+            'name',
+        ],
+        /*
+         * The TNA board lists purchase orders rather than a model of its own, so it
+         * is seeded exactly like that surface — including the buyer grant, without
+         * which every row is filtered away and the shared cases fail on an empty
+         * list. Its sort and contains columns are the order's, because they are the
+         * only ones the database can narrow by: everything else on the page is
+         * computed per row after the query (see `TnaIndexRequest`).
+         */
+        'tna' => [
+            'merchandising.tna.index',
+            'orders',
+            'merchandising.tna.view',
+            fn (int $count) => seedPurchaseOrders($count),
+            fn (string $name) => seedPurchaseOrders(1, $name),
+            'po_number',
+            'vendor_name',
+        ],
     ];
+}
+
+/**
+ * Create TNA templates whose bands cannot collide.
+ *
+ * The factory's default band is 1–30 for every row, and `name` is unique — so
+ * seeding thirty of them needs distinct bands as well as distinct names. Overlap is
+ * a *validation* rule rather than a constraint, so this is about realism rather than
+ * about the insert succeeding.
+ */
+function seedTnaTemplates(int $count): void
+{
+    foreach (range(1, $count) as $index) {
+        TnaTemplate::factory()->covering($index * 10, $index * 10 + 9)->create();
+    }
 }
 
 /**

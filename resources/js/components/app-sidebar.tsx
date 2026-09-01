@@ -1,6 +1,8 @@
 import { Link } from '@inertiajs/react';
 import {
     BriefcaseBusiness,
+    CalendarClock,
+    CalendarCog,
     KeyRound,
     LayoutGrid,
     Palette,
@@ -32,7 +34,9 @@ import { index as rolesIndex } from '@/routes/admin/roles';
 import { index as usersIndex } from '@/routes/admin/users';
 import { index as bqsIndex } from '@/routes/merchandising/bqs';
 import { index as purchaseOrdersIndex } from '@/routes/merchandising/purchase-orders';
+import { index as tnaIndex } from '@/routes/merchandising/tna';
 import { index as notificationColorsIndex } from '@/routes/settings/master-data/notification-colors';
+import { index as tnaTemplatesIndex } from '@/routes/settings/master-data/tna-templates';
 import type { NavGroup, NavItem } from '@/types';
 
 const mainNavItems: NavItem[] = [
@@ -58,6 +62,7 @@ export function AppSidebar() {
 
     const canViewBqs = useCan('merchandising.bqs.view');
     const canViewPurchaseOrders = useCan('merchandising.purchase-orders.view');
+    const canViewTna = useCan('merchandising.tna.view');
 
     // Admin surfaces live in their own group, not alongside Platform.
     const adminNavItems: NavItem[] = [
@@ -101,6 +106,11 @@ export function AppSidebar() {
                       href: notificationColorsIndex(),
                       icon: Palette,
                   },
+                  {
+                      title: 'TNA templates',
+                      href: tnaTemplatesIndex(),
+                      icon: CalendarCog,
+                  },
               ]
             : []),
     ];
@@ -124,6 +134,15 @@ export function AppSidebar() {
                       title: 'Purchase orders',
                       href: purchaseOrdersIndex(),
                       icon: ScrollText,
+                  },
+              ]
+            : []),
+        ...(canViewTna
+            ? [
+                  {
+                      title: 'TNA',
+                      href: tnaIndex(),
+                      icon: CalendarClock,
                   },
               ]
             : []),

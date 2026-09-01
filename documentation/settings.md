@@ -16,7 +16,7 @@ structural fact.
 | Half | What it is | Backend | Pages | Status |
 | --- | --- | --- | --- | --- |
 | Account settings | The signed-in user editing **their own** profile, security and appearance | `Settings\{Profile,Security,Appearance}Controller` | `pages/settings/{profile,security,appearance}.tsx` | ✅ built |
-| Master data | Product/process reference tables **everyone reads and only Settings writes** | `Settings\NotificationColorController` | `pages/settings/master-data/` | 🟡 notification colours built, the rest planned |
+| Master data | Product/process reference tables **everyone reads and only Settings writes** | `Settings\{NotificationColor,TnaTemplate}Controller` | `pages/settings/master-data/` | 🟡 notification colours and TNA templates built, the rest planned |
 | App configuration | App-level toggles and defaults | — | `pages/settings/application/` | ⬜ planned |
 
 They share nothing: not a permission, not a layout, not an audience. The account half is a personal
@@ -77,9 +77,11 @@ The first master-data surface, and the template the rest follow.
 `Settings\NotificationColor` (`app/Models/Settings/NotificationColor.php`), one page at
 `pages/settings/master-data/notification-colors/index.tsx` with create/edit/delete in modals.
 
-A notification colour is **reference data with a consumer that does not exist yet**: a
-`notifications` table is planned and will carry `notification_color_id`. That pending FK is not a
-footnote — it is why [§3.5](#35-there-is-no-deletion-guard-and-that-is-owed) reads the way it does.
+A notification colour was **reference data with no consumer** for as long as the `notifications`
+table it was built for stayed unbuilt. It has one now, and not the expected one:
+`tna_template_colors.notification_color_id` ([§6](#6-master-data--tna-templates)) holds a colour so
+a TNA milestone can be drawn in it. That first foreign key is what
+[§3.5](#35-the-deletion-guard-and-the-debt-it-paid) is now about.
 
 ### 3.1 The `notification_colors` table
 
@@ -165,35 +167,37 @@ in as many words. Note this is unrelated to toast colour, which is **not** free-
 daisyUI tokens for exactly the theme-following reason — see
 [ARCHITECTURE.md §8.8](../ARCHITECTURE.md#88-toasts-carry-severity-and-they-clear-themselves).
 
-### 3.5 There is no deletion guard, and that is owed
+### 3.5 The deletion guard, and the debt it paid
 
-`DesignationService` and `BuyerService` both expose a `deletionBlocker()` that refuses to delete a
-row something still references. `NotificationColorService` has none, and
-`NotificationColorController::destroy()` deletes unconditionally.
+This section used to read "there is no deletion guard, and that is owed". It was a deliberate
+omission rather than a gap: nothing referenced a notification colour, so a `deletionBlocker()` could
+only ever return `null` — dead code no test could exercise, reading as a guard while guarding
+nothing. The debt was recorded against whichever feature took the first foreign key.
 
-That is a decision, not an omission. Nothing references a notification colour today, so a blocker
-could only ever return `null` — dead code that no test can exercise and that reads as a guard while
-guarding nothing.
+**TNA templates took it.** `NotificationColorService::deletionBlocker()` now counts the templates
+whose colour ladder uses the row, and `NotificationColorController::destroy()` flashes a **`warning`**
+toast and `return back()`s when that count is non-zero. `warning` rather than `error`, because the
+actor can clear the blocker themselves by pointing those templates at another colour — the severity
+vocabulary is
+[ARCHITECTURE.md §8.8](../ARCHITECTURE.md#88-toasts-carry-severity-and-they-clear-themselves).
 
-**It becomes owed the moment `notifications.notification_color_id` exists.** At that point:
+The foreign key is `restrictOnDelete` as well, so the database refuses independently. **Both are
+wanted, and they are not redundant**: the constraint stops a delete arriving by any other route,
+and the blocker is the only one of the two that produces a sentence rather than an
+integrity-constraint stack trace.
 
-1. Add `deletionBlocker()` to `NotificationColorService`, counting holders the way
-   `DesignationService::deletionBlocker()` does.
-2. Have `destroy()` flash a **`warning`** toast and `return back()` when it is non-null — `warning`
-   and not `error`, because the actor can clear the blocker themselves by reassigning the holders.
-   The severity vocabulary is
-   [ARCHITECTURE.md §8.8](../ARCHITECTURE.md#88-toasts-carry-severity-and-they-clear-themselves).
-3. Ship the `is_deletable` flag in the controller's `->through()` map and disable the row's delete
-   button on it, as the designations page does.
-4. Add the refusal test beside the existing `deleting` block.
-
-The guard belongs in the **service**, not a policy: `Gate::before` grants a super admin every
-ability, so a policy denial is bypassed for exactly the account most able to do damage. A refusal
-about the *record's* state rather than the actor's power always lives in the service — see
+The guard is in the **service**, not a policy: `Gate::before` grants a super admin every ability, so
+a policy denial is bypassed for exactly the account most able to do damage. A refusal about the
+*record's* state rather than the actor's power always lives in the service — see
 [ARCHITECTURE.md §9.1](../ARCHITECTURE.md#91-rbac-roles--permissions).
 
-Until then, retiring is the safe verb: setting `status` to `I` removes a colour from the pickers
-while leaving every row that uses it alone. `status` is not `deleted_at`, and the two are not
+**The delete button is not disabled per row**, unlike the designations page. Doing so would mean
+shipping a holder count on every row of the list and would go stale the moment somebody else edited
+a template; the server decides, and the toast explains. If the register grows large enough that a
+refused click is a nuisance, the `is_deletable` flag is the change to make.
+
+Retiring remains the softer verb: setting `status` to `I` removes a colour from the pickers while
+leaving every template that uses it working. `status` is not `deleted_at`, and the two are not
 interchangeable ([ARCHITECTURE.md §9.3.1](../ARCHITECTURE.md#931-activeinactive-status)).
 
 ### 3.6 Permissions: one bucket for all master data
@@ -245,10 +249,10 @@ when the business names its actual colours, or when `notifications` needs someth
 
 | File | Covers |
 | --- | --- |
-| `tests/Feature/ListBehaviourTest.php` | The paginate/sort/filter contract, once, across all six list surfaces including this one |
+| `tests/Feature/ListBehaviourTest.php` | The paginate/sort/filter contract, once, across every list surface including this one |
 | `tests/Feature/Settings/NotificationColorTest.php` | Only what is specific here: the four permissions, both unique constraints, the hex format and its normalisation, retention bounds, retirement, actor stamping, and that the picker is unpaginated |
 
-The split is the point: the shared contract is asserted once rather than six times with drift
+The split is the point: the shared contract is asserted once rather than once per surface with drift
 between the copies. **A new list surface is added to `surfaces()` in the first file** and inherits
 the whole set — that is the cheapest correct thing to do and there is no reason to hand-copy it.
 
@@ -289,3 +293,107 @@ same path, and none of them should need a new decision:
 
 Steps 6 and 9 are the two most often skipped, and both are silent failures: the first grants nobody
 access to a screen that exists, the second leaves a list untested while looking covered.
+
+---
+
+## 6. Master data — TNA templates
+
+The second master-data surface, and the one that proves §5's claim: it cost a route group and
+nothing else. No permission, no seeder entry, no role change.
+
+`Settings\TnaTemplate` with two children, `TnaTemplateMilestone` and `TnaTemplateColor`, on one page
+at `pages/settings/master-data/tna-templates/index.tsx`. Merchandising's TNA board reads them
+through `Merchandising\TnaCalculator` and never writes them.
+
+A template answers two questions about one lead-time band: **when** each milestone falls, and **how
+urgently** it reads as the date approaches.
+
+### 6.1 The band is the key, and it is measured
+
+A purchase order's lead time is its ship date minus its BQS date. The obvious register keys on that
+number. It was rejected on evidence: the three orders in the reference data run **263, 264 and 265
+days** against one BQS, because their ship dates are staggered by a day each. Real lead times are
+arbitrary integers, so an exact key needs a row per value and matches nothing the day a fourth order
+arrives on day 266.
+
+`lead_time_from` and `lead_time_to` are therefore a band, inclusive at both ends, and one `241–300`
+row serves all three. `TnaTest::a single band serves three different lead times` pins it — re-keying
+the register on an exact value fails there rather than in production.
+
+### 6.2 Three rules the database cannot carry
+
+All three are enforced in `TnaTemplateValidationRules`, and each is there because schema cannot
+express it:
+
+| Rule | Why not the database |
+| --- | --- |
+| No two **active** bands may overlap | MySQL has no exclusion constraint; SQLite has neither |
+| At most one **open-ended** colour band per template | Repeated `NULL`s are permitted in a unique index on both drivers — an index would read as a guard while allowing exactly what it forbids. The same trap is documented on `bqs_sheets.root_id` |
+| `Shipment` may not be given an offset | It is read from the purchase order and is the date lead time is measured *to*; a template scheduling it could contradict the order it describes |
+
+The overlap check is **active-only**, and that is the subtlety worth keeping: deactivating a band is
+how it is retired without losing the record of it, so a retired band must be free to overlap its
+replacement. It cannot match an order either — `TnaTemplate::scopeCovering()` agrees — so the
+overlap creates no ambiguity.
+
+### 6.3 The colour ladder, and why it is a table
+
+`notification_colors` holds a name, a hex and a retention period, and **nothing that says which
+colour means "late"**. The four rows defined today make that concrete: their `retention_days` are
+`Urgent 5`, `Enough 15`, `Good 30`, `Super Urgent 30` — not ordered by urgency and tied at the top.
+No existing column can be read as a severity, so this feature declares the ladder itself.
+
+`max_days_remaining` is the inclusive upper bound in days until the planned date. Bands are read
+ascending with `null` last and the first that covers wins:
+
+```text
+ -1   ->  Super Urgent   the date has passed
+  7   ->  Urgent
+ 21   ->  Enough
+null  ->  Good           the catch-all
+```
+
+The column is **signed** so a negative bound can mean overdue, and nullable so one rung can mean
+"everything further out". The ordering lives on `TnaTemplate::colors()` rather than at each call
+site, because a caller that ordered it differently would silently pick the wrong colour rather than
+fail.
+
+**It is a child table rather than a JSON column** for one reason: a JSON column cannot carry
+`restrictOnDelete`, and protecting a referenced colour is the whole point — see
+[§3.5](#35-the-deletion-guard-and-the-debt-it-paid).
+
+Milestones are a child table for a different reason. The proof of concept needs two offsets, which
+two columns would have carried; `Master Order recap.xls`, the sheet this models, tracks roughly
+**twenty-five** milestone groups. A column each means a migration every time the business names one
+and a table seventy-five columns wide. A row each means a new `TnaMilestone` case. The form still
+renders exactly two number inputs, driven by the enum, so the UI cost is identical.
+
+### 6.4 Children are replaced, not merged
+
+`TnaTemplateService::update()` deletes both child sets and rewrites them inside one transaction.
+Merging would need a stable identity for a rung that the form does not have and the user does not
+think in — they edit a ladder, not four rows. The page's repeater keys its rows by a client-side
+counter rather than by array index, because the inputs are uncontrolled and index keys make React
+reuse a removed row's DOM node for the row that slides up into its place.
+
+### 6.5 There is no deletion guard here, and none is owed
+
+Nothing holds a foreign key to a template. The TNA board matches one at read time and stores no
+link, so deleting one changes which schedule an order draws with and destroys no record — a visible
+effect, not a corruption. Contrast §3.5, where the guard exists precisely because this feature's
+colour rungs *do* hold a key.
+
+Deleting a template does cascade to its children, which is what `cascadeOnDelete` is for: a rung
+belongs to the template above it and means nothing without it.
+
+### 6.6 Testing
+
+`tests/Feature/Settings/TnaTemplateTest.php` covers only what is specific: the three cross-field
+rules, boundary-touching bands, replacement-on-edit, the cascade, and the notification-colour
+deletion guard from both sides. The paginate/sort/filter contract comes from `ListBehaviourTest`'s
+`surfaces()` dataset, which this surface joined.
+
+**The same gap applies as in §4.** `tna-template-form-dialog.tsx` posts `milestones[n][...]` and
+`colors[n][...]` array field names, and the PHP suite posts arrays straight to the controller — so a
+repeater emitting the wrong shape would ship green. **The dialog is not proven until someone has
+saved a template in a browser.**

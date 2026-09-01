@@ -52,6 +52,13 @@ class RolePermissionSeeder extends Seeder
          */
         'merchandising.purchase-orders' => ['view', 'create', 'update', 'delete', 'import'],
         'merchandising.bookings' => ['view', 'create', 'update', 'delete'],
+        /*
+         * `view` alone, because the TNA board has nothing to write. Its dates are
+         * computed from a Settings template and the order's own ship date, so every
+         * correction is made on one of those screens under their own permissions —
+         * a `merchandising.tna.update` would name a power nothing can exercise.
+         */
+        'merchandising.tna' => ['view'],
         'production.orders' => ['view', 'create', 'update', 'delete'],
         'reports.merchandising' => ['view'],
         'reports.production' => ['view'],

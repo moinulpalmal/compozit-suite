@@ -5,6 +5,7 @@ use App\Http\Controllers\Merchandising\BqsImportController;
 use App\Http\Controllers\Merchandising\BqsLinkController;
 use App\Http\Controllers\Merchandising\PurchaseOrderController;
 use App\Http\Controllers\Merchandising\PurchaseOrderImportController;
+use App\Http\Controllers\Merchandising\TnaController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -105,4 +106,16 @@ Route::middleware(['auth', 'auth.session', 'verified'])
         Route::get('bqs/{bqsSheet}', [BqsController::class, 'show'])
             ->middleware('permission:merchandising.bqs.view')
             ->name('bqs.show');
+
+        /*
+         * The time-and-action board: every current order and when its milestones fall.
+         *
+         * **Read-only, and there is no write route to add.** The dates are computed
+         * from a template in Settings and the ship date comes from the order, so a
+         * correction is made where the data lives — `merchandising.tna.view` is the
+         * whole permission story rather than the first of four.
+         */
+        Route::get('tna', [TnaController::class, 'index'])
+            ->middleware('permission:merchandising.tna.view')
+            ->name('tna.index');
     });

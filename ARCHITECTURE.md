@@ -284,7 +284,7 @@ Two distinct halves, deliberately separated:
 | Half | What it holds | Backend | Pages |
 | --- | --- | --- | --- |
 | Account settings | The signed-in user's own profile, security, appearance | `app/Http/Controllers/Settings/` ✅ | `pages/settings/{profile,security,appearance}.tsx` ✅ |
-| Master data | Product/process reference tables: notification colors ✅, then colors, sizes, UOM, seasons, fabric & trim types, machine types, process stages | `app/Http/Controllers/Settings/` 🟡 | `pages/settings/master-data/` 🟡 |
+| Master data | Product/process reference tables: notification colors ✅, TNA templates ✅, then colors, sizes, UOM, seasons, fabric & trim types, machine types, process stages | `app/Http/Controllers/Settings/` 🟡 | `pages/settings/master-data/` 🟡 |
 | App configuration | Optional app-level toggles and defaults | 🟡 | `pages/settings/application/` 🟡 |
 
 Master data models go in `app/Models/Settings/`. Every other module *reads* them and none of them
@@ -297,9 +297,19 @@ nothing else; master data renders under plain `AppLayout` like the Admin lists. 
 **Notification colours are the first master-data surface**, and they set the shape the rest follow:
 one page with modals, `status` rather than `deleted_at`, the shared list apparatus, and the whole
 `settings.master-data.*` permission bucket rather than a permission per table — so a second master
-table adds no seeder entry and no role change. `documentation/settings.md` holds the reasoning,
-including the one thing deliberately left undone: **there is no deletion guard**, because nothing
-references a colour until `notifications` is built.
+table adds no seeder entry and no role change. `documentation/settings.md` holds the reasoning.
+
+**TNA templates are the second**, and they prove that claim: `tna_templates` added a route group to
+the existing `settings/master-data` prefix and nothing else — no permission, no seeder entry, no
+role change. A template is a lead-time band plus the milestone offsets and colour thresholds that
+apply inside it; Merchandising reads it to draw the TNA page and never writes it. Its two child
+tables (`tna_template_milestones`, `tna_template_colors`) are the first master data with children,
+and they are written as a set rather than merged — see `documentation/settings.md`.
+
+**`tna_template_colors` is also the first foreign key into `notification_colors`**, which retires
+the note that used to stand here saying there was deliberately no deletion guard. There is one now:
+`NotificationColorService::deletionBlocker()` refuses to delete a colour a template paints with, and
+the FK is `restrictOnDelete` behind it. Any further reference into master data owes the same pair.
 
 **Departments are not here.** HR/org-structure reference data (designations, departments) is
 Admin-owned; only product and process reference data is Settings-owned. The split and its reason
@@ -313,6 +323,7 @@ are in [§9.4](#94-master-data).
 | b. BQS (the buyer's buy plan workbook) | `Merchandising\Bqs*` | `pages/merchandising/bqs/` | ✅ import + list + detail |
 | c. Purchase order import & management | `Merchandising\PurchaseOrder*` | `pages/merchandising/purchase-orders/` | ✅ import + list + detail |
 | d. Fabric & accessory booking | `Merchandising\Booking*` | `pages/merchandising/bookings/` | 🟡 |
+| e. TNA (time & action schedule) | `Merchandising\Tna*` | `pages/merchandising/tna/` | ✅ read-only board |
 
 Merchandising owns the order lifecycle up to the point production begins. It is the upstream
 source of truth for style, buyer order, and consumption data that Production reads.
@@ -475,6 +486,42 @@ Ecomm is ordered as its own purchase order, which is why the total is OMNI rathe
 against Store an exactly-complete initial buy reads 105%. **This was got wrong once**, by reading
 a single pack's carton count as if it applied to the whole order; the counts in that document range
 from 16 to 1,562. Do not reintroduce it.
+
+#### TNA schedules are computed, never stored
+
+The TNA board answers "is this order on schedule?" for every current, usable purchase order. It is
+the proof-of-concept slice of `Master Order recap.xls`, which tracks ~25 milestone groups by hand.
+`Merchandising\TnaCalculator` is the **only** place any of this arithmetic lives.
+
+The chain, and it fails loudly at every link:
+
+```text
+purchase order → linked BQS rows → one BQS sheet → bqs_date
+                              vendor_ship_date − bqs_date = lead time
+                                    → the active tna_templates band covering it
+                                          → bqs_date + each offset = the planned dates
+```
+
+**Lead time is `vendor_ship_date − bqs_date`**, which is the recap sheet's own formula (`=I4-D4`).
+Shipment comes from the order, never from a template offset: it is the date lead time is measured
+*to*, so scheduling it would let a template contradict the order it describes.
+`TnaMilestone::offsetFromBqs()` is that distinction and the write requests enforce it.
+
+**Templates match a lead-time *band*, not a lead time.** This is measured, not preference: the three
+orders in the reference data run **263, 264 and 265 days** against one BQS, because ship dates are
+staggered by a day each. An exact key matches none of them and needs a row per integer. Bands are
+inclusive at both ends, may not overlap while active, and are checked in the form request because
+neither MySQL nor SQLite can express range exclusion.
+
+**No TNA table exists.** A plan is derived on every read, so correcting a template corrects every
+order and there is nothing to backfill. The trade: **editing a template rewrites the past**, and a
+schedule printed last week is not reproducible. That is right for a proof of concept; capturing
+*actual* dates alongside the planned ones is what will force plans to be stored.
+
+**Every failure names itself.** No BQS link, two BQS sheets behind one order, no ship date, a
+non-positive lead time, no band covering it — each returns a `TnaPlanDto` carrying a `reason` the
+page prints. Three blank cells and three blank cells with a sentence are the difference between "add
+a band in Settings" and "link a colour on the order", and a reader cannot tell them apart otherwise.
 
 ### Module 4 — Production
 
@@ -1181,10 +1228,20 @@ Reference master data by foreign key, never by copying its label into another ta
 
 | Kind | Owner | Examples | Models | Seeders |
 | --- | --- | --- | --- | --- |
-| **Product / process** reference data | Settings | notification colors ✅, colors, sizes, UOM, seasons, fabric & trim types, machine types, process stages | `app/Models/Settings/` | `database/seeders/Settings/` |
+| **Product / process** reference data | Settings | notification colors ✅, TNA templates ✅, colors, sizes, UOM, seasons, fabric & trim types, machine types, process stages | `app/Models/Settings/` | `database/seeders/Settings/` |
 | **HR / org-structure** reference data | Admin | designations ✅, departments | `app/Models/Admin/` | `database/seeders/Admin/` |
 
 Everyone else *reads* both and writes neither.
+
+**A reference into master data owes a deletion guard.** `tna_template_colors.notification_color_id`
+is the first one, and it made good a debt `NotificationColorService` had been carrying explicitly:
+that class shipped with no `deletionBlocker()` on the stated grounds that nothing referenced a
+colour and a blocker returning only `null` is dead code. The pair to add is always the same — a
+`restrictOnDelete` foreign key so the database refuses, and a `deletionBlocker()` returning a
+sentence so a person is told why, because an integrity-constraint exception is a stack trace rather
+than an explanation. The blocker belongs in the **service**, never a policy: `Gate::before` bypasses
+a policy for a super admin ([§9.1](#91-rbac-roles--permissions)), and a super admin deleting a
+referenced row breaks it just as thoroughly.
 
 > This section previously said master data was Settings-owned without exception, and listed
 > departments among the Settings tables. The owner decided otherwise when `designations` was built:

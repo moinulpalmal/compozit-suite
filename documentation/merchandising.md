@@ -9,13 +9,14 @@
 
 ## 1. Overview
 
-Merchandising owns the order lifecycle up to the point production begins. Four sub-areas are
-planned; **two are built**:
+Merchandising owns the order lifecycle up to the point production begins. Five sub-areas are
+planned; **three are built**:
 
 | Sub-area | Status |
 | --- | --- |
 | Purchase order import & management | ✅ import, list, detail |
 | BQS — the buyer's buy plan workbook | ✅ import, list, detail — [§7](#7-bqs-the-buyers-buy-plan-workbook) |
+| TNA — the time & action schedule | ✅ read-only board — [§9](#9-tna--when-each-milestone-of-an-order-falls) |
 | Development tech packs | 🟡 |
 | Fabric & accessory booking | 🟡 |
 
@@ -713,3 +714,115 @@ work, and no document has yet shown that the two size sets always correspond.
 
 **A second buyer's colour format.** Dispatch inside `BqsColourMatch` on the buyer, the way a second
 parser would. Do not loosen the existing rule to accommodate one.
+
+---
+
+## 9. TNA — when each milestone of an order falls
+
+The board at `/merchandising/tna` answers the question the business asks every morning: **is this
+order on schedule?** It is the proof-of-concept slice of `Master Order recap.xls`, a 194-column
+sheet that answers it by hand today.
+
+`Merchandising\TnaCalculator` is the **only** place any of this arithmetic lives. A second
+implementation would drift, and a schedule that disagrees with itself is worse than no schedule.
+
+### 9.1 The chain, and where it breaks
+
+```text
+purchase order → its linked BQS rows → one BQS sheet → bqs_date
+                                  vendor_ship_date − bqs_date = lead time
+                                        → the active tna_templates band covering it
+                                              → bqs_date + each offset = the planned dates
+```
+
+Every link can fail, and **each failure names itself** in the `reason` on `TnaPlanDto`, which the
+page prints under the row:
+
+| Failure | What the reader is told to do |
+| --- | --- |
+| No line item links to a BQS row | Link a colour on the purchase-order page |
+| The order's links reach **two** BQS sheets | Decide which plan it was placed against — refused, not averaged |
+| No `vendor_ship_date` | Nothing here; the document did not carry one |
+| Lead time ≤ 0 | A data error — milestones would fall after the shipment they precede |
+| No active band covers the lead time | Add or widen a band in Settings |
+
+Three blank cells and three blank cells with a sentence are the difference between "add a band in
+Settings" and "link a colour on the order", and a reader cannot tell them apart otherwise. That is
+why the DTO carries a reason rather than just nulls.
+
+### 9.2 Lead time is the sheet's own formula
+
+`vendor_ship_date − bqs_date`, in whole days. This is not an interpretation: cell `J4` of the recap
+sheet is literally `=I4-D4`, shipment date minus BQS/order-received date.
+
+Two related facts from the same sheet, worth knowing before extending this:
+
+- The sheet **derives** shipment as `=H4-79`, in-store date minus 79 days. We take it from the
+  purchase order instead, because the order is the document the buyer actually sent. `bqs_rows`
+  does carry `wm_wk_in_store_date` if that route is ever wanted.
+- Real templates also offset **backwards** from a later milestone (`FP4` is `=ET4-58`), not only
+  forwards from the BQS date. The POC only does forwards. A backwards offset needs an anchor
+  column on `tna_template_milestones` and is the natural next step.
+
+### 9.3 Why templates match a band
+
+Measured, not preferred. The three orders in the reference data:
+
+```text
+PO …001   ship 2026-10-22   BQS 2026-02-01  →  263 days
+PO …002   ship 2026-10-23   BQS 2026-02-01  →  264 days
+PO …003   ship 2026-10-24   BQS 2026-02-01  →  265 days
+```
+
+Ship dates are staggered by a day each, so one BQS produces three different lead times. **An exact
+key matches none of them** and would need a row per integer, growing forever. `241–300` covers all
+three. The register's own reasoning is in
+[`documentation/settings.md §6.1`](settings.md#61-the-band-is-the-key-and-it-is-measured); the test
+that pins it is `TnaTest::a single band serves three different lead times`.
+
+### 9.4 A row is an order, not a colour
+
+The recap sheet's grain is PO × style × colour — rows 7–10 are one order in four colourways. The
+board's grain is the **order**, because all three POC dates are order-level facts: the ship date is
+the order's, and the BQS date is the sheet's. Per-colour rows would repeat identically four times.
+
+That changes when a milestone becomes per-colour, which the sheet says it eventually does — it
+carries a required sample quantity and size per colour. At that point the board's grain follows the
+milestone, and this is the decision to revisit.
+
+### 9.5 Nothing is stored
+
+There is no TNA table. A plan is derived on every read, so correcting a template corrects every
+order at once and there is nothing to backfill or recalculate.
+
+**The trade is that editing a template rewrites the past.** A schedule printed last week is not
+reproducible from the data. That is right for a proof of concept and wrong for a system of record —
+and the thing that will force the change is capturing *actual* dates beside the planned ones, which
+is what the recap sheet does with its Plan/Actual/Status triplets.
+
+### 9.6 The board costs the same whatever the page holds
+
+`TnaCalculator::plans()` takes the whole page: the BQS dates come back in one grouped query and the
+register is loaded once and reused, so twenty-five orders cost what one does. `TnaCalculator::plan()`
+exists for a single order and is a thin wrapper over it — **do not call it in a loop**, which is
+what the query-ratio test in `TnaTest` guards against.
+
+### 9.7 What the list cannot do
+
+Lead time and every planned date are computed per row *after* the query, so the database cannot sort
+or filter by them. `TnaIndexRequest` borrows `PurchaseOrder`'s allow-lists, and `vendor_ship_date` is
+the sortable column closest to lead time. Sorting by lead time means storing it, which is exactly the
+trade §9.5 makes.
+
+### 9.8 How to extend
+
+**A new milestone.** Add a `TnaMilestone` case and give it an offset in the register. No migration,
+no TypeScript — the board builds its columns from the server's list, and the template form builds
+its inputs from the enum. Only `Shipment` is special, because it is read from the order.
+
+**Actual dates.** The point at which plans must be stored (§9.5). Expect a `tna_plans` table keyed
+on the order, written when a plan is first computed, plus a recalculate action and a rule for when
+it runs.
+
+**Backwards offsets.** An anchor column on `tna_template_milestones` naming the milestone to count
+back from, defaulting to the BQS date. The recap sheet already works this way (§9.2).
