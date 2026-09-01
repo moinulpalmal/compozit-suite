@@ -419,6 +419,63 @@ shift 89 fields. A missing *required* column refuses the file by name; an unreco
 imported with a warning. `Merchandising\BqsHeaderMap` owns that mapping and
 `documentation/merchandising.md` records the rest.
 
+#### A BQS row and a purchase-order line are the same garment, and are joined
+
+A BQS row is what the buyer *planned*; a PO line is what they *ordered*. `po_line_items.bqs_row_id`
+connects them, written only by `Merchandising\BqsPoLinker` — the single writer, so its rules hold
+on every path rather than on the paths someone remembered.
+
+**The match is strict equality on vendor style, colour family and Pantone colour, and that is a
+decision with a measured cost.** A Walmart PO states colour as `{family}-{pantone}` in a
+**15-character** column, so `BALLAD BLUE` arrives as `LTBLUE-BALLAD B` and `SANDSHELL` as
+`NATURL-SANDSHEL`. On the reference documents only `PINK-CANDY PINK` auto-links; the other two go
+to a person, permanently. The owner was shown this and confirmed the rule — **do not widen it to a
+prefix match**, and note that `BqsPoLinkTest` pins both non-matches so that widening it fails
+loudly. `Merchandising\BqsColourMatch` is the only place that colour string is parsed.
+
+**A manual decision is stored as a rule, not as a fact about a line.** `bqs_colour_links` maps
+(buyer, vendor style, PO colour) → BQS **row key**, so the next order carrying that colour resolves
+with no second visit. That table exists *because* of strict equality; without it the same decision
+would be re-made on every order forever. It is keyed on the row key rather than a row id so it
+outlives revisions, and it is deliberately not a foreign key — the row it names may not be imported
+yet.
+
+Three further rules, each a decision:
+
+- **Both import directions link.** `linkForPurchaseOrder()` and `linkForSheet()` both exist,
+  because a PO routinely arrives before its BQS *and* after it. Wiring one leaves half the links
+  unformed, invisibly.
+- **Never across buyers.** Neither `po_line_items` nor `bqs_rows` carries a `buyer_id` — see
+  [§9.2](#92-buyer-scoped-access-control) — so nothing in the database prevents a Walmart line
+  pointing at a George row. The guard is the linker's queries plus `BqsLinkRequest`, and it is the
+  only thing preventing it.
+- **Ambiguity is refused.** Two current BQS rows matching one colour leaves the line unlinked, the
+  same posture the importer takes for a workbook straddling two revisions.
+
+**`po_line_items.quantity` is a pack ratio, not an ordered quantity**, and anything comparing an
+order to a plan must know it. The five sizes of a colour read 3, 4, 4, 2, 1 — the fourteen of
+"14PC GR SS SKATER DRESS" — and `total_cartons_per_line` says how many packs were ordered.
+`PoLineItem::orderedUnits()` is the only thing that should do that multiplication; summing
+`quantity` reports 14 where the answer is 5,502.
+
+**Ordered is compared against the OMNI columns, split by PO type.** A purchase order counts as
+initial or replenishment by matching `purchase_orders.po_type` to the codes the BQS row itself
+states (`43 Import` / `42 Import Seasonal`), so nothing about Walmart's numbering is hard-coded.
+The reference documents reconcile exactly:
+
+```text
+PO …001 (type 43)   5,502  = Initial Set Units / Store
+PO …002 (type 43)     266  = Initial Set Units / Ecomm
+                   -------
+                    5,768  = Initial Set Units / OMNI
+PO …003 (type 42)  21,868  = Replenishment Units / OMNI
+```
+
+Ecomm is ordered as its own purchase order, which is why the total is OMNI rather than Store —
+against Store an exactly-complete initial buy reads 105%. **This was got wrong once**, by reading
+a single pack's carton count as if it applied to the whole order; the counts in that document range
+from 16 to 1,562. Do not reintroduce it.
+
 ### Module 4 — Production
 
 Garments production: cutting, sewing, finishing, packing, and the line/output tracking around
@@ -1057,6 +1114,14 @@ throwaway model stays — it pins the trait's contract independently of any modu
 `po_line_items` is the first model to hit the stated limit: it reaches its buyer through its parent
 and therefore has **no** `buyer_id` and does **not** use the trait. Every read goes through
 `PurchaseOrder`, which is scoped, and the foreign key cascades. Do not add a scope that joins.
+
+**A relationship spanning two scoped trees has no database-level guard, and needs a written one.**
+`po_line_items.bqs_row_id` joins two tables that each reach their buyer through a parent, so
+neither end carries the column the scope filters on — the database will accept a link between two
+different buyers' records without complaint. `Merchandising\BqsPoLinker` constrains every candidate
+query to one buyer and `BqsLinkRequest` validates the chosen row against the order's buyer; those
+two are the whole guard. **Any future relationship between two child tables inherits this problem**
+— check for it rather than assuming `BuyerScoped` covers it, because it does not.
 
 **The BQS tables took the mechanism unchanged and extended that limit one level deeper.**
 `bqs_imports` and `bqs_sheets` are buyer-owned and carry `use BuyerScoped;` and a `buyer_id`.

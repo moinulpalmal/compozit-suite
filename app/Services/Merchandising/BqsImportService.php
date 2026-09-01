@@ -52,7 +52,10 @@ use Illuminate\Support\Facades\Storage;
  */
 class BqsImportService
 {
-    public function __construct(protected BqsWorkbookReader $reader) {}
+    public function __construct(
+        protected BqsWorkbookReader $reader,
+        protected BqsPoLinker $linker,
+    ) {}
 
     /**
      * Read an uploaded workbook and store the BQS it holds.
@@ -315,7 +318,17 @@ class BqsImportService
 
         BqsSheet::query()->where('root_id', $rootId)->update(['is_current' => false]);
 
-        return $this->writeStaged($import, $staged, revisionNo: $next, rootId: $rootId);
+        $sheet = $this->writeStaged($import, $staged, revisionNo: $next, rootId: $rootId);
+
+        /*
+         * Move every purchase-order link from the superseded revision's rows to the
+         * new ones, matched on `row_key`. Without this a reissue silently orphans
+         * every link — including the manual ones — and the only symptom is a BQS
+         * reporting nothing ordered.
+         */
+        $this->linker->carryForward($held, $sheet);
+
+        return $sheet;
     }
 
     /**
@@ -337,6 +350,15 @@ class BqsImportService
         $rootId = $held->root_id;
 
         /*
+         * **Captured before the delete, and it has to be.** `po_line_items.bqs_row_id`
+         * is `nullOnDelete`, so the cascade below erases every purchase-order link the
+         * moment the held sheet goes. Restoring afterwards from what was captured here
+         * is the only order that survives it — and getting it backwards fails silently,
+         * leaving a BQS that reports nothing ordered.
+         */
+        $links = $this->linker->captureLinks($held);
+
+        /*
          * When the sheet being replaced is its own root, deleting it would cascade
          * through `root_id` and take every later revision with it. Detaching the
          * children first is what keeps an overwrite of revision 1 from destroying
@@ -356,6 +378,8 @@ class BqsImportService
         if ($rootId === null) {
             BqsSheet::query()->whereNull('root_id')->whereKeyNot($sheet->id)->update(['root_id' => $sheet->id]);
         }
+
+        $this->linker->restoreLinks($links, $sheet);
 
         return $sheet;
     }
@@ -379,6 +403,14 @@ class BqsImportService
             ));
         }
 
+        /*
+         * Purchase orders are routinely imported before the BQS that planned them, so
+         * a new sheet claims whatever is already on file and unlinked. The mirror of
+         * the call `PurchaseOrderImportService::writeOrder()` makes; without both, half
+         * the links never form and the failure is invisible.
+         */
+        $this->linker->linkForSheet($sheet);
+
         return $sheet;
     }
 
@@ -399,6 +431,8 @@ class BqsImportService
         foreach ($staged['rows'] as $row) {
             $this->writeRow($sheet, $row['values'], $row['months'], $row['pack_sizes']);
         }
+
+        $this->linker->linkForSheet($sheet);
 
         return $sheet;
     }

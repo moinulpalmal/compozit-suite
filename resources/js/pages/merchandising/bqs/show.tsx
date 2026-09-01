@@ -137,6 +137,15 @@ export default function BqsShow({
                                 <th colSpan={2} className="text-center">
                                     Cost
                                 </th>
+                                {/* Planned against ordered, split because a plan is
+                                    bought in two stages and one order satisfies one
+                                    of them. */}
+                                <th colSpan={2} className="text-center">
+                                    Initial ordered
+                                </th>
+                                <th colSpan={2} className="text-center">
+                                    Replen ordered
+                                </th>
                                 {packColumns.length > 0 && (
                                     <th
                                         colSpan={packColumns.length}
@@ -174,6 +183,10 @@ export default function BqsShow({
                                 <th className="text-right">OMNI</th>
                                 <th className="text-right">First</th>
                                 <th className="text-right">Retail</th>
+                                <th className="text-right">Units</th>
+                                <th className="text-right">of plan</th>
+                                <th className="text-right">Units</th>
+                                <th className="text-right">of plan</th>
 
                                 {packColumns.map((column) => (
                                     <th
@@ -228,6 +241,24 @@ export default function BqsShow({
                                     <Money value={row.first_cost} />
                                     <Money value={row.regular_retail} />
 
+                                    {/* OMNI, not Store: ecomm arrives as its own
+                                        purchase order, so the initial orders sum to
+                                        store + ecomm. On the reference documents
+                                        5,502 + 266 = 5,768 = Initial Set Units /
+                                        OMNI, and the replen order is 21,868 =
+                                        Replenishment Units / OMNI — both exact.
+                                        Against Store this reads 105%. */}
+                                    <Num value={row.ordered.initial} />
+                                    <Percent
+                                        ordered={row.ordered.initial}
+                                        planned={row.initial_set_units_omni}
+                                    />
+                                    <Num value={row.ordered.replen} />
+                                    <Percent
+                                        ordered={row.ordered.replen}
+                                        planned={row.replenishment_units_omni}
+                                    />
+
                                     {packColumns.map((column) => (
                                         <Num
                                             key={column.key}
@@ -277,6 +308,42 @@ function Num({ value }: { value: number | null | undefined }) {
                 : value.toLocaleString()}
         </td>
     );
+}
+
+/**
+ * How much of a planned quantity has been ordered.
+ *
+ * Colour-coded so a row can be read at a glance: nothing ordered is neutral rather
+ * than alarming — a plan awaiting its order is the normal early state — complete is
+ * success, and anything **over** the plan is a warning, because ordering more than was
+ * planned is a real condition somebody should look at rather than a rounding artefact.
+ *
+ * A plan of zero has no percentage to show; an em-dash says so instead of `Infinity`
+ * or a misleading `100%`.
+ */
+function Percent({
+    ordered,
+    planned,
+}: {
+    ordered: number;
+    planned: number | null;
+}) {
+    if (!planned) {
+        return <td className="text-right text-base-content/40">—</td>;
+    }
+
+    const pct = Math.round((ordered / planned) * 100);
+
+    const tone =
+        pct === 0
+            ? 'text-base-content/40'
+            : pct > 100
+              ? 'text-warning'
+              : pct === 100
+                ? 'text-success'
+                : '';
+
+    return <td className={`text-right tabular-nums ${tone}`}>{pct}%</td>;
 }
 
 /**

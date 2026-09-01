@@ -2,8 +2,14 @@ import { Head } from '@inertiajs/react';
 import { AlertTriangle } from 'lucide-react';
 import Heading from '@/components/heading';
 import BackLink from '@/components/merchandising/back-link';
+import BqsLinkControl from '@/components/merchandising/bqs-link-control';
 import { index, show } from '@/routes/merchandising/purchase-orders';
-import type { PoPack, PoWarning, PurchaseOrderDetail } from '@/types';
+import type {
+    BqsColourLink,
+    PoPack,
+    PoWarning,
+    PurchaseOrderDetail,
+} from '@/types';
 
 /**
  * One purchase order in full.
@@ -20,11 +26,21 @@ import type { PoPack, PoWarning, PurchaseOrderDetail } from '@/types';
  */
 export default function PurchaseOrderShow({
     purchaseOrder,
+    colourLinks,
+    canLink,
 }: {
     purchaseOrder: PurchaseOrderDetail;
+    colourLinks: BqsColourLink[];
+    canLink: boolean;
 }) {
     const { payload } = purchaseOrder;
     const warnings = payload.warnings ?? [];
+
+    /*
+     * Keyed the way the server grouped them, so a pack finds its own colour without
+     * the page re-deriving a grouping that already exists.
+     */
+    const linksByKey = new Map(colourLinks.map((link) => [link.key, link]));
 
     return (
         <>
@@ -68,7 +84,19 @@ export default function PurchaseOrderShow({
                     </h2>
 
                     {payload.packs?.map((pack) => (
-                        <Pack key={pack.pack_number} pack={pack} />
+                        <Pack
+                            key={pack.pack_number}
+                            pack={pack}
+                            orderId={purchaseOrder.id}
+                            /* A pack is one colour, so its link is the colour's.
+                               Keyed off the *line item's* colour rather than the
+                               pack's, because that is the value the link is
+                               stored against. */
+                            link={linksByKey.get(
+                                `${pack.vendor_stock ?? ''}|${pack.line_items?.[0]?.color ?? ''}`,
+                            )}
+                            canLink={canLink}
+                        />
                     ))}
                 </section>
             </div>
@@ -145,7 +173,17 @@ function Warnings({ warnings }: { warnings: PoWarning[] }) {
     );
 }
 
-function Pack({ pack }: { pack: PoPack }) {
+function Pack({
+    pack,
+    orderId,
+    link,
+    canLink,
+}: {
+    pack: PoPack;
+    orderId: number;
+    link: BqsColourLink | undefined;
+    canLink: boolean;
+}) {
     return (
         <div className="overflow-hidden rounded-box border border-base-300/70">
             <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1 bg-base-200/50 px-4 py-2">
@@ -164,6 +202,30 @@ function Pack({ pack }: { pack: PoPack }) {
                     </span>
                 )}
             </div>
+
+            {/* The BQS row this colour was planned by. On the pack header because a
+                pack is one colour — its five sizes always share one plan row. */}
+            {link && (
+                <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-base-300/70 px-4 py-2">
+                    <span className="text-xs font-medium text-base-content/60">
+                        BQS
+                    </span>
+
+                    <BqsLinkControl
+                        orderId={orderId}
+                        link={link}
+                        canLink={canLink}
+                    />
+
+                    {link.ordered_units > 0 && (
+                        /* quantity x cartons per line — never the raw quantity,
+                           which is only the ratio inside one pack. */
+                        <span className="text-xs text-base-content/60">
+                            {link.ordered_units.toLocaleString()} units ordered
+                        </span>
+                    )}
+                </div>
+            )}
 
             {/* Wide content scrolls inside its own container, never the page. */}
             <div className="overflow-x-auto">

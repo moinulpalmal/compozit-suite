@@ -7,6 +7,8 @@ use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Testing\TestResponse;
+use PhpOffice\PhpSpreadsheet\IOFactory;
+use PhpOffice\PhpSpreadsheet\Writer\Xlsx as XlsxWriter;
 use Spatie\Permission\PermissionRegistrar;
 use Tests\TestCase;
 
@@ -238,6 +240,30 @@ function bqsUpload(?string $name = null): UploadedFile
     $path = __DIR__.'/Fixtures/Merchandising/bqs-gr4064-skater-dress.xlsx';
 
     return new UploadedFile($path, $name ?? 'BQS GR4064 SKATER DRESS.xlsx', null, null, true);
+}
+
+/**
+ * The same workbook with one quantity altered, so it reads as the same BQS with
+ * different content — which is what a genuine reissue is.
+ *
+ * **Renaming the file is not enough.** `source_hash` is over the bytes, so a re-upload
+ * of the identical workbook is silently skipped as a duplicate and never reaches the
+ * conflict step. Only the *identity* columns are left untouched, so the row keys still
+ * intersect and the upload collides rather than becoming a second, unrelated BQS.
+ */
+function bqsRevisedUpload(): UploadedFile
+{
+    $source = __DIR__.'/Fixtures/Merchandising/bqs-gr4064-skater-dress.xlsx';
+    $target = tempnam(sys_get_temp_dir(), 'bqs').'.xlsx';
+
+    copy($source, $target);
+
+    $spreadsheet = IOFactory::createReaderForFile($target)->load($target);
+    // `Total BUY Units / Store` on the first data row.
+    $spreadsheet->getSheet(0)->setCellValue('AM3', 12345);
+    (new XlsxWriter($spreadsheet))->save($target);
+
+    return new UploadedFile($target, 'BQS GR4064 SKATER DRESS REV2.xlsx', null, null, true);
 }
 
 /** A user who may import a BQS, and who holds the buyer being imported for. */

@@ -1,8 +1,9 @@
 import { queryParams, type RouteQueryOptions, type RouteDefinition, type RouteFormDefinition, applyUrlDefaults } from './../../../wayfinder'
 import importMethod from './import'
+import bqsLink from './bqs-link'
 /**
 * @see \App\Http\Controllers\Merchandising\PurchaseOrderController::index
- * @see app/Http/Controllers/Merchandising/PurchaseOrderController.php:43
+ * @see app/Http/Controllers/Merchandising/PurchaseOrderController.php:48
  * @route '/merchandising/purchase-orders'
  */
 export const index = (options?: RouteQueryOptions): RouteDefinition<'get'> => ({
@@ -17,7 +18,7 @@ index.definition = {
 
 /**
 * @see \App\Http\Controllers\Merchandising\PurchaseOrderController::index
- * @see app/Http/Controllers/Merchandising/PurchaseOrderController.php:43
+ * @see app/Http/Controllers/Merchandising/PurchaseOrderController.php:48
  * @route '/merchandising/purchase-orders'
  */
 index.url = (options?: RouteQueryOptions) => {
@@ -26,7 +27,7 @@ index.url = (options?: RouteQueryOptions) => {
 
 /**
 * @see \App\Http\Controllers\Merchandising\PurchaseOrderController::index
- * @see app/Http/Controllers/Merchandising/PurchaseOrderController.php:43
+ * @see app/Http/Controllers/Merchandising/PurchaseOrderController.php:48
  * @route '/merchandising/purchase-orders'
  */
 index.get = (options?: RouteQueryOptions): RouteDefinition<'get'> => ({
@@ -35,7 +36,7 @@ index.get = (options?: RouteQueryOptions): RouteDefinition<'get'> => ({
 })
 /**
 * @see \App\Http\Controllers\Merchandising\PurchaseOrderController::index
- * @see app/Http/Controllers/Merchandising/PurchaseOrderController.php:43
+ * @see app/Http/Controllers/Merchandising/PurchaseOrderController.php:48
  * @route '/merchandising/purchase-orders'
  */
 index.head = (options?: RouteQueryOptions): RouteDefinition<'head'> => ({
@@ -45,7 +46,7 @@ index.head = (options?: RouteQueryOptions): RouteDefinition<'head'> => ({
 
     /**
 * @see \App\Http\Controllers\Merchandising\PurchaseOrderController::index
- * @see app/Http/Controllers/Merchandising/PurchaseOrderController.php:43
+ * @see app/Http/Controllers/Merchandising/PurchaseOrderController.php:48
  * @route '/merchandising/purchase-orders'
  */
     const indexForm = (options?: RouteQueryOptions): RouteFormDefinition<'get'> => ({
@@ -55,7 +56,7 @@ index.head = (options?: RouteQueryOptions): RouteDefinition<'head'> => ({
 
             /**
 * @see \App\Http\Controllers\Merchandising\PurchaseOrderController::index
- * @see app/Http/Controllers/Merchandising/PurchaseOrderController.php:43
+ * @see app/Http/Controllers/Merchandising/PurchaseOrderController.php:48
  * @route '/merchandising/purchase-orders'
  */
         indexForm.get = (options?: RouteQueryOptions): RouteFormDefinition<'get'> => ({
@@ -64,7 +65,7 @@ index.head = (options?: RouteQueryOptions): RouteDefinition<'head'> => ({
         })
             /**
 * @see \App\Http\Controllers\Merchandising\PurchaseOrderController::index
- * @see app/Http/Controllers/Merchandising/PurchaseOrderController.php:43
+ * @see app/Http/Controllers/Merchandising/PurchaseOrderController.php:48
  * @route '/merchandising/purchase-orders'
  */
         indexForm.head = (options?: RouteQueryOptions): RouteFormDefinition<'get'> => ({
@@ -80,7 +81,7 @@ index.head = (options?: RouteQueryOptions): RouteDefinition<'head'> => ({
     index.form = indexForm
 /**
 * @see \App\Http\Controllers\Merchandising\PurchaseOrderController::show
- * @see app/Http/Controllers/Merchandising/PurchaseOrderController.php:114
+ * @see app/Http/Controllers/Merchandising/PurchaseOrderController.php:119
  * @route '/merchandising/purchase-orders/{purchaseOrder}'
  */
 export const show = (args: { purchaseOrder: number | { id: number } } | [purchaseOrder: number | { id: number } ] | number | { id: number }, options?: RouteQueryOptions): RouteDefinition<'get'> => ({
@@ -95,7 +96,7 @@ show.definition = {
 
 /**
 * @see \App\Http\Controllers\Merchandising\PurchaseOrderController::show
- * @see app/Http/Controllers/Merchandising/PurchaseOrderController.php:114
+ * @see app/Http/Controllers/Merchandising/PurchaseOrderController.php:119
  * @route '/merchandising/purchase-orders/{purchaseOrder}'
  */
 show.url = (args: { purchaseOrder: number | { id: number } } | [purchaseOrder: number | { id: number } ] | number | { id: number }, options?: RouteQueryOptions) => {
@@ -128,7 +129,7 @@ show.url = (args: { purchaseOrder: number | { id: number } } | [purchaseOrder: n
 
 /**
 * @see \App\Http\Controllers\Merchandising\PurchaseOrderController::show
- * @see app/Http/Controllers/Merchandising/PurchaseOrderController.php:114
+ * @see app/Http/Controllers/Merchandising/PurchaseOrderController.php:119
  * @route '/merchandising/purchase-orders/{purchaseOrder}'
  */
 show.get = (args: { purchaseOrder: number | { id: number } } | [purchaseOrder: number | { id: number } ] | number | { id: number }, options?: RouteQueryOptions): RouteDefinition<'get'> => ({
@@ -137,7 +138,7 @@ show.get = (args: { purchaseOrder: number | { id: number } } | [purchaseOrder: n
 })
 /**
 * @see \App\Http\Controllers\Merchandising\PurchaseOrderController::show
- * @see app/Http/Controllers/Merchandising/PurchaseOrderController.php:114
+ * @see app/Http/Controllers/Merchandising/PurchaseOrderController.php:119
  * @route '/merchandising/purchase-orders/{purchaseOrder}'
  */
 show.head = (args: { purchaseOrder: number | { id: number } } | [purchaseOrder: number | { id: number } ] | number | { id: number }, options?: RouteQueryOptions): RouteDefinition<'head'> => ({
@@ -147,7 +148,7 @@ show.head = (args: { purchaseOrder: number | { id: number } } | [purchaseOrder: 
 
     /**
 * @see \App\Http\Controllers\Merchandising\PurchaseOrderController::show
- * @see app/Http/Controllers/Merchandising/PurchaseOrderController.php:114
+ * @see app/Http/Controllers/Merchandising/PurchaseOrderController.php:119
  * @route '/merchandising/purchase-orders/{purchaseOrder}'
  */
     const showForm = (args: { purchaseOrder: number | { id: number } } | [purchaseOrder: number | { id: number } ] | number | { id: number }, options?: RouteQueryOptions): RouteFormDefinition<'get'> => ({
@@ -157,7 +158,7 @@ show.head = (args: { purchaseOrder: number | { id: number } } | [purchaseOrder: 
 
             /**
 * @see \App\Http\Controllers\Merchandising\PurchaseOrderController::show
- * @see app/Http/Controllers/Merchandising/PurchaseOrderController.php:114
+ * @see app/Http/Controllers/Merchandising/PurchaseOrderController.php:119
  * @route '/merchandising/purchase-orders/{purchaseOrder}'
  */
         showForm.get = (args: { purchaseOrder: number | { id: number } } | [purchaseOrder: number | { id: number } ] | number | { id: number }, options?: RouteQueryOptions): RouteFormDefinition<'get'> => ({
@@ -166,7 +167,7 @@ show.head = (args: { purchaseOrder: number | { id: number } } | [purchaseOrder: 
         })
             /**
 * @see \App\Http\Controllers\Merchandising\PurchaseOrderController::show
- * @see app/Http/Controllers/Merchandising/PurchaseOrderController.php:114
+ * @see app/Http/Controllers/Merchandising/PurchaseOrderController.php:119
  * @route '/merchandising/purchase-orders/{purchaseOrder}'
  */
         showForm.head = (args: { purchaseOrder: number | { id: number } } | [purchaseOrder: number | { id: number } ] | number | { id: number }, options?: RouteQueryOptions): RouteFormDefinition<'get'> => ({
@@ -183,6 +184,7 @@ show.head = (args: { purchaseOrder: number | { id: number } } | [purchaseOrder: 
 const purchaseOrders = {
     index: Object.assign(index, index),
 import: Object.assign(importMethod, importMethod),
+bqsLink: Object.assign(bqsLink, bqsLink),
 show: Object.assign(show, show),
 }
 

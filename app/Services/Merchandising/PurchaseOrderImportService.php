@@ -80,6 +80,7 @@ final class PurchaseOrderImportService
         private readonly ParserService $parser,
         private readonly ParseGrader $grader,
         private readonly BuyerService $buyers,
+        private readonly BqsPoLinker $linker,
     ) {}
 
     /**
@@ -381,6 +382,14 @@ final class PurchaseOrderImportService
 
         $order->lineItems()->createMany($staged['line_items']);
 
+        /*
+         * Connect the new lines to the BQS rows that planned them. Done here rather
+         * than in the controller because this is the single write path for a new
+         * order — import, and the `revise` branch of a resolved conflict both reach
+         * it — so a link is never missed by a caller that forgot.
+         */
+        $this->linker->linkForPurchaseOrder($order);
+
         return $order;
     }
 
@@ -406,6 +415,14 @@ final class PurchaseOrderImportService
                     'color' => $item->color,
                     'size' => $item->size,
                     'quantity' => $item->quantity,
+                    /*
+                     * Denormalised from the pack, because `quantity` above is the size
+                     * ratio *inside* one pack and this is how many packs were ordered.
+                     * The two multiply to the ordered quantity — see
+                     * {@see PoLineItem::orderedUnits()}, which is the only thing that
+                     * should ever do that arithmetic.
+                     */
+                    'total_cartons_per_line' => $pack->lineItemHeader?->get('total_cartons_per_line'),
                     'item_number' => $item->itemNumber,
                     'vendor_stock_number' => $item->vendorStockNumber,
                     'mfg_stock_number' => $item->mfgStockNumber,
@@ -632,6 +649,13 @@ final class PurchaseOrderImportService
         ]);
 
         $current->lineItems()->createMany($staged['line_items']);
+
+        /*
+         * The old lines were deleted, taking their links with them, so the replacement
+         * lines have to be linked afresh. A manual decision survives regardless: it is
+         * stored as a `BqsColourLink` rule rather than on the line itself.
+         */
+        $this->linker->linkForPurchaseOrder($current->refresh());
 
         return $poNumber;
     }

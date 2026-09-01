@@ -66,6 +66,48 @@ class BqsRow extends Model
     }
 
     /**
+     * The purchase-order lines that ordered against this plan.
+     *
+     * Empty is a normal state — a plan not yet ordered — and so is a line with no row,
+     * which is why this is a plain `hasMany` on a nullable key rather than anything
+     * that implies the two must correspond.
+     *
+     * @return HasMany<PoLineItem, $this>
+     */
+    public function lineItems(): HasMany
+    {
+        return $this->hasMany(PoLineItem::class, 'bqs_row_id');
+    }
+
+    /**
+     * The numeric PO type this row's *initial* order is expected to carry.
+     *
+     * The BQS states it as `43 Import` and `purchase_orders.po_type` stores `43`, so
+     * the mapping between a purchase order and the half of the plan it satisfies comes
+     * out of the BQS row itself — nothing is hard-coded, and a buyer using different
+     * codes needs no change here.
+     */
+    public function initialPoTypeCode(): ?int
+    {
+        return $this->poTypeCode($this->initial_po_type);
+    }
+
+    /**
+     * The numeric PO type this row's *replenishment* orders are expected to carry.
+     */
+    public function replenPoTypeCode(): ?int
+    {
+        return $this->poTypeCode($this->replen_po_type);
+    }
+
+    private function poTypeCode(?string $value): ?int
+    {
+        return preg_match('/^\s*(\d+)/', (string) $value, $matches) === 1
+            ? (int) $matches[1]
+            : null;
+    }
+
+    /**
      * The monthly DC intake for this line, in the buyer's own month order.
      *
      * @return HasMany<BqsRowMonth, $this>

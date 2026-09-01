@@ -6,7 +6,9 @@ use App\Enums\Merchandising\PoConflictDecision;
 use App\Enums\Merchandising\PoParseStatus;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Merchandising\PurchaseOrderIndexRequest;
+use App\Models\Merchandising\PoLineItem;
 use App\Models\Merchandising\PurchaseOrder;
+use App\Services\Merchandising\BqsPoLinker;
 use App\Services\Merchandising\PurchaseOrderImportService;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -26,7 +28,10 @@ use Inertia\Response;
  */
 class PurchaseOrderController extends Controller
 {
-    public function __construct(protected PurchaseOrderImportService $imports) {}
+    public function __construct(
+        protected PurchaseOrderImportService $imports,
+        protected BqsPoLinker $linker,
+    ) {}
 
     /**
      * List imported purchase orders.
@@ -113,7 +118,11 @@ class PurchaseOrderController extends Controller
      */
     public function show(PurchaseOrder $purchaseOrder): Response
     {
-        $purchaseOrder->load(['buyer:id,name', 'import:id,source_file_name,detected_file_type,created_at', 'lineItems']);
+        $purchaseOrder->load([
+            'buyer:id,name',
+            'import:id,source_file_name,detected_file_type,created_at',
+            'lineItems.bqsRow:id,bqs_sheet_id,pantone_colour,colour_family',
+        ]);
 
         return Inertia::render('merchandising/purchase-orders/show', [
             'purchaseOrder' => [
@@ -144,6 +153,54 @@ class PurchaseOrderController extends Controller
                 /* Addresses, logistics, tariffs, comments and the packs in full. */
                 'payload' => $purchaseOrder->payload,
             ],
+            'colourLinks' => $this->colourLinks($purchaseOrder),
+            'canLink' => (bool) request()->user()?->can('merchandising.purchase-orders.update'),
         ]);
+    }
+
+    /**
+     * One entry per colour on this order: what it is linked to, and what it could be.
+     *
+     * **Grouped by colour, not by line.** A pack is one colour in five sizes, and all
+     * five always belong to the same plan row — so the decision is asked once per
+     * colour rather than sixty times per document.
+     *
+     * Candidates are restricted to the same vendor style and the same buyer, so a
+     * colour with no plan behind it (`TEAL-ICY MORN` on the reference document) is
+     * offered nothing that would manufacture a false link.
+     *
+     * @return list<array<string, mixed>>
+     */
+    private function colourLinks(PurchaseOrder $purchaseOrder): array
+    {
+        return $purchaseOrder->lineItems
+            ->groupBy(fn (PoLineItem $line): string => $line->vendor_stock.'|'.$line->color)
+            ->map(function ($lines, string $key) use ($purchaseOrder): array {
+                /** @var PoLineItem $first */
+                $first = $lines->first();
+                $row = $first->bqsRow;
+
+                return [
+                    'key' => $key,
+                    'vendor_stock' => $first->vendor_stock,
+                    'color' => $first->color,
+                    'bqs_row_id' => $row?->id,
+                    'bqs_sheet_id' => $row?->bqs_sheet_id,
+                    'label' => $row === null
+                        ? null
+                        : trim("{$row->pantone_colour} ({$row->colour_family})"),
+                    'source' => $first->bqs_link_source?->value,
+                    'ordered_units' => $lines->sum(
+                        fn (PoLineItem $line): int => (int) $line->orderedUnits()
+                    ),
+                    'candidates' => $this->linker->candidatesFor(
+                        $purchaseOrder,
+                        (string) $first->vendor_stock,
+                        $first->color,
+                    ),
+                ];
+            })
+            ->values()
+            ->all();
     }
 }

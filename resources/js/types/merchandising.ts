@@ -308,6 +308,8 @@ export type BqsRow = {
     colour_family: string | null;
     colour_variant: string | null;
     other_colour: string | null;
+    /** What has actually been ordered against this plan line. */
+    ordered: BqsRowOrdered;
     total_stores: number | null;
     initial_set_units_store: number | null;
     initial_set_units_ecomm: number | null;
@@ -350,6 +352,52 @@ export type BqsSheetDetail = {
     header_fingerprint: string;
     imported_at: string | null;
     warnings: BqsWarning[];
+};
+
+/** Who decided a purchase-order colour belongs to a BQS row. */
+export type BqsLinkSource = 'auto' | 'manual';
+
+/**
+ * One colour of a purchase order, and the BQS row it was planned by.
+ *
+ * **Grouped by colour rather than by line item.** A pack is one colour in five sizes
+ * and all five belong to the same plan row, so the decision is asked once per colour —
+ * four times on the reference document rather than sixty.
+ */
+export type BqsColourLink = {
+    /** `vendor_stock|color`, matching how the server grouped them. */
+    key: string;
+    vendor_stock: string | null;
+    color: string | null;
+    bqs_row_id: number | null;
+    bqs_sheet_id: number | null;
+    /** `PANTONE (FAMILY)`, or null when nothing is linked. */
+    label: string | null;
+    source: BqsLinkSource | null;
+    /** `quantity × total_cartons_per_line`, summed — never the raw quantity. */
+    ordered_units: number;
+    /**
+     * BQS rows of the same style and buyer; empty when the plan has none.
+     *
+     * `ComboboxOption`-shaped, so `hint` is omitted rather than null when a row has
+     * no colour variant — that type accepts `string | undefined`, not null.
+     */
+    candidates: { value: number; label: string; hint?: string }[];
+};
+
+/**
+ * What has been ordered against one BQS row.
+ *
+ * Split by purchase-order type, because a plan is bought in two stages and one order
+ * satisfies one of them — a PO covering the whole initial buy reads as 22% of the
+ * total, which looks behind schedule when it is complete.
+ */
+export type BqsRowOrdered = {
+    initial: number;
+    replen: number;
+    /** Orders whose type matches neither code the BQS row names. */
+    other: number;
+    po_numbers: string[];
 };
 
 /**

@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Merchandising\BqsController;
 use App\Http\Controllers\Merchandising\BqsImportController;
+use App\Http\Controllers\Merchandising\BqsLinkController;
 use App\Http\Controllers\Merchandising\PurchaseOrderController;
 use App\Http\Controllers\Merchandising\PurchaseOrderImportController;
 use Illuminate\Support\Facades\Route;
@@ -53,6 +54,21 @@ Route::middleware(['auth', 'auth.session', 'verified'])
         Route::post('purchase-orders/imports/{poImport}/resolve', [PurchaseOrderImportController::class, 'resolve'])
             ->middleware('permission:merchandising.purchase-orders.import')
             ->name('purchase-orders.import.resolve');
+
+        /*
+         * Which BQS row a purchase-order colour belongs to, when the documents did not
+         * agree by themselves. Declared before `{purchaseOrder}` for the same reason
+         * the import routes are.
+         *
+         * **One idempotent route, not a create and a delete**: a null `bqs_row_id`
+         * clears the link, so linking and unlinking are one code path. Gated on
+         * `update` rather than a new permission — it edits an order that already
+         * exists, and nothing else edits one, so a separate ability would name a
+         * distinction the application does not yet make.
+         */
+        Route::put('purchase-orders/{purchaseOrder}/bqs-link', [BqsLinkController::class, 'update'])
+            ->middleware('permission:merchandising.purchase-orders.update')
+            ->name('purchase-orders.bqs-link.update');
 
         Route::get('purchase-orders/{purchaseOrder}', [PurchaseOrderController::class, 'show'])
             ->middleware('permission:merchandising.purchase-orders.view')

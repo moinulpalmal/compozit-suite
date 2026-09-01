@@ -115,6 +115,13 @@ class BqsController extends Controller
             'import:id,source_file_name,detected_file_type,sheet_name,header_fingerprint,created_at',
             'rows.months',
             'rows.packSizes',
+            /*
+             * The orders placed against each plan line. `purchaseOrder` is needed for
+             * its `po_type`, which decides whether an order counts against the initial
+             * buy or the replenishment — eager-loaded because otherwise this is one
+             * query per line item on a page that renders every one of them.
+             */
+            'rows.lineItems.purchaseOrder:id,po_number,po_type,parse_status',
         ]);
 
         $monthColumns = $bqsSheet->rows
@@ -171,6 +178,7 @@ class BqsController extends Controller
             'rows' => $bqsSheet->rows->map(fn (BqsRow $row): array => [
                 'id' => $row->id,
                 'line_no' => $row->line_no,
+                'ordered' => $this->orderedAgainst($row),
                 ...$row->only($this->rowFields()),
                 'months' => $row->months
                     ->mapWithKeys(fn (BqsRowMonth $month): array => [
@@ -182,6 +190,77 @@ class BqsController extends Controller
                     ])->all(),
             ])->all(),
         ]);
+    }
+
+    /**
+     * What has actually been ordered against one plan line.
+     *
+     * **Ordered units are `quantity × total_cartons_per_line`, never `quantity`.** The
+     * line quantity is the size ratio inside one pack — the reference document's five
+     * sizes sum to the fourteen of "14PC GR SS SKATER DRESS" — and the carton count is
+     * how many packs were bought. {@see PoLineItem::orderedUnits()} owns that
+     * arithmetic; summing `quantity` here would report 14 against a plan of 5,502.
+     *
+     * A purchase order counts against the initial buy or the replenishment by matching
+     * its `po_type` to the codes **the BQS row itself states** (`43 Import`,
+     * `42 Import Seasonal`), so nothing about Walmart's numbering is hard-coded. An
+     * order matching neither is counted in `other` rather than silently dropped —
+     * dropping it would make the totals disagree with the orders on screen.
+     *
+     * **The comparison is against the OMNI columns, and the documents are exact about
+     * it.** Ecomm is ordered as its *own* purchase order, so the initial buy arrives as
+     * two type-43 orders that sum to `Initial Set Units / OMNI`:
+     *
+     * ```text
+     * PO ...001 (type 43)   5,502  = Initial Set Units / Store
+     * PO ...002 (type 43)     266  = Initial Set Units / Ecomm
+     *                      -------
+     *                       5,768  = Initial Set Units / OMNI
+     * PO ...003 (type 42)  21,868  = Replenishment Units / OMNI
+     * ```
+     *
+     * Comparing against Store instead reports 105% for an initial buy that is exactly
+     * complete. That mistake was made once here, from a single pack's carton count
+     * read as if it applied to the whole order — the counts in fact range from 16 to
+     * 1,562 across packs. Do not reintroduce it.
+     *
+     * @return array{initial: int, replen: int, other: int, po_numbers: list<string>}
+     */
+    private function orderedAgainst(BqsRow $row): array
+    {
+        $initialType = $row->initialPoTypeCode();
+        $replenType = $row->replenPoTypeCode();
+
+        $totals = ['initial' => 0, 'replen' => 0, 'other' => 0];
+        $poNumbers = [];
+
+        foreach ($row->lineItems as $line) {
+            $order = $line->purchaseOrder;
+
+            /* A failed parse is not order data — `PurchaseOrder::scopeUsable()`. */
+            if (! $order->parse_status->isUsable()) {
+                continue;
+            }
+
+            $units = $line->orderedUnits();
+
+            if ($units === null) {
+                continue;
+            }
+
+            $type = $order->po_type?->value ?? null;
+
+            $bucket = match (true) {
+                $initialType !== null && $type === $initialType => 'initial',
+                $replenType !== null && $type === $replenType => 'replen',
+                default => 'other',
+            };
+
+            $totals[$bucket] += $units;
+            $poNumbers[$order->po_number] = true;
+        }
+
+        return [...$totals, 'po_numbers' => array_keys($poNumbers)];
     }
 
     /**

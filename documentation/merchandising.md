@@ -619,3 +619,97 @@ colour — is deliberately not decided, because no report has asked yet.
 
 **Reading the workbook without loading styles.** Read [§7.2](#72-the-header-takes-two-rows-to-read-and-merges-are-the-authority)
 first. The fix is a second cheap pass for the merge ranges, never `setReadDataOnly(true)`.
+
+---
+
+## 8. Linking purchase orders to the BQS rows that planned them
+
+A BQS row is what the buyer *planned*; a purchase-order line is what they *ordered*.
+`po_line_items.bqs_row_id` joins them, and `Merchandising\BqsPoLinker` is its only writer.
+
+### 8.1 The colour field is not a colour
+
+A Walmart PO states colour as `{family}-{pantone}` in a **15-character** column. Every distinct
+value in the reference document:
+
+| PO `color` | length | BQS family | BQS pantone |
+| --- | --- | --- | --- |
+| `LTBLUE-BALLAD B` | 15 | `LTBLUE` | `BALLAD BLUE` — **truncated** |
+| `NATURL-SANDSHEL` | 15 | `NATURL` | `SANDSHELL` — **truncated** |
+| `PINK-CANDY PINK` | 15 | `PINK` | `CANDY PINK` — fits exactly |
+| `TEAL-ICY MORN` | 13 | — | *no BQS row exists* |
+
+So `color == pantone_colour` matches nothing at all. `Merchandising\BqsColourMatch` is the only
+place that string is parsed.
+
+### 8.2 Strict equality, and what it costs
+
+**The owner chose strict equality on both halves, having been shown that truncation makes
+`BALLAD BLUE` and `SANDSHELL` permanently unmatchable.** Only `PINK-CANDY PINK` auto-links out of
+four; the rest reach a person. `BqsPoLinkTest` pins both non-matches so that widening the rule to
+a prefix match fails loudly rather than quietly linking more than was agreed.
+
+Its consequence shaped the design. If a manual decision were a fact about a line item, it would be
+re-made on every future order — so it is stored as a **rule** in `bqs_colour_links`, mapping
+(buyer, style, PO colour) → BQS **row key**. The next order carrying that colour resolves with no
+second visit. The picker also sorts likely candidates first; that is ordering only and never
+creates a link.
+
+`TEAL-ICY MORN` is the case the manual path is *not* for: there is no BQS row, and unlinked is the
+correct permanent answer. The picker is restricted to the same style and buyer so nobody can
+attach it to an unrelated row and manufacture a fact Production would later read.
+
+### 8.3 Revisions, and the ordering trap
+
+BQS revisions write new rows; PO revisions write new lines. Links are carried across by `row_key`:
+
+- **revise** — after the new rows exist, links are re-pointed from the old ones.
+- **overwrite** — links are **captured before the delete**. `bqs_row_id` is `nullOnDelete`, so
+  deleting first erases every link and the only symptom is a BQS reporting nothing ordered. Both
+  orderings are tested.
+- **PO revision** — the new lines resolve through auto-matching plus the colour rules, so manual
+  decisions reappear with no extra machinery.
+
+### 8.4 Ordered units, and the channel that took two attempts
+
+**`po_line_items.quantity` is the size ratio inside one pack.** The five sizes read 3, 4, 4, 2, 1 —
+the fourteen of "14PC GR SS SKATER DRESS" — and `total_cartons_per_line` is how many packs were
+ordered. `PoLineItem::orderedUnits()` multiplies them; the multiplier is denormalised onto the line
+for the same reason `vendor_stock` is.
+
+The three orders in the reference document reconcile to the plan exactly:
+
+```text
+PO …001 (type 43)   5,502  = Initial Set Units / Store
+PO …002 (type 43)     266  = Initial Set Units / Ecomm
+                   -------
+                    5,768  = Initial Set Units / OMNI
+PO …003 (type 42)  21,868  = Replenishment Units / OMNI
+```
+
+> **The comparison was first built against Store, and that was wrong.** The error came from
+> reading one pack's carton count (393) as if it applied to the whole order; across the document
+> they range from 16 to 1,562. Ecomm turns out to be ordered as its own purchase order, so the
+> initial buy is two type-43 orders summing to OMNI. Against Store, an exactly-complete initial buy
+> reads 105%. The line is corrected rather than annotated, and a test now asserts that carton
+> counts differ within one import so the assumption cannot be made again silently.
+
+Which half of the plan an order satisfies comes from matching `purchase_orders.po_type` against the
+codes **the BQS row itself names** — nothing about Walmart's numbering is hard-coded.
+
+### 8.5 The guard that the database does not provide
+
+Neither `po_line_items` nor `bqs_rows` carries a `buyer_id`; both reach their buyer through a
+parent ([§9.2](../ARCHITECTURE.md#92-buyer-scoped-access-control)). Nothing at the database level
+prevents a Walmart line pointing at a George row. The whole guard is `BqsPoLinker`'s
+buyer-constrained queries plus `BqsLinkRequest`'s validation, and it has its own test. **Any future
+relationship between two child tables inherits this problem.**
+
+### 8.6 How to extend
+
+**A quantity comparison per size.** The BQS carries pack ratios per size and the PO carries them
+too, in different notations (`XS(4/5)` against `XS-4-5`). Normalising those is the first piece of
+work, and no document has yet shown that the two size sets always correspond.
+
+**A second buyer's colour format.** Dispatch inside `BqsColourMatch` on the buyer, the way a second
+parser would. Do not loosen the existing rule to accommodate one.
