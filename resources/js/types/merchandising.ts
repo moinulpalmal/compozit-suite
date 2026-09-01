@@ -202,3 +202,167 @@ export type PendingImport = {
     imported_count: number;
     conflicts: ImportConflict[];
 };
+
+/*
+|--------------------------------------------------------------------------
+| BQS — the buyer's buy plan workbook
+|--------------------------------------------------------------------------
+|
+| A BQS is uploaded as an `.xlsx`, not typed. The types below deliberately do
+| not reuse the purchase-order ones even where they look alike: a workbook is
+| **one** BQS answered with **one** decision, whereas a document holds up to
+| fifty orders answered one at a time. Sharing `PendingImport` between them
+| would mean a field that is a list on one side and a scalar on the other.
+|
+*/
+
+/** How much the application trusts an imported BQS — `App\Enums\Merchandising\BqsParseStatus`. */
+export type BqsParseStatus = 'success' | 'needs_review' | 'failed';
+
+/** Which record set the BQS list is over. A toolbar control, not a filter cell. */
+export type BqsView = 'current' | 'revisions';
+
+/** Which of the two pack bands a size quantity came from. */
+export type BqsPackType = 'break' | 'case';
+
+/** What to do with an uploaded BQS that overlaps one already held. */
+export type BqsConflictDecision = 'skip' | 'revise' | 'overwrite';
+
+/** One decision, as the conflict step renders it. */
+export type BqsConflictDecisionOption = {
+    value: BqsConflictDecision;
+    label: string;
+    /** `overwrite` alone. Hidden from anyone without the delete permission. */
+    destructive: boolean;
+};
+
+/** One row of the BQS list. */
+export type BqsListItem = {
+    id: number;
+    /** The workbook's file name — the only human label a BQS has. */
+    title: string;
+    /** Entered on the upload form; the workbook carries no date. */
+    bqs_date: string;
+    buyer: string;
+    fye: string | null;
+    season: string | null;
+    department: string | null;
+    revision_no: number;
+    is_current: boolean;
+    row_count: number;
+    parse_status: BqsParseStatus;
+};
+
+export type BqsFilters = ListFilters & {
+    view: BqsView;
+    filter: {
+        title: string;
+        fye: string;
+        season: string;
+        department: string;
+        bqs_date: string;
+        parse_status: string;
+    };
+};
+
+/**
+ * A warning raised while reading a workbook.
+ *
+ * Kept next to the import that produced it rather than reported once in a toast:
+ * an unmapped column or a row whose own totals disagree is worth finding later.
+ */
+export type BqsWarning = {
+    severity: string;
+    message: string;
+    /** The workbook row it came from, when it came from one. */
+    line: number | null;
+};
+
+/**
+ * One `In DC Units` or pack column, derived from the rows rather than declared.
+ *
+ * These are exactly the part of a BQS that is **not** schema — month names and size
+ * labels change with every season — so the detail page is told what its columns are
+ * on every request.
+ */
+export type BqsDynamicColumn = {
+    key: string;
+    label: string;
+};
+
+export type BqsPackColumn = BqsDynamicColumn & {
+    pack_type: BqsPackType;
+    pack_label: string;
+};
+
+/** One line of a BQS, as the detail table renders it. */
+export type BqsRow = {
+    id: number;
+    line_no: number;
+    vendor_style_no: string | null;
+    item_description: string | null;
+    pantone_colour: string | null;
+    colour_family: string | null;
+    colour_variant: string | null;
+    total_stores: number | null;
+    initial_set_units_store: number | null;
+    initial_set_units_ecomm: number | null;
+    initial_set_units_omni: number | null;
+    total_buy_units_store: number | null;
+    total_buy_units_ecomm: number | null;
+    total_buy_units_omni: number | null;
+    replenishment_units_store: number | null;
+    replenishment_units_omni: number | null;
+    first_cost: string | null;
+    regular_retail: string | null;
+    total_buy_dollar_omni: string | null;
+    on_floor_month: string | null;
+    wm_wk_in_store: string | null;
+    vendor_name: string | null;
+    country_of_origin: string | null;
+    /** Keyed by `monthColumns[].key`. */
+    months: Record<string, number | null>;
+    /** Keyed by `packColumns[].key`. */
+    pack_sizes: Record<string, number | null>;
+    [column: string]: unknown;
+};
+
+/** One BQS in full, as the detail page renders it. */
+export type BqsSheetDetail = {
+    id: number;
+    title: string;
+    bqs_date: string;
+    buyer: string;
+    fye: string | null;
+    season: string | null;
+    department: string | null;
+    revision_no: number;
+    is_current: boolean;
+    row_count: number;
+    parse_status: BqsParseStatus;
+    source_file_name: string;
+    sheet_name: string;
+    /** Changes when George changes the template — see `BqsHeaderMap`. */
+    header_fingerprint: string;
+    imported_at: string | null;
+    warnings: BqsWarning[];
+};
+
+/**
+ * A BQS upload of the signed-in user's that is waiting on a decision.
+ *
+ * One collision, not a list of them: a workbook is one BQS, and it is the *rows*
+ * whose keys overlap that identify it — see `App\Services\Merchandising\BqsRowKey`.
+ */
+export type BqsPendingImport = {
+    id: number;
+    source_file_name: string;
+    bqs_date: string;
+    row_count: number;
+    /** The held BQS this workbook overlaps. */
+    collides_with_title: string;
+    collides_with_revision: number;
+    /** How many of the incoming rows already exist on that revision. */
+    overlapping_rows: number;
+    warnings: BqsWarning[];
+};

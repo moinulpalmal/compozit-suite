@@ -208,6 +208,47 @@ function poImporter(Buyer $buyer, string ...$permissions): User
     return $user;
 }
 
+/*
+|--------------------------------------------------------------------------
+| BQS import helpers
+|--------------------------------------------------------------------------
+|
+| The `bqs` prefix is for the same reason the `po` one is — these live in the
+| global namespace and a collision there is a fatal error.
+|
+| The fixture is George's real workbook, unaltered: two header rows, 89 columns
+| (A–CK), six data rows in rows 3–8, eighteen `In DC Units` month columns and ten
+| pack-size columns. Everything about the dynamic bands is proved against
+| workbooks built in the tests themselves, because proving "any month range loads"
+| needs a *second* range and shipping a second binary fixture would hide what
+| differs between them.
+|
+*/
+
+/** Every BQS permission a test might name. */
+const BQS_IMPORT_PERMISSION = 'merchandising.bqs.import';
+
+const BQS_VIEW_PERMISSION = 'merchandising.bqs.view';
+
+const BQS_DELETE_PERMISSION = 'merchandising.bqs.delete';
+
+/** George's real BQS workbook, as a real upload. */
+function bqsUpload(?string $name = null): UploadedFile
+{
+    $path = __DIR__.'/Fixtures/Merchandising/bqs-gr4064-skater-dress.xlsx';
+
+    return new UploadedFile($path, $name ?? 'BQS GR4064 SKATER DRESS.xlsx', null, null, true);
+}
+
+/** A user who may import a BQS, and who holds the buyer being imported for. */
+function bqsImporter(Buyer $buyer, string ...$permissions): User
+{
+    $user = userWithPermissions(...($permissions ?: [BQS_IMPORT_PERMISSION, BQS_VIEW_PERMISSION]));
+    $user->buyers()->attach($buyer);
+
+    return $user;
+}
+
 /**
  * Create a user holding the super-admin role, which bypasses every check.
  */

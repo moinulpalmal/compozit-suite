@@ -6,6 +6,8 @@ use App\Models\Admin\Buyer;
 use App\Models\Admin\Designation;
 use App\Models\Admin\Permission;
 use App\Models\Admin\Role;
+use App\Models\Merchandising\BqsImport;
+use App\Models\Merchandising\BqsSheet;
 use App\Models\Merchandising\PurchaseOrder;
 use App\Models\Settings\NotificationColor;
 use App\Models\User;
@@ -132,7 +134,44 @@ function surfaces(): array
             'po_number',
             'vendor_name',
         ],
+
+        /*
+         * Buyer-scoped like purchase orders, and seeded the same way for the same
+         * reason. `title` is the contains column — a BQS's only human label is its
+         * workbook file name, and people remember the middle of one ("skater dress")
+         * rather than its opening.
+         */
+        'bqs' => [
+            'merchandising.bqs.index',
+            'sheets',
+            'merchandising.bqs.view',
+            fn (int $count) => seedBqsSheets($count),
+            fn (string $name) => seedBqsSheets(1, $name),
+            'bqs_date',
+            'title',
+        ],
     ];
+}
+
+/**
+ * Create BQS records the acting user can actually see.
+ *
+ * `BqsSheet` is `BuyerScoped` (ARCHITECTURE.md §9.2), so rows are invisible unless
+ * the signed-in user holds their buyer — the same grant `seedPurchaseOrders()` makes.
+ */
+function seedBqsSheets(int $count, ?string $title = null): void
+{
+    $buyer = Buyer::factory()->create();
+
+    BqsSheet::factory()
+        ->count($count)
+        ->for(BqsImport::factory()->for($buyer, 'buyer'), 'import')
+        ->create([
+            'buyer_id' => $buyer->id,
+            ...($title === null ? [] : ['title' => $title]),
+        ]);
+
+    Auth::user()?->buyers()->syncWithoutDetaching([$buyer->id]);
 }
 
 /**

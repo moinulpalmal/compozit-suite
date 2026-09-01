@@ -7,6 +7,7 @@ import {
     ScrollText,
     ShieldCheck,
     Store,
+    Table2,
     Users,
 } from 'lucide-react';
 import AppLogo from '@/components/app-logo';
@@ -29,6 +30,7 @@ import { index as designationsIndex } from '@/routes/admin/designations';
 import { index as permissionsIndex } from '@/routes/admin/permissions';
 import { index as rolesIndex } from '@/routes/admin/roles';
 import { index as usersIndex } from '@/routes/admin/users';
+import { index as bqsIndex } from '@/routes/merchandising/bqs';
 import { index as purchaseOrdersIndex } from '@/routes/merchandising/purchase-orders';
 import { index as notificationColorsIndex } from '@/routes/settings/master-data/notification-colors';
 import type { NavGroup, NavItem } from '@/types';
@@ -54,6 +56,7 @@ export function AppSidebar() {
     // cover colours, sizes and UOM without a permission per screen.
     const canViewMasterData = useCan('settings.master-data.view');
 
+    const canViewBqs = useCan('merchandising.bqs.view');
     const canViewPurchaseOrders = useCan('merchandising.purchase-orders.view');
 
     // Admin surfaces live in their own group, not alongside Platform.
@@ -106,6 +109,15 @@ export function AppSidebar() {
     // bookings join this group as they are built — a module's links never join
     // another module's group (ARCHITECTURE.md §8.3).
     const merchandisingNavItems: NavItem[] = [
+        ...(canViewBqs
+            ? [
+                  {
+                      title: 'BQS',
+                      href: bqsIndex(),
+                      icon: Table2,
+                  },
+              ]
+            : []),
         ...(canViewPurchaseOrders
             ? [
                   {

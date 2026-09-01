@@ -36,7 +36,13 @@ class RolePermissionSeeder extends Seeder
         'settings.master-data' => ['view', 'create', 'update', 'delete'],
         'settings.application' => ['view', 'update'],
         'merchandising.tech-packs' => ['view', 'create', 'update', 'delete'],
-        'merchandising.bqs' => ['view', 'create', 'update', 'delete'],
+        /*
+         * `import` for the same reason purchase orders have it, below: a BQS is the
+         * buyer's own workbook, uploaded rather than typed. `delete` additionally
+         * gates *overwriting* a BQS revision, which destroys its rows — see
+         * `BqsResolveRequest`.
+         */
+        'merchandising.bqs' => ['view', 'create', 'update', 'delete', 'import'],
         /*
          * `import` is separate from `create` on purpose. A purchase order is never
          * typed in — it is read out of the buyer's own document by a parser that

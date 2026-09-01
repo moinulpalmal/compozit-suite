@@ -40,11 +40,18 @@ database, five functional modules plus a dashboard.
 | Doc parsing | `ext-zip` (PHP extension) | — | **Required.** `ZipArchive` reads a `.docx`; without it the whole purchase-order import fails. Enabled in `php.ini` — see [`documentation/deployment.md`](documentation/deployment.md) |
 | Doc parsing | LibreOffice (`soffice`) | 26.8 | **External binary, optional.** Converts `.doc`/`.rtf` to `.docx`. Needed only for those two formats; `LIBREOFFICE_BIN` in `.env` |
 | Doc parsing | Xpdf `pdftotext` | 4.06 | **External binary, optional.** `-layout` extraction for `.pdf`. Must be the **Xpdf** build, not Poppler — the parser reads column positions and the two differ. `PDFTOTEXT_BIN` in `.env` |
+| Workbook parsing | `phpoffice/phpspreadsheet` | `^5.9` | Reads the BQS `.xlsx`/`.xls` import — see [§5 Module 3](#module-3--merchandising). In-process, no external binary. The **only** consumer is `Merchandising\BqsWorkbookReader`; nothing else may import from `PhpOffice\` |
 
-The three parsing rows are the application's only dependencies on software outside
+The two external-binary rows are the application's only dependencies on software outside
 Composer and npm. Each is needed by exactly one upload format, and each fails with a message
 naming the `.env` key to set, so a machine without LibreOffice still imports `.docx` and `.pdf`
-normally. Configuration is `config/po-parser.php`.
+normally. Configuration is `config/po-parser.php` for purchase orders and
+`config/bqs-import.php` for BQS workbooks.
+
+> PhpSpreadsheet was added for the BQS import rather than hand-rolling an `ext-zip` reader.
+> The owner chose it: a hand-rolled reader covers the one file in hand and not `.xls`, shared
+> formulas, or the date and style edge cases a real Excel export produces. It is confined to one
+> class so that decision stays reversible.
 
 Database: **MySQL** (`compozitsuite` on `127.0.0.1:3306` via Laragon) for local development —
 `.env` sets `DB_CONNECTION=mysql`. Tests run against in-memory SQLite (`phpunit.xml`) — *provided no
@@ -182,7 +189,7 @@ engine ever qualifies, it earns its own line here.
 | 0 | Dashboard | `Dashboard` | `routes/web.php` | `dashboard` | `/dashboard` | `pages/dashboard.tsx` | ✅ built (placeholder content) |
 | 1 | Admin | `Admin` | `routes/admin.php` | `admin.` | `/admin` | `pages/admin/` | 🟡 users + RBAC + designations built, rest scaffolded |
 | 2 | Settings | `Settings` | `routes/settings.php` | *(see note)* | `/settings` | `pages/settings/` | ✅ partly built |
-| 3 | Merchandising | `Merchandising` | `routes/merchandising.php` | `merchandising.` | `/merchandising` | `pages/merchandising/` | 🟡 purchase-order import built, rest scaffolded |
+| 3 | Merchandising | `Merchandising` | `routes/merchandising.php` | `merchandising.` | `/merchandising` | `pages/merchandising/` | 🟡 purchase-order and BQS imports built, tech packs and bookings scaffolded |
 | 4 | Production | `Production` | `routes/production.php` | `production.` | `/production` | `pages/production/` | 🟡 scaffolded |
 | 5 | Reports | `Reports` | `routes/reports.php` | `reports.` | `/reports` | `pages/reports/` | 🟡 scaffolded |
 
@@ -303,7 +310,7 @@ are in [§9.4](#94-master-data).
 | Sub-area | Naming | Pages | Status |
 | --- | --- | --- | --- |
 | a. Development tech pack management | `Merchandising\TechPack*` | `pages/merchandising/tech-packs/` | 🟡 |
-| b. BQS (budget quotation sheet) | `Merchandising\Bqs*` | `pages/merchandising/bqs/` | 🟡 |
+| b. BQS (the buyer's buy plan workbook) | `Merchandising\Bqs*` | `pages/merchandising/bqs/` | ✅ import + list + detail |
 | c. Purchase order import & management | `Merchandising\PurchaseOrder*` | `pages/merchandising/purchase-orders/` | ✅ import + list + detail |
 | d. Fabric & accessory booking | `Merchandising\Booking*` | `pages/merchandising/bookings/` | 🟡 |
 
@@ -354,6 +361,63 @@ now something the uploader **confirms**, not something the upload decides.
 document — which means every downstream reader must exclude them, and `PurchaseOrder::scopeUsable()`
 is how. The reasoning for all of this, and the trade-offs declined along the way, are in
 [`documentation/merchandising.md`](documentation/merchandising.md).
+
+#### A BQS is a workbook the buyer sends, not a quotation we prepare
+
+> **This sub-area was previously described as a "budget quotation sheet".** That was wrong, and
+> the line above is corrected rather than annotated. A BQS here is the buy plan George/Walmart
+> sends: one row per vendor style per colourway, carrying store/ecomm/omni buy quantities, a cost
+> stack, pack structure and month-by-month DC intake. Nothing in it is prepared by this company.
+
+Like a purchase order, **there is no create form** — a BQS arrives as an `.xlsx`/`.xls` upload,
+read by `Merchandising\BqsWorkbookReader`, and `import` is its own permission. The upload is a
+modal on the list page, and the list controller carries the same two gated props,
+`importBuyers` and `pendingImport`.
+
+**The upload form asks for three things, and two are not in the file.** The buyer is chosen for
+the [§9.2](#92-buyer-scoped-access-control) reason purchase orders are, and **`bqs_date` is
+required master data entered by the uploader** — the workbook carries no date of any kind, so it
+cannot be read and must not be guessed from a file timestamp.
+
+Five tables, and the split is driven by one fact about the source:
+
+| Table | Holds |
+| --- | --- |
+| `bqs_imports` | One row per uploaded workbook: the file, the resolved header map, every warning, and any BQS awaiting a decision |
+| `bqs_sheets` | One row per BQS per revision. Buyer-owned; the thing the list lists |
+| `bqs_rows` | One row per vendor style per colourway — 61 columns |
+| `bqs_row_months` | The `In DC Units` band, one row per month |
+| `bqs_row_pack_sizes` | The `Break Packs` / `Case Packs` bands, one row per size |
+
+**28 of the workbook's 89 columns are data, not schema.** Eighteen are headed with month names
+(`November-2026 … April-2028`) and ten with size labels (`XS(4/5) … XL(14/16)`); both sets change
+with every season and size range. As columns they would need an `ALTER TABLE` per upload, so they
+are child rows — which also keeps sizes joinable to `po_line_items`, where colour and size are
+rows for the same reason. The remaining 61 are columns, named `{band}_{leaf}` because `Store`,
+`Ecomm` and `OMNI` each appear six times in the leaf header and are ambiguous alone.
+
+**Revisions are keyed on the rows, because the workbook has no key.** There is no document
+number, no revision date, and a `Quote ID` column blank in every file received. So:
+
+> Two uploads are the same BQS when their sets of `bqs_rows.row_key` **intersect**.
+
+`row_key` is a hash of seven identity components — FYE, season, department, vendor style, pantone
+colour, colour variant, item description — each also stored as an ordinary column. The collision
+is answered **once per workbook** (skip / revise / overwrite), not once per row: a 200-row BQS
+would otherwise produce a 200-decision dialog. A workbook overlapping *two* held revisions is
+refused, being a revision of neither. `overwrite` destroys a revision and so requires
+`merchandising.bqs.delete` on top of `import`, and `source_hash` makes a byte-identical
+re-upload idempotent and silently skipped.
+
+Revisions chain through `bqs_sheets.root_id`, a self-reference that revision 1 points at itself.
+The file name cannot key them — a reissue routinely arrives under a different one — and leaving
+`root_id` null on revision 1 would not bind the unique index, because both MySQL and SQLite
+permit repeated NULLs in one.
+
+**Header columns are matched by name, never by position**, so an inserted column cannot silently
+shift 89 fields. A missing *required* column refuses the file by name; an unrecognised one is
+imported with a warning. `Merchandising\BqsHeaderMap` owns that mapping and
+`documentation/merchandising.md` records the rest.
 
 ### Module 4 — Production
 
@@ -725,9 +789,9 @@ URL, sending every later `back()` to it.
 
 ### 8.6 Every list is paginated, sortable and filtered per column
 
-**A list screen is never a bare `->get()`.** All seven lists — the five Admin ones, Settings'
-notification colours, and Merchandising's purchase orders — go through one apparatus, and a new one
-inherits it rather than re-implementing it:
+**A list screen is never a bare `->get()`.** All eight lists — the five Admin ones, Settings'
+notification colours, and Merchandising's purchase orders and BQS records — go through one
+apparatus, and a new one inherits it rather than re-implementing it:
 
 | Piece | Job |
 | --- | --- |
@@ -960,6 +1024,13 @@ throwaway model stays — it pins the trait's contract independently of any modu
 `po_line_items` is the first model to hit the stated limit: it reaches its buyer through its parent
 and therefore has **no** `buyer_id` and does **not** use the trait. Every read goes through
 `PurchaseOrder`, which is scoped, and the foreign key cascades. Do not add a scope that joins.
+
+**The BQS tables took the mechanism unchanged and extended that limit one level deeper.**
+`bqs_imports` and `bqs_sheets` are buyer-owned and carry `use BuyerScoped;` and a `buyer_id`.
+`bqs_rows` reaches its buyer through `bqs_sheets`, and `bqs_row_months` / `bqs_row_pack_sizes`
+reach it through `bqs_rows` — none of the three has a `buyer_id` or the trait, and the cascades
+mean none is reachable without a scoped ancestor. A two-hop parent is still a parent; the rule
+does not change with depth.
 
 ### 9.3 Audit logging
 

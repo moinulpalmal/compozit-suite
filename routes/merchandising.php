@@ -1,5 +1,7 @@
 <?php
 
+use App\Http\Controllers\Merchandising\BqsController;
+use App\Http\Controllers\Merchandising\BqsImportController;
 use App\Http\Controllers\Merchandising\PurchaseOrderController;
 use App\Http\Controllers\Merchandising\PurchaseOrderImportController;
 use Illuminate\Support\Facades\Route;
@@ -55,4 +57,36 @@ Route::middleware(['auth', 'auth.session', 'verified'])
         Route::get('purchase-orders/{purchaseOrder}', [PurchaseOrderController::class, 'show'])
             ->middleware('permission:merchandising.purchase-orders.view')
             ->name('purchase-orders.show');
+
+        /*
+         * A BQS is the buyer's buy plan workbook, uploaded rather than typed — so
+         * `import` is its own permission here too, for the same reason it is on
+         * purchase orders: reading a workbook is a different power from entering a
+         * record by hand.
+         *
+         * **There is no GET for the form.** It is a modal on the list page.
+         *
+         * As above, the import routes are declared before `{bqsSheet}` so that
+         * `/bqs/import` is not captured as a sheet id.
+         */
+        Route::get('bqs', [BqsController::class, 'index'])
+            ->middleware('permission:merchandising.bqs.view')
+            ->name('bqs.index');
+
+        Route::post('bqs/import', [BqsImportController::class, 'store'])
+            ->middleware('permission:merchandising.bqs.import')
+            ->name('bqs.import.store');
+
+        /*
+         * A workbook is one BQS, so this takes a single decision rather than the map
+         * of them the purchase-order resolve route takes. `overwrite` additionally
+         * needs `merchandising.bqs.delete`, enforced in the form request.
+         */
+        Route::post('bqs/imports/{bqsImport}/resolve', [BqsImportController::class, 'resolve'])
+            ->middleware('permission:merchandising.bqs.import')
+            ->name('bqs.import.resolve');
+
+        Route::get('bqs/{bqsSheet}', [BqsController::class, 'show'])
+            ->middleware('permission:merchandising.bqs.view')
+            ->name('bqs.show');
     });

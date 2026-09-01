@@ -10,13 +10,13 @@
 ## 1. Overview
 
 Merchandising owns the order lifecycle up to the point production begins. Four sub-areas are
-planned; **one is built**:
+planned; **two are built**:
 
 | Sub-area | Status |
 | --- | --- |
 | Purchase order import & management | ✅ import, list, detail |
+| BQS — the buyer's buy plan workbook | ✅ import, list, detail — [§7](#7-bqs-the-buyers-buy-plan-workbook) |
 | Development tech packs | 🟡 |
-| BQS (budget quotation sheet) | 🟡 |
 | Fabric & accessory booking | 🟡 |
 
 Purchase orders are also the module's two firsts for the application as a whole: the first
@@ -413,3 +413,209 @@ fact about the document that is not true.
 ### Making imports asynchronous
 
 Read [§3.2](#32-parsing-runs-inside-the-request) first, then bring the measurement that justifies it.
+
+---
+
+## 7. BQS — the buyer's buy plan workbook
+
+> **A BQS here is not a "budget quotation sheet".** `ARCHITECTURE.md` §5 said so until this was
+> built, and it was wrong; the line is corrected there rather than annotated. A BQS is the buy
+> plan **George/Walmart sends us**: one row per vendor style per colourway, carrying store /
+> ecomm / omni quantities, a cost stack, pack structure, and month-by-month DC intake. Nothing in
+> it is prepared by this company. The reference file is
+> `BQS GR4064 SKATER DRESS ORDER CONFIRMATION .xlsx`, kept redacted-free as a fixture because it
+> contains no personal data beyond a buyer's merchant name.
+
+### 7.1 Twenty-eight of the eighty-nine columns are data, not schema
+
+The workbook is `A`–`CK` with **two header rows**: row 1 is merged group bands, row 2 is leaf
+headers, data starts at row 3.
+
+| Band (row 1) | Leaf columns (row 2) | Count |
+| --- | --- | --- |
+| *(none)* | FYE … Reg Ecom Penetration Percent | 33 |
+| Number of stores / Initial Set Units Per Store | Total Stores, Extra Initial Packs | 2 |
+| Initial Set Units, Total BUY Units, Replenishment Units, First Cost, Landed Store Cost, Total Buy Dollar | Store, Ecomm, OMNI × 6 | 18 |
+| Pack Details | Commodity Type … Whse Pack | 8 |
+| **Break Packs / Case Packs** | `XS(4/5) … XL(14/16)` × 2 | **10** |
+| **In DC Units** | `November-2026 … April-2028` | **18** |
+
+The last two bands are headed with **values**. A different season carries different months; a
+different garment carries different sizes. As columns they would need an `ALTER TABLE` per
+upload, so they are rows in `bqs_row_months` and `bqs_row_pack_sizes`.
+
+That also keeps sizes joinable to `po_line_items`, which stores colour and size as rows for the
+same reason ([§4.1](#41-header-in-columns-the-rest-in-json-line-items-in-rows)). Had the BQS
+stored sizes as columns, no report could ever have matched a plan line to the order realising it.
+
+**The remaining 61 are columns, not JSON.** Unlike a purchase order, a BQS has no display-only
+sections — every field is a number someone will eventually want to filter, sort or sum. The
+JSON-payload trade that [§4.1](#41-header-in-columns-the-rest-in-json-line-items-in-rows) makes
+would buy nothing here and cost `FILTERABLE`.
+
+### 7.2 The header takes two rows to read, and merges are the authority
+
+`Store`, `Ecomm` and `OMNI` each appear **six times** in row 2. Only the row-1 band tells them
+apart, so every such column is named `{band}_{leaf}` — `initial_set_units_store`,
+`first_cost_ecomm`. `BqsHeaderMap::STATIC_COLUMNS` is that mapping.
+
+A band **is** a merged cell: `AI1:AK1` really is one cell spanning three columns, and
+PhpSpreadsheet returns its label only in the top-left. `BqsHeaderMap::resolveBands()` therefore
+reads the sheet's merge ranges to get each band's exact extent.
+
+> **This replaced a carry-forward heuristic** that repeated the last non-empty label rightwards
+> until the next one. That is right in the middle of a band and wrong after the last: a column
+> added to the right of `In DC Units` inherited that band and was read as a malformed month
+> instead of being reported as unrecognised. Merge ranges say where a band stops; guessing does
+> not.
+>
+> The consequence is that **`setReadDataOnly(true)` cannot be used**, because it discards merge
+> geometry along with the styles. With it on, `AI1:AK1` collapses to a label on `AI` alone,
+> `Ecomm` and `OMNI` map to nothing, and seventeen of the eighteen month columns disappear — and
+> the import still *succeeds*, silently, with most of the workbook missing. That failure was
+> caught by a test asserting 108 month rows and getting 6.
+
+Columns are matched **by name in any order**. Positional reading was considered and rejected: one
+inserted column would shift 89 fields and write wrong data into every row with no error at all.
+
+A missing column from `BqsHeaderMap::REQUIRED_COLUMNS` refuses the file by name; anything else
+unrecognised is imported with a warning. The required list is deliberately short — the row key's
+seven components plus the one quantity that makes a BQS a buy plan. George trimming a column
+nothing keys on is not a reason to stop importing.
+
+### 7.3 A BQS has no identity, so it is derived from its rows
+
+This is the module's second central decision, and the one with no precedent to copy.
+
+A purchase order carries its own ten-digit number, so a reissue is obvious
+([§3.3](#33-revisions-are-keyed-on-the-document-not-on-a-counter)). **A BQS workbook carries
+nothing**: no document number, no revision date, and a `Quote ID` column blank in every file
+received. The owner confirmed it is always blank.
+
+The options were weighed and three were rejected:
+
+| Candidate | Why not |
+| --- | --- |
+| `FYE + Season + Department + Fine Line` | A fine line is a merchandise classification, not a program. Two unrelated buys in one season collide, and the second silently supersedes the first — data loss with no trace. |
+| A program number parsed out of the style (`4064` from `GRS74064GX`) | Needs a fixed rule for extracting it that nobody could state. |
+| Ask the uploader to name the BQS | A third field on the form, and a typo makes a revision into a new record. |
+
+What was chosen instead:
+
+> **Two uploads are the same BQS when their sets of `bqs_rows.row_key` intersect.**
+
+`row_key` is a sha256 over seven normalised components the owner named — FYE, season, department,
+vendor style, pantone colour, colour variant, item description — each **also stored as an
+ordinary column**, so the key is reproducible from the row rather than an opaque digest.
+`BqsRowKey::COMPONENTS` is the definition, and its order is a contract: change it and every stored
+key stops matching, which reads as every BQS suddenly being new.
+
+This invents no identifier, so it cannot invent a wrong one; unrelated buys have disjoint row keys
+and never collide; and the answer to "which held BQS does this overlap" is one question per
+workbook rather than one per row.
+
+**A workbook overlapping two held revisions is refused**, not guessed at. It is a revision of
+neither, and picking one would silently orphan the other.
+
+### 7.4 One decision per workbook, not one per row
+
+The purchase-order dialog stages up to fifty conflicts and asks about each
+([§3.5](#35-a-collision-is-a-question-not-a-rule)). Copying that here would produce a 200-decision
+form for a 200-row BQS. A workbook *is* one BQS, so **skip / revise / overwrite** is asked once.
+
+`BqsConflictDecision` is a separate enum from `PoConflictDecision` despite identical values,
+because what is being decided is not the same thing and a shared docblock could only describe one
+of them. If a third importer ever wants these words, that is when one `ImportConflictDecision`
+earns its place — not before.
+
+`overwrite` destroys a revision and cascades to its rows, months and pack sizes, so it needs
+`merchandising.bqs.delete` on top of `import` — the same split
+[§3.5](#35-a-collision-is-a-question-not-a-rule) makes.
+
+### 7.5 Revisions chain through `root_id`
+
+Revision 1 points at **itself**, written in a second statement inside the import transaction
+because the id does not exist until the insert returns.
+
+Two simpler shapes were rejected:
+
+- **`unique(buyer_id, title, revision_no)`** — `title` is the workbook's file name, and a reissue
+  routinely arrives under a different one.
+- **`root_id` null on revision 1** — both MySQL and SQLite permit repeated NULLs in a unique
+  index, so the constraint would not bind the revision that needs it most. The same trap
+  `create_purchase_orders_table` records for `revised_at`.
+
+`cascadeOnDelete` on `root_id` is safe rather than dangerous: **overwrite** only ever deletes the
+*current* sheet, and the root is current only when it is the sole revision. `BqsImportService::overwrite()`
+still detaches the children first, because the cascade is not obvious to the next reader.
+
+### 7.6 Two facts are entered, not read
+
+The upload form asks for the buyer, the **BQS date**, and the file.
+
+The buyer is picked for the reason [§3.1](#31-the-buyer-is-picked-not-inferred) gives. The date is
+picked because **the workbook has no date of any kind** — and a file's own timestamp is the date
+it was last copied between machines, which is not the same fact. It is required, held on
+`bqs_imports` as well as `bqs_sheets` so a staged upload remembers it until the collision is
+answered, and each revision keeps the date entered with its own upload.
+
+### 7.7 Fidelity over correction
+
+`OMNI = Store + Ecomm` and `Total BUY = Initial + Replen` hold in every row of every file seen so
+far. They are **checked and not enforced**: where a row disagrees with itself, the buyer's values
+are stored unchanged and a warning is raised against that row.
+
+The workbook is the source of truth. Silently recomputing it would make the application disagree
+with the document it claims to hold, and nobody would find out until a costing did.
+
+Related type care, all of it load-bearing:
+
+- **Money is `decimal` and stays a string** end to end. Excel hands over `70711.199999999997`; a
+  float cast anywhere — including in the React detail page — puts that back.
+- **Identifiers are strings even when numeric.** `colour_variant` (`503441`), `fine_line`,
+  `vendor_no`, `season_code` are codes, and leading zeros matter.
+- **`pack_ratio` looks like a ratio and is a label** (`"FYE28 OPP Dress"`).
+- **`regular_imu_pct` is stored as sent** (`55`, not `0.55`).
+- **`wm_wk_in_store` is a composite** the buyer jams into one cell — `"3 (2027-02-13)"`. The raw
+  string is kept for fidelity and both halves parsed out beside it.
+- **`AL1` and `AL2` disagree** in the source file: the band reads *"Initial Set Units Per Store"*,
+  the leaf reads *"Extra Initial Packs"*. The leaf wins, because it is what the values are.
+
+### 7.8 Column D is a person
+
+`Buyer` in the workbook is `JELENA PAPAGEORGE` — the buyer's own merchant. It is stored as
+`bqs_rows.buyer_merchant` and is **never** the `buyers` foreign key, which lives on the parent
+sheet. Conflating the two would put a person's name where
+[§9.2](../ARCHITECTURE.md#92-buyer-scoped-access-control) expects a scope key.
+
+### 7.9 Scoping goes two levels deep
+
+`bqs_imports` and `bqs_sheets` are buyer-owned and carry the trait. `bqs_rows` reaches its buyer
+through the sheet; `bqs_row_months` and `bqs_row_pack_sizes` reach it through the row. None of the
+three has a `buyer_id`, per §9.2's rule against a scope that joins — a two-hop parent is still a
+parent. `BqsScopeTest` proves the case `PurchaseOrderScopeTest` does not.
+
+### 7.10 Testing
+
+The real workbook is the fixture wherever the question is "does this work on what the buyer
+actually sends". Everything about the **dynamic** bands is proved against workbooks built in the
+test with PhpSpreadsheet's writer, because proving "any month range loads with no migration"
+needs a *second* range — and a second binary fixture would hide what differs between them.
+
+Those synthetic workbooks **merge their band cells**, because the reader treats merge ranges as
+the band's extent. A test workbook that wrote the label into one cell and left the rest blank
+would not be the file George sends, and would pass while the real one failed.
+
+### 7.11 How to extend
+
+**A second buyer's BQS layout.** Add its `{band}|{leaf}` pairs to `BqsHeaderMap::STATIC_COLUMNS`
+if the fields are the same under different names; if the *shape* differs, dispatch on the buyer
+chosen on the form, as [§7 of the parser guidance](#adding-a-second-buyers-template) does. Do not
+loosen `REQUIRED_COLUMNS` to make one file fit.
+
+**A report joining BQS to purchase orders.** `bqs_rows` is already indexed on
+`(bqs_sheet_id, vendor_style_no)` for exactly this. The matching rule — exact style, or style plus
+colour — is deliberately not decided, because no report has asked yet.
+
+**Reading the workbook without loading styles.** Read [§7.2](#72-the-header-takes-two-rows-to-read-and-merges-are-the-authority)
+first. The fix is a second cheap pass for the merge ranges, never `setReadDataOnly(true)`.

@@ -15,12 +15,12 @@ use App\Models\Admin\Buyer;
 use App\Models\Merchandising\PoImport;
 use App\Models\Merchandising\PurchaseOrder;
 use App\Models\User;
+use App\Services\Admin\BuyerService;
 use App\Services\Merchandising\PoParser\ParserService;
 use App\Services\Merchandising\PoParser\Support\ParseGrader;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Carbon;
-use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 
@@ -79,31 +79,24 @@ final class PurchaseOrderImportService
     public function __construct(
         private readonly ParserService $parser,
         private readonly ParseGrader $grader,
+        private readonly BuyerService $buyers,
     ) {}
 
     /**
      * The buyers this user may import for: active, and within their own access.
      *
-     * Unpaginated by design — a picker and a list are different queries
-     * (ARCHITECTURE.md §8.6), and a user's buyer set is short by construction.
-     * `Buyer` is not itself buyer-scoped, so the access filter is applied here.
+     * **The query moved to {@see BuyerService::assignableToActor()}** when the BQS
+     * import became a second surface asking the identical question; the reasoning is
+     * recorded there. This method and its name stay so that every existing caller —
+     * the import request's `Rule::in`, the list controller's dialog props — is
+     * unchanged, and so a future divergence between the two importers has one obvious
+     * place to happen rather than two silent ones.
      *
      * @return array<int, string> buyer id => name
      */
     public function assignableBuyers(): array
     {
-        $query = Buyer::query()->active();
-
-        $actor = Auth::user();
-
-        if ($actor !== null && ! $actor->seesAllBuyers()) {
-            $query->whereIn('id', $actor->accessibleBuyerIds());
-        }
-
-        /** @var array<int, string> $buyers */
-        $buyers = $query->orderBy('name')->pluck('name', 'id')->all();
-
-        return $buyers;
+        return $this->buyers->assignableToActor();
     }
 
     /**
@@ -113,13 +106,7 @@ final class PurchaseOrderImportService
      */
     public function assignableBuyerOptions(): array
     {
-        $options = [];
-
-        foreach ($this->assignableBuyers() as $id => $name) {
-            $options[] = ['value' => $id, 'label' => $name];
-        }
-
-        return $options;
+        return $this->buyers->assignableOptions();
     }
 
     /**
