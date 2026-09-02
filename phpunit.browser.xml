@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+    Browser tests only. `phpunit.xml` is deliberately left untouched.
+
+    A browser test drives a real HTTP process, so two of the main suite's settings
+    cannot hold here: `:memory:` is invisible to a second process, and an `array`
+    session driver cannot carry a login across real requests. Both are widened here
+    and nowhere else, so the 464-test suite keeps every guarantee it had — including
+    the one `tests/TestCase.php` enforces, which still refuses any connection that is
+    not sqlite (ARCHITECTURE.md §13.1).
+
+    Run with: php artisan test -c phpunit.browser.xml
+-->
+<phpunit xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:noNamespaceSchemaLocation="vendor/phpunit/phpunit/phpunit.xsd"
+         bootstrap="vendor/autoload.php"
+         colors="true"
+>
+    <testsuites>
+        <testsuite name="Browser">
+            <directory>tests/Browser</directory>
+        </testsuite>
+    </testsuites>
+    <source>
+        <include>
+            <directory>app</directory>
+        </include>
+    </source>
+    <php>
+        <env name="APP_ENV" value="testing"/>
+        <env name="APP_MAINTENANCE_DRIVER" value="file"/>
+        <env name="BCRYPT_ROUNDS" value="4"/>
+        <env name="BROADCAST_CONNECTION" value="null"/>
+        <env name="CACHE_STORE" value="array"/>
+        <env name="DB_CONNECTION" value="sqlite"/>
+        <!-- A file, not `:memory:` — the served process has to see the same rows. -->
+        <env name="DB_DATABASE" value="database/browser-testing.sqlite"/>
+        <env name="DB_URL" value=""/>
+        <env name="MAIL_MAILER" value="array"/>
+        <env name="QUEUE_CONNECTION" value="sync"/>
+        <!-- `array` would drop the session between requests, so a login never sticks. -->
+        <env name="SESSION_DRIVER" value="file"/>
+        <env name="PULSE_ENABLED" value="false"/>
+        <env name="TELESCOPE_ENABLED" value="false"/>
+        <env name="NIGHTWATCH_ENABLED" value="false"/>
+    </php>
+</phpunit>

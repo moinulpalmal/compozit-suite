@@ -36,9 +36,29 @@ class RolePermissionSeeder extends Seeder
         'settings.master-data' => ['view', 'create', 'update', 'delete'],
         'settings.application' => ['view', 'update'],
         'merchandising.tech-packs' => ['view', 'create', 'update', 'delete'],
-        'merchandising.bqs' => ['view', 'create', 'update', 'delete'],
-        'merchandising.purchase-orders' => ['view', 'create', 'update', 'delete'],
+        /*
+         * `import` for the same reason purchase orders have it, below: a BQS is the
+         * buyer's own workbook, uploaded rather than typed. `delete` additionally
+         * gates *overwriting* a BQS revision, which destroys its rows — see
+         * `BqsResolveRequest`.
+         */
+        'merchandising.bqs' => ['view', 'create', 'update', 'delete', 'import'],
+        /*
+         * `import` is separate from `create` on purpose. A purchase order is never
+         * typed in — it is read out of the buyer's own document by a parser that
+         * shells out to a converter. Granting someone the power to run that over an
+         * upload is a different decision from letting them edit an order, the same
+         * way `admin.users.assign-roles` is separate from `admin.users.update`.
+         */
+        'merchandising.purchase-orders' => ['view', 'create', 'update', 'delete', 'import'],
         'merchandising.bookings' => ['view', 'create', 'update', 'delete'],
+        /*
+         * `view` alone, because the TNA board has nothing to write. Its dates are
+         * computed from a Settings template and the order's own ship date, so every
+         * correction is made on one of those screens under their own permissions —
+         * a `merchandising.tna.update` would name a power nothing can exercise.
+         */
+        'merchandising.tna' => ['view'],
         'production.orders' => ['view', 'create', 'update', 'delete'],
         'reports.merchandising' => ['view'],
         'reports.production' => ['view'],

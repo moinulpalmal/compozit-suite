@@ -25,3 +25,8 @@ yarn-error.log
 /.nova
 /.vscode
 /.zed
+
+# Browser tests (ARCHITECTURE.md §13.2): both are rebuilt on every run.
+/database/*.sqlite
+/tests/Browser/Screenshots
+/.playwright-mcp

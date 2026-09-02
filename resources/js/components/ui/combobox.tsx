@@ -133,8 +133,10 @@ function SingleCombobox({
      * button keeps showing a label rather than going blank mid-search.
      */
     const selected =
-        options.find((option) => option.value === selectedValue) ??
-        remote.options.find((option) => option.value === selectedValue) ??
+        options.find((option) => sameValue(option.value, selectedValue)) ??
+        remote.options.find((option) =>
+            sameValue(option.value, selectedValue),
+        ) ??
         null;
 
     const showSearch =
@@ -231,7 +233,7 @@ function SingleCombobox({
                         key={option.value}
                         option={option}
                         highlighted={highlightedIndex === index}
-                        selected={option.value === selectedValue}
+                        selected={sameValue(option.value, selectedValue)}
                         {...getItemProps({ item: option, index })}
                     />
                 ))}
@@ -275,7 +277,9 @@ function MultiCombobox({
             searchUrl === undefined ? options : [...options, ...remote.options];
 
         return selectedValues
-            .map((entry) => pool.find((option) => option.value === entry))
+            .map((entry) =>
+                pool.find((option) => sameValue(option.value, entry)),
+            )
             .filter((option): option is ComboboxOption => option !== undefined);
     }, [options, remote.options, searchUrl, selectedValues]);
 
@@ -299,7 +303,8 @@ function MultiCombobox({
     // Already-chosen options drop out of the menu rather than appearing ticked;
     // they are visible as chips directly above it.
     const visible = filtered.filter(
-        (option) => !selectedValues.includes(option.value),
+        (option) =>
+            !selectedValues.some((entry) => sameValue(entry, option.value)),
     );
 
     const { getSelectedItemProps, getDropdownProps, removeSelectedItem } =
@@ -459,6 +464,33 @@ function MultiCombobox({
 /* -------------------------------------------------------------------------- */
 /* Shared pieces                                                              */
 /* -------------------------------------------------------------------------- */
+
+/**
+ * Whether an option's value is the selected one.
+ *
+ * Compared as strings rather than by identity, because a value makes a round trip
+ * through the DOM and does not always come back the type it left as: a server-side
+ * `int` id arrives in `options` as a number, while a call site that seeded
+ * `defaultValue` from a form-shaped string holds `'3'`. `===` reads those as
+ * different, so the trigger falls back to its placeholder while the hidden input
+ * still submits the right id — a bug that looks like data loss and is not. The TNA
+ * template ladder shipped that way; see ARCHITECTURE.md §8.5.
+ *
+ * `null` and `undefined` match nothing, including each other: "no selection" is not
+ * a value an option can hold.
+ */
+function sameValue(
+    a: string | number | null | undefined,
+    b: string | number | null | undefined,
+): boolean {
+    return (
+        a !== null &&
+        a !== undefined &&
+        b !== null &&
+        b !== undefined &&
+        String(a) === String(b)
+    );
+}
 
 /**
  * The floating listbox, in the top layer so it escapes `overflow` containers.

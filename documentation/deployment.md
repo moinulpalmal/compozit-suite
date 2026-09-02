@@ -64,6 +64,86 @@ git --version
 > PATH, `npm run dev` stops with an error naming **Wayfinder** and never mentions PHP. It is the
 > first row of [§6](#6-troubleshooting) for that reason.
 
+### 2.1 Purchase-order document parsing
+
+Merchandising imports purchase orders by **parsing the buyer's own document**, which needs one PHP
+extension and two external programs. Each is needed by exactly one upload format, and each fails
+with a message naming the `.env` key to set — so a machine missing LibreOffice still imports `.docx`
+and `.pdf` normally.
+
+| Need | For | Required? |
+| --- | --- | --- |
+| `ext-zip` | `.docx` | **Yes.** Also the format the other two are converted into |
+| [LibreOffice](https://www.libreoffice.org/download/) | `.doc`, `.rtf` | Only for those formats |
+| [Xpdf command-line tools](https://www.xpdfreader.com/download.html) | `.pdf` | Only for that format |
+
+#### Enable `ext-zip`
+
+Laragon ships `php_zip.dll` but leaves the line commented. Open
+`C:\laragon\bin\php\<version>\php.ini`, find the line and remove the leading semicolon:
+
+```ini
+;extension=zip      →      extension=zip
+```
+
+Restart Laragon (**Menu → Stop All**, then **Start All**) and check in a **new** terminal:
+
+```powershell
+php -m | Select-String zip     # expect: zip
+```
+
+Without it every import fails with `Class "ZipArchive" not found` — including `.doc` and `.pdf`,
+because both are converted to `.docx` before they are read.
+
+#### Install LibreOffice and Xpdf
+
+```powershell
+winget install --id TheDocumentFoundation.LibreOffice -e
+```
+
+Xpdf has no winget package: download the Windows binaries from the link above and unzip them
+somewhere permanent — `C:\xpdf\` is what `config/po-parser.php`'s comments assume.
+
+> **The `pdftotext` must be the XPDF build, not Poppler.** Both are commonly installed under that
+> name and both accept `-layout`, but their column output is not byte-identical — and the parser
+> reads column positions. Check before trusting it:
+>
+> ```powershell
+> pdftotext -v      # expect: pdftotext version 4.xx [www.xpdfreader.com]
+> ```
+>
+> Note that **Git for Windows bundles an Xpdf `pdftotext`** at
+> `C:\Program Files\Git\mingw64\bin\pdftotext.exe`. It is the right implementation and works, but
+> pointing production at a path inside Git is fragile — install Xpdf properly on a server.
+
+#### Point the app at them
+
+Add to `.env` — **single quotes**, because dotenv reads `\P` in a double-quoted value as an escape
+sequence and refuses to parse the file:
+
+```dotenv
+LIBREOFFICE_BIN='C:/Program Files/LibreOffice/program/soffice.exe'
+PDFTOTEXT_BIN='C:/xpdf/bin64/pdftotext.exe'
+```
+
+Forward slashes are used deliberately; Windows accepts them and they avoid the escaping problem
+entirely. On Linux the values are `/usr/bin/soffice` and `/usr/bin/pdftotext`, and the packages are
+`libreoffice-writer` and `poppler-utils`' Xpdf equivalent `xpdf-utils`.
+
+Then confirm the application agrees:
+
+```powershell
+php artisan config:clear
+php artisan config:show po-parser.libreoffice
+php artisan config:show po-parser.pdftotext
+```
+
+**What was verified on this machine.** `ext-zip` was enabled and confirmed loaded; LibreOffice
+26.8.0.3 was installed via winget and converted the test document; the Xpdf `pdftotext` bundled with
+Git was confirmed as version 4.06 and parsed the test document. A standalone Xpdf install to
+`C:\xpdf\` was ***not verified*** — the Git-bundled binary was used instead. The Linux package names
+above are ***not verified***.
+
 ---
 
 ## 3. Part A — run it on your own PC

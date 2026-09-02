@@ -1,11 +1,15 @@
 import { Link } from '@inertiajs/react';
 import {
     BriefcaseBusiness,
+    CalendarClock,
+    CalendarCog,
     KeyRound,
     LayoutGrid,
     Palette,
+    ScrollText,
     ShieldCheck,
     Store,
+    Table2,
     Users,
 } from 'lucide-react';
 import AppLogo from '@/components/app-logo';
@@ -28,7 +32,11 @@ import { index as designationsIndex } from '@/routes/admin/designations';
 import { index as permissionsIndex } from '@/routes/admin/permissions';
 import { index as rolesIndex } from '@/routes/admin/roles';
 import { index as usersIndex } from '@/routes/admin/users';
+import { index as bqsIndex } from '@/routes/merchandising/bqs';
+import { index as purchaseOrdersIndex } from '@/routes/merchandising/purchase-orders';
+import { index as tnaIndex } from '@/routes/merchandising/tna';
 import { index as notificationColorsIndex } from '@/routes/settings/master-data/notification-colors';
+import { index as tnaTemplatesIndex } from '@/routes/settings/master-data/tna-templates';
 import type { NavGroup, NavItem } from '@/types';
 
 const mainNavItems: NavItem[] = [
@@ -51,6 +59,10 @@ export function AppSidebar() {
     // One bucket gates every master-data table, so this same check will grow to
     // cover colours, sizes and UOM without a permission per screen.
     const canViewMasterData = useCan('settings.master-data.view');
+
+    const canViewBqs = useCan('merchandising.bqs.view');
+    const canViewPurchaseOrders = useCan('merchandising.purchase-orders.view');
+    const canViewTna = useCan('merchandising.tna.view');
 
     // Admin surfaces live in their own group, not alongside Platform.
     const adminNavItems: NavItem[] = [
@@ -94,6 +106,44 @@ export function AppSidebar() {
                       href: notificationColorsIndex(),
                       icon: Palette,
                   },
+                  {
+                      title: 'TNA templates',
+                      href: tnaTemplatesIndex(),
+                      icon: CalendarCog,
+                  },
+              ]
+            : []),
+    ];
+
+    // The order lifecycle up to the point production begins. Tech packs, BQS and
+    // bookings join this group as they are built — a module's links never join
+    // another module's group (ARCHITECTURE.md §8.3).
+    const merchandisingNavItems: NavItem[] = [
+        ...(canViewBqs
+            ? [
+                  {
+                      title: 'BQS',
+                      href: bqsIndex(),
+                      icon: Table2,
+                  },
+              ]
+            : []),
+        ...(canViewPurchaseOrders
+            ? [
+                  {
+                      title: 'Purchase orders',
+                      href: purchaseOrdersIndex(),
+                      icon: ScrollText,
+                  },
+              ]
+            : []),
+        ...(canViewTna
+            ? [
+                  {
+                      title: 'TNA',
+                      href: tnaIndex(),
+                      icon: CalendarClock,
+                  },
               ]
             : []),
     ];
@@ -104,6 +154,7 @@ export function AppSidebar() {
         { label: 'Platform', items: mainNavItems },
         { label: 'Admin', items: adminNavItems },
         { label: 'Settings', items: settingsNavItems },
+        { label: 'Merchandising', items: merchandisingNavItems },
     ].filter((group) => group.items.length > 0);
 
     // Called once: this is the only place that knows every group and its links.
