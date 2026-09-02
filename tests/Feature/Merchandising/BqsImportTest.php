@@ -9,6 +9,7 @@ use App\Models\Merchandising\BqsRow;
 use App\Models\Merchandising\BqsRowMonth;
 use App\Models\Merchandising\BqsRowPackSize;
 use App\Models\Merchandising\BqsSheet;
+use App\Services\Merchandising\BqsSizeVocabulary;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
 use PhpOffice\PhpSpreadsheet\Cell\Coordinate;
@@ -310,6 +311,56 @@ test('a different month range and size set load with no migration', function () 
         ->and($row->packSizes()->pluck('size_label')->all())
         ->toBe(['S', 'M', 'L', 'XL', 'XXL'])
         ->and($row->packSizes()->pluck('quantity')->all())->toBe([1, 2, 3, 2, 1]);
+});
+
+/*
+ * The size run is the buyer's, not the application's. `po-parser.parsing.size_vocab`
+ * was a five-entry girls' list, so an infant purchase order printing `0-3M … 18-24M`
+ * matched none of it and parsed every line with no size — and, because the colour was
+ * read relative to the size, with no colour either. Taking the run from the workbook
+ * is what lets a new product programme arrive without a deploy.
+ */
+test('the size vocabulary comes from the buyer s own workbook', function () {
+    $this->actingAs(bqsImporter($this->buyer));
+
+    $file = bqsWorkbook(
+        months: ['January-2030'],
+        sizes: ['0-3M', '3-6M', '6-12M', '12-18M', '18-24M'],
+        rows: [bqsRow('CDY33205IU', 'JESTER RED', '274319', [1, 2, 3, 2, 1], [10])],
+    );
+
+    $this->post(route('merchandising.bqs.import.store'), [
+        'buyer_id' => $this->buyer->id,
+        'bqs_date' => $this->date,
+        'file' => $file,
+    ])->assertRedirect(route('merchandising.bqs.index'));
+
+    // Column order, not alphabetical: 12-18M sorts before 3-6M as text.
+    expect(app(BqsSizeVocabulary::class)->forBuyer($this->buyer->id))
+        ->toBe(['0-3M', '3-6M', '6-12M', '12-18M', '18-24M']);
+});
+
+test('another buyer s size run is never offered', function () {
+    $this->actingAs(bqsImporter($this->buyer));
+
+    $file = bqsWorkbook(
+        months: ['January-2030'],
+        sizes: ['0-3M', '3-6M'],
+        rows: [bqsRow('CDY33205IU', 'JESTER RED', '274319', [1, 2], [10])],
+    );
+
+    $this->post(route('merchandising.bqs.import.store'), [
+        'buyer_id' => $this->buyer->id,
+        'bqs_date' => $this->date,
+        'file' => $file,
+    ]);
+
+    // Neither bqs_rows nor bqs_row_pack_sizes carries a buyer_id — the constraint
+    // reaches through the sheet, and this is what proves it holds.
+    $other = Buyer::factory()->create();
+
+    expect(app(BqsSizeVocabulary::class)->forBuyer($other->id))->toBe([])
+        ->and(app(BqsSizeVocabulary::class)->forBuyer(null))->toBe([]);
 });
 
 test('a missing required column refuses the file and names it', function () {

@@ -85,9 +85,18 @@ return [
     | `default_tab_stop` drives the tab expansion in DocxTextExtractor and so
     | decides where every column lands — do not change it without re-running the
     | fixture tests. `warn_threshold` is the confidence below which a parse is
-    | marked `needs_review`. `size_vocab` is the set of size labels the line-item
-    | rows are split on; it is Walmart's vocabulary, and a size printed but not
-    | listed here is not recognised.
+    | marked `needs_review`.
+    |
+    | `size_vocab` is a LAST RESORT and is not how sizes are normally read. A pack
+    | states its own columns in the heading above its rows, and LineItemRowExtractor
+    | takes the size from that column's position; this list is consulted only when
+    | that heading cannot be read, and then only after the buyer's own BQS has been
+    | asked (App\Services\Merchandising\BqsSizeVocabulary).
+    |
+    | It stays because it is what the girls' reference document in tests/Fixtures
+    | prints, and because a purchase order can arrive before any BQS exists to ask.
+    | Do not extend it for a new product programme — the size run comes with the
+    | buyer's workbook, which is why an infant order needed no code change here.
     |
     */
 

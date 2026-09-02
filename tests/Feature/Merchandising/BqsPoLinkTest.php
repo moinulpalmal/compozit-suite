@@ -399,6 +399,79 @@ test('the purchase order detail page groups links by colour, not by line', funct
         });
 });
 
+/*
+|--------------------------------------------------------------------------
+| The infant order, whose colours reached the matcher as null
+|--------------------------------------------------------------------------
+|
+| A `Single Item Pack` order prints no SIZE column on its first pack, and the
+| line extractor once derived the colour from the size's position — so every
+| line of every such order stored `color = null`. A null colour cannot match a
+| BQS row and cannot be mapped by hand either: `BqsColourMatch::split()` returns
+| null and the line simply reports as unplanned. Nothing said so.
+|
+| These prove the two halves separately: that a readable colour of that shape
+| links, and that a null one is refused rather than guessed at.
+|
+*/
+
+/** A BQS row of this buyer, for a style and colour named outright. */
+function bqsRowFor(string $style, string $family, string $pantone): BqsRow
+{
+    return BqsRow::factory()->for(
+        BqsSheet::factory()->for(BqsImport::factory()->for(test()->buyer, 'buyer'), 'import')
+            ->create(['buyer_id' => test()->buyer->id]),
+        'sheet',
+    )->create([
+        'vendor_style_no' => $style,
+        'colour_family' => $family,
+        'pantone_colour' => $pantone,
+    ]);
+}
+
+test('an infant colour links once the parser can read it', function () {
+    $planned = bqsRowFor('CDY33205IU', 'RED', 'JESTER RED');
+
+    $order = PurchaseOrder::factory()->for($this->buyer, 'buyer')->create();
+
+    // The five packs of the reference document: one with no size, four sized.
+    foreach ([null, '3-6M', '6-12M', '12-18M', '18-24M'] as $size) {
+        PoLineItem::factory()->for($order, 'purchaseOrder')->create([
+            'vendor_stock' => 'CDY33205IU',
+            'color' => 'RED-JESTER RED',
+            'size' => $size,
+        ]);
+    }
+
+    expect(app(BqsPoLinker::class)->linkForPurchaseOrder($order))->toBe(5);
+
+    $lines = linesOfColour('RED-JESTER RED');
+
+    // A sizeless line links exactly as a sized one does — the colour is what
+    // the match is made on, and the size plays no part in it.
+    expect($lines)->toHaveCount(5)
+        ->and($lines->pluck('bqs_row_id')->unique()->all())->toBe([$planned->id])
+        ->and($lines->firstWhere('size', null)->bqs_row_id)->toBe($planned->id)
+        ->and($lines->first()->bqs_link_source)->toBe(BqsLinkSource::Auto);
+});
+
+test('a line whose colour could not be parsed is never linked to anything', function () {
+    bqsRowFor('CDY33205IU', 'RED', 'JESTER RED');
+
+    $order = PurchaseOrder::factory()->for($this->buyer, 'buyer')->create();
+
+    PoLineItem::factory()->for($order, 'purchaseOrder')->create([
+        'vendor_stock' => 'CDY33205IU',
+        'color' => null,
+        'size' => '3-6M',
+    ]);
+
+    // This is the state the whole fix exists to prevent, and it must stay
+    // unlinkable rather than fall through to the only row of that style.
+    expect(app(BqsPoLinker::class)->linkForPurchaseOrder($order))->toBe(0)
+        ->and(PoLineItem::whereNull('color')->sole()->bqs_row_id)->toBeNull();
+});
+
 test('linking requires the update permission', function () {
     importBqs();
     importPo();

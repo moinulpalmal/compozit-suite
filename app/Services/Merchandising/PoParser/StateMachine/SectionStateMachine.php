@@ -71,7 +71,7 @@ final class SectionStateMachine
                 ['/^Pack Description:/', ParserState::PackCost],
             ],
             ParserState::LineItemHeader->value => [
-                ['/^COLOR\s+SIZE/', ParserState::LineItemRows],
+                [RegexLibrary::LINE_ITEM_COLUMNS, ParserState::LineItemRows],
             ],
             ParserState::LineItemRows->value => [
                 ['/^\s*PACK COMMENTS:/', ParserState::PackComments],

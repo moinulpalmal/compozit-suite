@@ -65,6 +65,13 @@ application knows the tree exists.
 Flattening produces `PoParserLineItemHeaderExtractor.php` thirty-three times — the same hierarchy,
 moved into the filenames.
 
+**The size vocabulary is passed in, and that is why.** Sizes now come from the buyer's BQS
+(`Merchandising\BqsSizeVocabulary`, [§2.5](#25-colour-and-size-are-read-from-the-packs-own-columns)),
+which is a Merchandising service reading Merchandising models. Resolving it *inside* an extractor
+would give the tree an outward dependency and void the exception above, so
+`PurchaseOrderImportService` resolves it for the chosen buyer and hands it to
+`ParserService::parse()` as a third argument. The engine still knows nothing but its own pipeline.
+
 ### 2.3 Three formats, three toolchains, one result
 
 | Format | How it is read | Needs |
@@ -97,7 +104,51 @@ The document is a fixed-width text report. There is no markup, so:
 This is why the committed fixtures are **redacted with same-length replacements** — see
 [§5.1](#51-the-fixtures-are-redacted-and-that-is-load-bearing).
 
-### 2.5 Absence is data; the validator decides what matters
+### 2.5 Colour and size are read from the pack's own columns
+
+Every pack states its layout in the heading above its rows, and **the columns differ from pack to
+pack within one document**:
+
+```text
+COLOR           SIZE             ITEM SALES CHAN      QUANTITY     ITEM NBR
+0               16               33                   51           64
+GRAY-SIRO MIX   3-6M             OMNI CHANNEL IT             2     050087781
+
+COLOR                            ITEM SALES CHAN      QUANTITY     ITEM NBR     <- a single-item pack
+GRAY-SIRO MIX                    OMNI CHANNEL IT             2     050087778
+```
+
+`LineItemRowExtractor` reads each field from the span between its own heading and the next one.
+Three consequences are deliberate:
+
+- **A pack with no `SIZE` column is read, not guessed at.** `RegexLibrary::LINE_ITEM_COLUMNS` admits
+  a heading without one.
+- **`ITEM SALES CHAN` is never folded into the size.** A span that ended at `QUANTITY` would take
+  `OMNI CHANNEL IT` with it.
+- **Colour is read independently of size.** A size that cannot be read costs the size and nothing
+  else.
+
+**A size vocabulary is only the fallback**, for a row whose heading could not be read. It comes from
+the buyer's own BQS — `bqs_row_pack_sizes.size_label`, the band that is stored as rows precisely
+because those headers are data ([§7](#7-bqs-the-buyers-buy-plan-workbook)) — and falls back again to
+`po-parser.parsing.size_vocab` when the buyer has no BQS yet. `App\Support\SizeLabel` normalises for
+comparison only, because the two documents spell one size two ways (`XS(4/5)` against `XS-4-5`);
+each side still stores what its own file said.
+
+The order matters. The BQS band contains bare `S`, `M` and `L`, and a vocabulary consulted *first*,
+unanchored, finds the `S` inside `RED-JESTER RED` and reports the colour as `RED-JE`. The fallback
+match is therefore anchored to a column boundary, and `PoParserSingleItemPackTest` pins it.
+
+> **Four defects met on one document**, and only the last was visible. A `/^COLOR\s+SIZE/`
+> transition meant a single-item pack never opened a `LineItemRows` section; because
+> `PurchaseOrderBuilder::buildPacks()` pairs cost blocks to row blocks **by position**, every later
+> pack silently took the *next* pack's line items and the last pack was left empty. The colour was
+> derived from the size's offset, so an infant size run absent from the config vocabulary produced
+> `color = null` on every line — unlinkable to any BQS row, and unreported. V5 then warned five
+> times about pack sizes that were correct. The parse said `needs_review` about the one thing that
+> was not wrong.
+
+### 2.6 Absence is data; the validator decides what matters
 
 Extractors return `null` for a label that is not printed and never throw. A Walmart order leaves
 whole blocks blank routinely — the misc-comments block, the secondary beneficiary, the MFG stock
@@ -112,8 +163,24 @@ a confidence score compared against `po-parser.parsing.warn_threshold`.
 | V1 | PO number is ten digits | Error |
 | V2 | Quote ID present | Error |
 | V3 | Master cartons equals the sum of pack cartons | Warning |
-| V5 | Every pack has five line items | Warning |
+| V5 | Every pack holds the line items its assortment implies | Warning |
 | V12 | Two tariff entries (vendor + Walmart) | Warning |
+| V13 | Every line item's colour was readable | Warning |
+| V14 | A pack printed a size for at least one line | Warning |
+
+V1–V12 are the document's own numbering. **V13 and V14 are this application's**, added for
+absences the document has no rule about.
+
+> **V5 previously read "every pack has five line items", as a constant.** That is only true of an
+> *assortment* pack. An order of `Single Item Pack` packs holds one line each, and the constant
+> raised a warning on every pack of every such order — five warnings is a confidence of 0.75,
+> under `warn_threshold`, so a clean parse graded `needs_review` for nothing. The expected count now
+> comes from the pack's own `Assortment Ind:` line.
+>
+> V13 exists because the opposite failure was silent. A line whose colour did not parse cannot match
+> a BQS row and cannot be mapped by hand either ([§7](#7-bqs-the-buyers-buy-plan-workbook)), so it
+> reports as unplanned — indistinguishable from a colourway the buyer never bought. Every line of
+> every infant purchase order was in that state, and the import said `success`.
 
 ---
 

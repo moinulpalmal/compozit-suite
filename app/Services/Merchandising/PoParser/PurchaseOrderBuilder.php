@@ -21,6 +21,7 @@ use App\Services\Merchandising\PoParser\FieldExtractors\ShipCommentsExtractor;
 use App\Services\Merchandising\PoParser\FieldExtractors\SummaryTableExtractor;
 use App\Services\Merchandising\PoParser\FieldExtractors\TariffExtractor;
 use App\Services\Merchandising\PoParser\Support\Capture;
+use App\Services\Merchandising\PoParser\Support\RegexLibrary;
 use App\Services\Merchandising\PoParser\Validators\PoDataValidator;
 
 /**
@@ -60,8 +61,9 @@ final class PurchaseOrderBuilder
 
     /**
      * @param  list<array{state: ParserState, lines: list<array{index: int, text: string}>}>  $segments
+     * @param  list<string>  $sizeVocabulary  fallback size labels, from the buyer's BQS
      */
-    public function build(array $segments, int $pageCount): PurchaseOrderDto
+    public function build(array $segments, int $pageCount, array $sizeVocabulary = []): PurchaseOrderDto
     {
         $byState = $this->groupByState($segments);
 
@@ -80,7 +82,7 @@ final class PurchaseOrderBuilder
             'miscComments' => $this->miscComments->build($this->text($byState, ParserState::MiscComments)),
             'product' => $this->product->build($this->text($byState, ParserState::Product)),
             'tariffs' => $this->tariff->build($this->first($byState, ParserState::Tariff)),
-            'packs' => $this->buildPacks($byState),
+            'packs' => $this->buildPacks($byState, $sizeVocabulary),
         ];
 
         // The order has to exist before it can be validated, and its warnings are
@@ -97,10 +99,17 @@ final class PurchaseOrderBuilder
      * belongs to the nth set of rows. A pack whose rows failed to parse still appears,
      * with an empty line-item list, which validation rule V5 then reports.
      *
+     * **Positional pairing is only safe while every pack yields a row block.** It did
+     * not, once: {@see RegexLibrary::LINE_ITEM_COLUMNS} used to require a `SIZE`
+     * heading, so a single-item pack produced no row block at all and every later pack
+     * silently took the next pack's line items. The pattern now admits a pack without a
+     * size run, and `PoParserSingleItemPackTest` holds it there.
+     *
      * @param  array<string, list<list<array{index: int, text: string}>>>  $byState
+     * @param  list<string>  $sizeVocabulary
      * @return list<PackDto>
      */
-    private function buildPacks(array $byState): array
+    private function buildPacks(array $byState, array $sizeVocabulary): array
     {
         $costBlocks = $this->all($byState, ParserState::PackCost);
         $headerBlocks = $this->all($byState, ParserState::LineItemHeader);
@@ -117,7 +126,7 @@ final class PurchaseOrderBuilder
                 : null;
 
             $lineItems = isset($rowBlocks[$index])
-                ? $this->lineItemRow->build($rowBlocks[$index])
+                ? $this->lineItemRow->build($rowBlocks[$index], $sizeVocabulary)
                 : [];
 
             $packs[] = new PackDto(

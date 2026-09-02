@@ -8,6 +8,7 @@ use App\DataTransferObjects\Merchandising\Po\WarningDto;
 use App\Enums\Merchandising\PoFileType;
 use App\Exceptions\Merchandising\PoParser\PoParserException;
 use App\Exceptions\Merchandising\PoParser\PoValidationException;
+use App\Services\Merchandising\BqsSizeVocabulary;
 use App\Services\Merchandising\PoParser\LineProcessor\LineNormalizer;
 use App\Services\Merchandising\PoParser\LineProcessor\PageSplitter;
 use App\Services\Merchandising\PoParser\StateMachine\SectionStateMachine;
@@ -54,10 +55,13 @@ final class ParserService
     /**
      * @param  string  $absolutePath  the file on disk
      * @param  string  $sourceFileName  the name to report it by
+     * @param  list<string>  $sizeVocabulary  the buyer's BQS size labels, used only
+     *                                        when a pack's column headings cannot be
+     *                                        read; see {@see BqsSizeVocabulary}
      *
      * @throws PoParserException
      */
-    public function parse(string $absolutePath, string $sourceFileName): ParseResultDto
+    public function parse(string $absolutePath, string $sourceFileName, array $sizeVocabulary = []): ParseResultDto
     {
         $type = $this->detector->detect($absolutePath);
 
@@ -80,7 +84,7 @@ final class ParserService
                 $firstSegments = $segments;
             }
 
-            $purchaseOrders[] = $this->builder->build($segments, count($poPages));
+            $purchaseOrders[] = $this->builder->build($segments, count($poPages), $sizeVocabulary);
         }
 
         $warnings = $this->collectWarnings($purchaseOrders);

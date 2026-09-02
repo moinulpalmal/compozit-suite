@@ -81,6 +81,7 @@ final class PurchaseOrderImportService
         private readonly ParseGrader $grader,
         private readonly BuyerService $buyers,
         private readonly BqsPoLinker $linker,
+        private readonly BqsSizeVocabulary $sizeVocabulary,
     ) {}
 
     /**
@@ -136,7 +137,18 @@ final class PurchaseOrderImportService
         $absolutePath = Storage::disk($disk)->path($storedPath);
 
         try {
-            $result = $this->parser->parse($absolutePath, $file->getClientOriginalName());
+            /*
+             * The buyer's own BQS supplies the size labels, because a size run belongs
+             * to a product programme rather than to the application — see
+             * {@see BqsSizeVocabulary}. It is resolved here rather than inside the
+             * parser so the engine keeps its single entry point and no outward
+             * dependency (ARCHITECTURE.md §4).
+             */
+            $result = $this->parser->parse(
+                $absolutePath,
+                $file->getClientOriginalName(),
+                $this->sizeVocabulary->forBuyer($buyerId),
+            );
         } catch (\Throwable $exception) {
             // Nothing was written, so the stored upload would be an orphan.
             Storage::disk($disk)->delete($storedPath);
