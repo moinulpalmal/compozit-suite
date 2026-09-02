@@ -9,14 +9,15 @@
 
 ## 1. Overview
 
-Merchandising owns the order lifecycle up to the point production begins. Five sub-areas are
-planned; **three are built**:
+Merchandising owns the order lifecycle up to the point production begins. Six sub-areas are
+planned; **four are built**:
 
 | Sub-area | Status |
 | --- | --- |
 | Purchase order import & management | ✅ import, list, detail |
 | BQS — the buyer's buy plan workbook | ✅ import, list, detail — [§7](#7-bqs-the-buyers-buy-plan-workbook) |
 | TNA — the time & action schedule | ✅ read-only board — [§9](#9-tna--when-each-milestone-of-an-order-falls) |
+| Document library | ✅ upload, list, detail — [§10](#10-the-document-library) |
 | Development tech packs | 🟡 |
 | Fabric & accessory booking | 🟡 |
 
@@ -893,3 +894,112 @@ it runs.
 
 **Backwards offsets.** An anchor column on `tna_template_milestones` naming the milestone to count
 back from, defaulting to the BQS date. The recap sheet already works this way (§9.2).
+
+---
+
+## 10. The document library
+
+The third upload surface, and the only one that is **not** an importer.
+
+### 10.1 Why it exists
+
+The two importers are parsers, and both are template-specific: `PoParser` reads Walmart's purchase
+order and finds nothing in any other document; `BqsWorkbookReader` reads George's buy plan and
+refuses a workbook missing a required column. That is correct — a parser that guesses is worse than
+one that refuses — but it leaves everything else with nowhere to go, and everything else is most of
+what arrives. Size charts, TNA working sheets, a photograph of a swatch, a supplier's `.rtf` quote,
+whatever a buyer emails next week.
+
+The library takes all of it and reads none of it.
+
+### 10.2 The one thing a user can get wrong
+
+**`file_type` is a label, not an instruction.** A batch typed `BQS` is a stored document; it writes
+no `bqs_sheets` row, produces no revision, and is invisible to the BQS list. Importing a BQS is
+still the Import button on the BQS screen.
+
+That overlap is the accepted cost of the separation. The owner chose it over routing `BQS`- and
+`Purchase order`-typed uploads into the import services, which would have given the application two
+write paths to one fact — the failure mode `ARCHITECTURE.md` §5 records for buyer access, where two
+surfaces editing one thing is how they drift apart. The mitigation is wording rather than mechanism:
+the upload dialog says "Nothing is read out of them — to import a BQS or a purchase order, use the
+Import button on those screens instead", and the list's own description repeats it.
+
+### 10.3 A batch is the unit, and the buyer is optional
+
+Two decisions shape the schema.
+
+**One upload is one batch.** `document_uploads` holds who, when, the type and an optional title;
+`document_files` holds one row per file. The index lists batches and the detail page lists files,
+because [§8.6](../ARCHITECTURE.md#86-every-list-is-paginated-sortable-and-filtered-per-column)
+records that grouped rendering and pagination are incompatible — a batch straddling a page boundary
+would be cut in half. `file_count` is stored rather than counted so the list can sort on it.
+
+**`buyer_id` is nullable, and null means everyone.** A size chart or a TNA formula frequently
+concerns no single buyer, and the alternative — forcing a buyer — would file such documents under a
+buyer they do not belong to, which is worse than filing them under none. The consequence is that
+this is the first table needing
+[`BuyerScopedOrGlobal`](../ARCHITECTURE.md#92-buyer-scoped-access-control), because the plain scope
+gets a null backwards: `whereIn` never matches `NULL`, so an unassigned row would have been visible
+to nobody rather than to everyone.
+
+### 10.4 What is deliberately absent
+
+| Not built | Why |
+| --- | --- |
+| Parsing, text extraction, OCR | The scope is collection. Adding any of it later changes nothing here. |
+| Version history on replace | Replacing destroys the old file. It therefore needs `delete` as well as `update`, the same split `BqsResolveRequest` makes for `overwrite`. |
+| Deduplication | `file_hash` is stored but **not** unique: the same size chart legitimately arrives twice under two labels. That is the opposite of `bqs_imports`, where a byte-identical re-upload is a no-op worth detecting. |
+| A per-file size limit | `upload_max_filesize` and `post_max_size` are the ceiling, by decision. |
+| A buyer filter cell | The column is an id; filtering by name needs a join the shared apparatus does not do. The scope narrows the rows already. |
+
+### 10.5 Two limits that are not policies
+
+**Twenty files per batch is PHP's `max_file_uploads`.** Files past it are dropped from `$_FILES`
+before any PHP code runs — no warning, no validation error, they simply never arrive. The form
+validates against the number purely so the user is told, and the message says "send the rest as a
+second batch" because that is the actual remedy. Raising it means editing `php.ini` *and* the config
+key; raising the config alone re-opens the silent loss.
+
+**The extension allow-list is a security control.** `svg` and `html` are absent and must stay
+absent: the preview route renders allow-listed files inline from the application's own origin, and
+anything that can carry script there is stored XSS. The preview response also sends
+`X-Content-Type-Options: nosniff`, because the stored MIME type is whatever the uploader's browser
+claimed.
+
+### 10.6 The disk
+
+Files live on the private `local` disk under `merchandising-documents/{batch id}/{ULID}.{ext}`, and
+are served only by a route that checks the permission and the buyer scope — there is no public URL.
+
+**The uploader's filename never reaches the filesystem.** It is held on the row and restored by the
+download response, so a crafted name cannot escape the batch directory, collide with another
+batch's file, or be a name the operating system treats specially.
+
+`DocumentLibraryService` is the only writer, and its ordering rule is **write the disk inside the
+transaction, delete it after the commit**: a failed batch rolls the rows back and unlinks what it
+had already written, and a delete removes the object only once the row is definitely gone. A stored
+object with no row is invisible litter; a row with no object is a broken download somebody reports.
+
+### 10.7 Testing
+
+`tests/Feature/Merchandising/DocumentLibraryTest.php` covers the server: permissions per route, the
+unassigned-buyer case, the grouped-`OR` regression, the batch cap, scoped bindings, download,
+preview headers, replace, and both deletes.
+
+`tests/Browser/DocumentUploadFormTest.php` covers the wire format of the multi-file input — and
+stops at the request body, because **the browser plugin cannot carry a multipart request at all**.
+See [§13.2](../ARCHITECTURE.md#132-a-dom-level-test-harness-exists--testsbrowser), which records
+the limitation and how it presents.
+
+### 10.8 How to extend
+
+**A new document type.** Add a case to `DocumentType`. No migration, no TypeScript — the form, the
+filter cell and the list badge all build from `options()`.
+
+**Parsing, if it is ever wanted.** It belongs behind a job reading `document_files.stored_path` and
+writing a rendition alongside the row. Nothing about the collection path changes, which is the
+property the collect-only decision was chosen to keep.
+
+**Per-file types.** Move `file_type` from `document_uploads` to `document_files`. The batch stays the
+upload unit; only the label moves, and the list's type column becomes a summary rather than a value.

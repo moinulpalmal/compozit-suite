@@ -3,6 +3,7 @@ import {
     BriefcaseBusiness,
     CalendarClock,
     CalendarCog,
+    FolderOpen,
     KeyRound,
     LayoutGrid,
     Palette,
@@ -33,6 +34,7 @@ import { index as permissionsIndex } from '@/routes/admin/permissions';
 import { index as rolesIndex } from '@/routes/admin/roles';
 import { index as usersIndex } from '@/routes/admin/users';
 import { index as bqsIndex } from '@/routes/merchandising/bqs';
+import { index as documentsIndex } from '@/routes/merchandising/documents';
 import { index as purchaseOrdersIndex } from '@/routes/merchandising/purchase-orders';
 import { index as tnaIndex } from '@/routes/merchandising/tna';
 import { index as notificationColorsIndex } from '@/routes/settings/master-data/notification-colors';
@@ -63,6 +65,7 @@ export function AppSidebar() {
     const canViewBqs = useCan('merchandising.bqs.view');
     const canViewPurchaseOrders = useCan('merchandising.purchase-orders.view');
     const canViewTna = useCan('merchandising.tna.view');
+    const canViewDocuments = useCan('merchandising.documents.view');
 
     // Admin surfaces live in their own group, not alongside Platform.
     const adminNavItems: NavItem[] = [
@@ -143,6 +146,15 @@ export function AppSidebar() {
                       title: 'TNA',
                       href: tnaIndex(),
                       icon: CalendarClock,
+                  },
+              ]
+            : []),
+        ...(canViewDocuments
+            ? [
+                  {
+                      title: 'Documents',
+                      href: documentsIndex(),
+                      icon: FolderOpen,
                   },
               ]
             : []),

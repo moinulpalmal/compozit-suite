@@ -8,6 +8,7 @@ use App\Models\Admin\Permission;
 use App\Models\Admin\Role;
 use App\Models\Merchandising\BqsImport;
 use App\Models\Merchandising\BqsSheet;
+use App\Models\Merchandising\DocumentUpload;
 use App\Models\Merchandising\PurchaseOrder;
 use App\Models\Settings\NotificationColor;
 use App\Models\Settings\TnaTemplate;
@@ -181,7 +182,43 @@ function surfaces(): array
             'po_number',
             'vendor_name',
         ],
+        /*
+         * The document library, and the first surface whose scope admits rows
+         * belonging to *no* buyer. The seeds still grant the buyer, for the reason
+         * the purchase-order entry gives: the shared cases need the whole seeded set
+         * visible, and a mix of scoped and unassigned rows would make each one
+         * assert against a number that depends on the factory's default.
+         * `DocumentLibraryTest` is where the unassigned case is pinned.
+         */
+        'documents' => [
+            'merchandising.documents.index',
+            'uploads',
+            'merchandising.documents.view',
+            fn (int $count) => seedDocumentUploads($count),
+            fn (string $name) => seedDocumentUploads(1, $name),
+            'title',
+            'title',
+        ],
     ];
+}
+
+/**
+ * Create document uploads the acting user can see.
+ *
+ * Buyer-scoped like the purchase-order seeds, and granting for the same reason.
+ */
+function seedDocumentUploads(int $count, ?string $title = null): void
+{
+    $buyer = Buyer::factory()->create();
+
+    DocumentUpload::factory()
+        ->count($count)
+        ->create([
+            'buyer_id' => $buyer->id,
+            ...($title === null ? [] : ['title' => $title]),
+        ]);
+
+    Auth::user()?->buyers()->syncWithoutDetaching([$buyer->id]);
 }
 
 /**

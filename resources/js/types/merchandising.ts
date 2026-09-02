@@ -469,3 +469,59 @@ export type TnaListItem = {
     parse_status: string;
     tna: TnaPlan;
 };
+
+/**
+ * What an uploaded document *is*, as the uploader labelled it —
+ * `App\Enums\Merchandising\DocumentType`.
+ *
+ * **A label, not a pipeline.** `bqs` here means somebody called the file a BQS, not
+ * that it was imported as one: the document library stores files and reads nothing
+ * out of them (ARCHITECTURE.md §5, Module 3).
+ */
+export type DocumentType =
+    'bqs' | 'purchase-order' | 'size-chart' | 'tna-formula' | 'other';
+
+/** One batch, as the document list renders it. */
+export type DocumentUploadListItem = {
+    id: number;
+    title: string | null;
+    file_type: DocumentType;
+    file_count: number;
+    /** Null means the batch concerns no particular buyer, and everyone sees it. */
+    buyer: string | null;
+    uploaded_by: string | null;
+    created_at: string | null;
+};
+
+/** The batch header on the detail page. */
+export type DocumentUploadDetail = {
+    id: number;
+    title: string | null;
+    note: string | null;
+    file_type: DocumentType;
+    file_type_label: string;
+    file_count: number;
+    buyer: string | null;
+    uploaded_by: string | null;
+    created_at: string | null;
+};
+
+/** One file inside a batch. */
+export type DocumentFileItem = {
+    id: number;
+    original_name: string;
+    extension: string;
+    mime_type: string;
+    size_bytes: number;
+    /**
+     * Whether the browser can render it in place. A closed server-side list, not a
+     * guess from the MIME type — anything script-bearing must never be inlined.
+     */
+    is_previewable: boolean;
+    uploaded_by: string | null;
+    created_at: string | null;
+    updated_at: string | null;
+};
+
+/** The document list's query state. */
+export type DocumentFilters = ListFilters;

@@ -195,7 +195,7 @@ engine ever qualifies, it earns its own line here.
 | 0 | Dashboard | `Dashboard` | `routes/web.php` | `dashboard` | `/dashboard` | `pages/dashboard.tsx` | ✅ built (placeholder content) |
 | 1 | Admin | `Admin` | `routes/admin.php` | `admin.` | `/admin` | `pages/admin/` | 🟡 users + RBAC + designations built, rest scaffolded |
 | 2 | Settings | `Settings` | `routes/settings.php` | *(see note)* | `/settings` | `pages/settings/` | ✅ partly built |
-| 3 | Merchandising | `Merchandising` | `routes/merchandising.php` | `merchandising.` | `/merchandising` | `pages/merchandising/` | 🟡 purchase-order and BQS imports built, tech packs and bookings scaffolded |
+| 3 | Merchandising | `Merchandising` | `routes/merchandising.php` | `merchandising.` | `/merchandising` | `pages/merchandising/` | 🟡 purchase-order and BQS imports, TNA board and document library built; tech packs and bookings scaffolded |
 | 4 | Production | `Production` | `routes/production.php` | `production.` | `/production` | `pages/production/` | 🟡 scaffolded |
 | 5 | Reports | `Reports` | `routes/reports.php` | `reports.` | `/reports` | `pages/reports/` | 🟡 scaffolded |
 
@@ -330,6 +330,7 @@ are in [§9.4](#94-master-data).
 | c. Purchase order import & management | `Merchandising\PurchaseOrder*` | `pages/merchandising/purchase-orders/` | ✅ import + list + detail |
 | d. Fabric & accessory booking | `Merchandising\Booking*` | `pages/merchandising/bookings/` | 🟡 |
 | e. TNA (time & action schedule) | `Merchandising\Tna*` | `pages/merchandising/tna/` | ✅ read-only board |
+| f. Document library | `Merchandising\Document*` | `pages/merchandising/documents/` | ✅ upload + list + detail |
 
 Merchandising owns the order lifecycle up to the point production begins. It is the upstream
 source of truth for style, buyer order, and consumption data that Production reads.
@@ -533,6 +534,42 @@ schedule printed last week is not reproducible. That is right for a proof of con
 non-positive lead time, no band covering it — each returns a `TnaPlanDto` carrying a `reason` the
 page prints. Three blank cells and three blank cells with a sentence are the difference between "add
 a band in Settings" and "link a colour on the order", and a reader cannot tell them apart otherwise.
+
+#### The document library stores files and deliberately does not read them
+
+The third upload surface, and the only one that is **not** an importer. A user picks a
+`file_type` — BQS, Purchase order, Size chart, TNA formula, Other — attaches up to twenty files, and
+that is the whole operation. `document_uploads` is the batch; `document_files` is one row per file.
+
+**`file_type` is a label, not a pipeline, and this is the line a later reader will try to "fix".** A
+batch typed `bqs` writes no `bqs_sheets` row, runs no reader, and is not an imported BQS. The two
+existing importers are template-specific parsers that *refuse* what they cannot read; the library
+exists for everything they refuse, which is most of what arrives. Wiring the two together would give
+the application two write paths to one fact — the failure mode [§5 Module 1](#module-1--admin)
+records for buyer access. The owner chose the separation knowing the cost: two places to put a
+workbook, mitigated by naming rather than by mechanism.
+
+Consequences worth stating, because each is a decision:
+
+- **No parsing means no `import` permission.** The catalogue entry is
+  `merchandising.documents.{view,create,update,delete}` — plain `create`, where BQS and purchase
+  orders both have `import`. `import` names the power to run a parser over an upload; nothing here
+  parses, so it would name a distinction that does not exist.
+- **The index lists batches, the detail page lists files.** [§8.6](#86-every-list-is-paginated-sortable-and-filtered-per-column)
+  forbids grouped rendering inside a paginated list, so the two cannot be one screen. `file_count`
+  is a stored column, not a `withCount`, so the list can sort on it.
+- **Replace destroys, and therefore needs `delete`.** There is no version chain. `update` alone
+  would let a user who may add documents destroy one, which is the split `BqsResolveRequest`
+  enforces for `overwrite`.
+- **The batch cap is PHP's `max_file_uploads`, not a policy.** Files past it are dropped from
+  `$_FILES` before any PHP runs — no warning, no validation error — so the form validates against it
+  purely so the user is told. There is deliberately **no per-file size limit**: `upload_max_filesize`
+  and `post_max_size` are the ceiling.
+- **Nothing is previewed inline unless config allows it.** `svg` and `html` are absent from both
+  allow-lists and must stay absent; an inline SVG served from this origin is stored XSS.
+- **Every per-file route is nested under its batch and uses `->scopeBindings()`** — see
+  [§9.2](#92-buyer-scoped-access-control), which is where the buyer question this surface raised is
+  answered.
 
 ### Module 4 — Production
 
@@ -1151,6 +1188,7 @@ may do, buyer scope says *which rows* they may do it to.
 | The one question | `App\Models\User::seesAllBuyers()` |
 | The scope | `App\Models\Scopes\BuyerScope` |
 | Opting a model in | `use App\Concerns\BuyerScoped;` — that is the whole registration |
+| Opting in with a **nullable** buyer | `use App\Concerns\BuyerScopedOrGlobal;` — see below |
 | Editing access | `Admin\BuyerAccessService`, from the users screen |
 
 Rules, each of which is a decision rather than an accident:
@@ -1162,6 +1200,22 @@ Rules, each of which is a decision rather than an accident:
 - **The column is `buyer_id`, on the buyer-owned table itself.** A model that reaches its buyer
   through a parent cannot use this scope as written; give it its own `buyer_id` rather than teaching
   the scope to join.
+- **A nullable `buyer_id` needs `BuyerScopedOrGlobal`, because `BuyerScoped` gets it silently
+  backwards.** The scope's predicate is `whereIn('buyer_id', $ids)`, and **`NULL` never matches an
+  `IN` list** — so a row belonging to no buyer would be visible to nobody but a super admin, which
+  is the opposite of what "no buyer" means and reads as a permissions bug rather than a modelling
+  one. `BuyerScope` therefore takes an `includeUnassigned` flag, and the second trait registers it.
+  Two rules come with it:
+  - **The `orWhereNull` must be grouped in a closure.** `orWhere` binds looser than every other
+    `where` already on the query, so an ungrouped one reads as
+    `(… filters … AND buyer_id IN (…)) OR buyer_id IS NULL` — every unassigned row, unfiltered, on
+    every filtered list. A global scope cannot see what else the query holds, so it must never
+    contribute a top-level `OR`. `BuyerScopeTest` pins this against a filtered query, not just a
+    bare one.
+  - **It widens who can see a row, so it is not a convenience.** `document_uploads` is the only
+    table using it, justified by one fact: a size chart or a TNA formula concerns no particular
+    buyer, and hiding it from everyone makes the surface useless. A table whose rows always belong
+    to a buyer uses `BuyerScoped` and a non-nullable column.
 - **"All buyer access" is a flag, never materialised rows.** A user carrying it has *no* `buyer_user`
   rows and needs none, so a buyer created a second from now is visible with nothing to synchronise.
   Copying each new buyer into a row per all-access user — the original request — was rejected: it
@@ -1196,6 +1250,15 @@ throwaway model stays — it pins the trait's contract independently of any modu
 `po_line_items` is the first model to hit the stated limit: it reaches its buyer through its parent
 and therefore has **no** `buyer_id` and does **not** use the trait. Every read goes through
 `PurchaseOrder`, which is scoped, and the foreign key cascades. Do not add a scope that joins.
+
+**A child table reached directly from a URL needs `->scopeBindings()`, and nothing else supplies
+it.** `document_files` is the first unscoped child a route names — a file is downloaded, previewed,
+replaced and deleted individually — and a route of the form `/documents/files/{documentFile}` would
+resolve one belonging to a batch the actor cannot see and serve it. The per-file routes are
+therefore nested under `{documentUpload}` inside a `Route::scopeBindings()` group, so Laravel
+resolves the child through `$documentUpload->files()` and the parent's scope decides first. Every
+future route that names a child of a buyer-scoped parent owes the same, and the database enforces
+none of it.
 
 **A relationship spanning two scoped trees has no database-level guard, and needs a written one.**
 `po_line_items.bqs_row_id` joins two tables that each reach their buyer through a parent, so
@@ -1513,6 +1576,20 @@ Three things about it are decisions rather than defaults:
 - **A browser test earns its place by testing something a DOM can only answer.** Anything provable
   by posting a payload belongs in `tests/Feature/`, which is an order of magnitude faster. The rule
   of thumb: if removing the fix would still fail the feature test, the browser test is redundant.
+
+**A browser test cannot complete a file upload, and the limit is the plugin.** Its HTTP driver
+parses a request body only when the content type is `application/x-www-form-urlencoded`, and passes
+an empty array where uploads would go — `LaravelHttpServer.php` reads `[], // @TODO files...`. A
+multipart POST therefore reaches the application with **`$_POST` and `$_FILES` both empty**, while
+`getContent()` holds the whole body, so validation fails on *every* field at once and it looks
+exactly like a broken form. This was diagnosed the slow way once; do not diagnose it again.
+
+What a browser test can still do with a file input is assert the **request body the form would
+send**: select files with `DataTransfer`, then read `new FormData(form)` back. That is where the
+`buyers[][]` class of bug lives, and `tests/Browser/DocumentUploadFormTest.php` is the worked
+example. `->attach()` is single-file only — it calls `setInputFiles`, which replaces rather than
+appends. Note also that `script()` does not retry, so a read must be preceded by an assertion that
+waits for the state it is about to read.
 
 `database/browser-testing.sqlite` is rebuilt by `RefreshDatabase` on every run and is git-ignored.
 
