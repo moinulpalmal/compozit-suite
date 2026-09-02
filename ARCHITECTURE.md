@@ -878,6 +878,14 @@ presentation only — the route's `permission:` middleware is what actually deni
   nothing. Any new control that replaces a native form element must do the same.
 - **`multiple` renders removable chips** and emits one hidden `name[]` input per selection, so the
   server sees exactly what a checkbox list would have sent.
+- **Option values match by value, not by identity.** The same id reaches the control as a number
+  from the server (`assignableOptions()` and every `options` endpoint emit an `int` `value`) and,
+  from a call site that seeded `defaultValue` out of form-shaped state, as a string. `===` reads
+  those as different: the trigger falls back to its placeholder while the hidden input goes on
+  submitting the right id, which looks like data loss and is not. `combobox.tsx` therefore compares
+  through `sameValue()`, which normalises to a string and treats `null`/`undefined` as matching
+  nothing. The TNA template colour ladder shipped with this bug. Call sites should still pass ids
+  in the type the server uses; the normalisation is a floor, not a licence.
 - **The hidden-input contract binds every compound control, not just this one.**
   `components/ui/color-input.tsx` is the second: a native `<input type="color">` for picking and a
   text `<Input>` for typing the same hex, of which **only the text field carries `name`** — the
@@ -985,6 +993,16 @@ typed work or a destructive confirmation, and a stray click outside one was disc
   `showCloseButton` no longer exists — `DialogContent` always renders it. `sidebar.tsx` used to
   pass `showCloseButton={false}` for the mobile drawer; under this rule that would have been a
   trap with no exit, and it now shows the X like everything else.
+- **A closed dialog holds no state**, and this is what makes Cancel actually cancel.
+  `DialogContent` mounts its children when the panel opens and unmounts them when it closes, so
+  every `defaultValue` re-seeds from props and every `useState` inside re-initialises on the next
+  open. The children used to be mounted permanently: Cancel discarded nothing, and a form reopened
+  showing the edit you had abandoned rather than the row the server holds. It was worst where a
+  dialog kept React state of its own — the TNA colour ladder is a repeater, so rows added and
+  removed survived Cancel *and* a successful save. `DialogClose` stays outside the guard, because
+  the only exit is never conditional. A dialog that must survive being closed keeps that state in
+  the component *above* `DialogContent`, the way the two import dialogs keep their
+  reopen-on-pending `useRef`.
 - **`Sheet` inherits it**, being the same primitive with a different placement. The mobile
   navigation drawer therefore closes by its X, not by tapping the page behind it.
 - **Menus are the opposite case and keep light dismiss.** `dropdown-menu.tsx` keeps

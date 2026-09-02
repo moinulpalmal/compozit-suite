@@ -1,6 +1,8 @@
 <?php
 
+use App\Models\Settings\NotificationColor;
 use App\Models\Settings\TnaTemplate;
+use App\Models\Settings\TnaTemplateColor;
 
 /*
 |--------------------------------------------------------------------------
@@ -20,6 +22,33 @@ use App\Models\Settings\TnaTemplate;
 const BROWSER_MASTER_DATA_VIEW = 'settings.master-data.view';
 
 const BROWSER_MASTER_DATA_CREATE = 'settings.master-data.create';
+
+const BROWSER_MASTER_DATA_UPDATE = 'settings.master-data.update';
+
+/**
+ * A template with a two-rung ladder, in colours named so a test can read them off
+ * the screen. Faker's names are unique but unpredictable, and these assertions are
+ * about *which* colour a row shows.
+ *
+ * @return array{0: TnaTemplate, 1: NotificationColor, 2: NotificationColor}
+ */
+function templateWithLadder(): array
+{
+    $urgent = NotificationColor::factory()->create(['name' => 'Kingfisher Urgent']);
+    $calm = NotificationColor::factory()->create(['name' => 'Meadow Calm']);
+
+    $template = TnaTemplate::factory()->withOffsets()->create(['name' => 'Ladder Under Test']);
+
+    TnaTemplateColor::factory()->for($template, 'template')->upTo(3)->create([
+        'notification_color_id' => $urgent->id,
+    ]);
+
+    TnaTemplateColor::factory()->for($template, 'template')->create([
+        'notification_color_id' => $calm->id,
+    ]);
+
+    return [$template, $urgent, $calm];
+}
 
 /**
  * The empty repeater renders no inputs, so `colors` left the browser *missing*
@@ -53,4 +82,89 @@ test('a template with no colour bands submits an empty colour set', function () 
 
     expect($template->name)->toBe('No colours at all')
         ->and($template->colors)->toHaveCount(0);
+});
+
+/**
+ * Every band rendered its placeholder instead of its colour.
+ *
+ * `assignableOptions()` emits `value` as an `int`; the ladder seeded each rung with
+ * `String($id)`, and `Combobox` resolved the selection with `===`. `'3' === 3` is
+ * false, so `selected` was null and the trigger fell back to "Choose a colour" —
+ * while the hidden input went on submitting the right id. A feature test posting a
+ * payload cannot see either half of that.
+ */
+test('the edit dialog shows the colour each band already uses', function () {
+    $this->actingAs(userWithPermissions(
+        BROWSER_MASTER_DATA_VIEW,
+        BROWSER_MASTER_DATA_UPDATE,
+    ));
+
+    [$template] = templateWithLadder();
+
+    visit('/settings/master-data/tna-templates')
+        ->click('[aria-label="Edit '.$template->name.'"]')
+        // "Colour bands" is the list's column header too, so it cannot tell an open
+        // dialog from a closed one. "Add band" only ever renders inside the ladder.
+        ->assertSee('Add band')
+        // Scoped to the triggers: the closed menu holds the same names, so an
+        // unscoped assertion would pass with the bug still in place.
+        ->assertSeeIn('[data-test="band-color-0"]', 'Kingfisher Urgent')
+        ->assertSeeIn('[data-test="band-color-1"]', 'Meadow Calm')
+        ->assertDontSee('Choose a colour')
+        ->assertNoJavaScriptErrors();
+});
+
+/**
+ * The bug was display-only — the hidden input still carried the id — and this is
+ * what pins that, so a future change to the matching cannot quietly start blanking
+ * a ladder nobody touched.
+ */
+test('saving an untouched ladder preserves every band', function () {
+    $this->actingAs(userWithPermissions(
+        BROWSER_MASTER_DATA_VIEW,
+        BROWSER_MASTER_DATA_UPDATE,
+    ));
+
+    [$template, $urgent, $calm] = templateWithLadder();
+
+    visit('/settings/master-data/tna-templates')
+        ->click('[aria-label="Edit '.$template->name.'"]')
+        ->click('Save changes')
+        // The toast is the only thing that says the round trip finished; the
+        // assertions below do not retry, so without this they race it.
+        ->waitForText('TNA template updated')
+        // The panel unmounts its children on close, so the ladder is gone once the
+        // save lands. Not "Colour bands" — that is the list's column header as well.
+        ->assertDontSee('Add band')
+        ->assertNoJavaScriptErrors();
+
+    $bands = $template->fresh('colors')->colors;
+
+    expect($bands->pluck('notification_color_id')->all())->toBe([$urgent->id, $calm->id])
+        ->and($bands->pluck('max_days_remaining')->all())->toBe([3, null]);
+});
+
+/**
+ * `DialogContent` used to render its children whether the panel was open or not, so
+ * nothing ever unmounted: the ladder's `useState` ran once at page load and Cancel
+ * discarded nothing. Reopening showed the edit you had abandoned.
+ */
+test('reopening the dialog shows the saved template, not the last edit', function () {
+    $this->actingAs(userWithPermissions(
+        BROWSER_MASTER_DATA_VIEW,
+        BROWSER_MASTER_DATA_UPDATE,
+    ));
+
+    [$template] = templateWithLadder();
+
+    visit('/settings/master-data/tna-templates')
+        ->click('[aria-label="Edit '.$template->name.'"]')
+        ->click('Add band')
+        // The row just added is the only one with no colour chosen.
+        ->assertSee('Choose a colour')
+        ->click('Cancel')
+        ->click('[aria-label="Edit '.$template->name.'"]')
+        ->assertSee('Add band')
+        ->assertDontSee('Choose a colour')
+        ->assertNoJavaScriptErrors();
 });

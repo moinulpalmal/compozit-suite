@@ -37,6 +37,16 @@ import { cn } from '@/lib/utils';
  * does not reset the count (measured, not guessed). That backstop cannot be
  * disabled from script, and it is the browser guaranteeing a user is never
  * trapped. Treat one Escape doing nothing as the behaviour this rule buys.
+ *
+ * **A closed dialog holds no state.** `DialogContent` mounts its children when the
+ * panel opens and unmounts them when it closes, so every `defaultValue` re-seeds
+ * from props and every `useState` inside re-initialises on the next open. This is
+ * load-bearing, not an optimisation: the children used to be mounted permanently,
+ * which meant Cancel discarded nothing and reopening a form showed the edit you had
+ * abandoned rather than the row the server holds. It was worst where a dialog kept
+ * React state of its own — the TNA colour ladder is a repeater, so rows added and
+ * removed survived both Cancel *and* a successful save. `DialogClose` stays outside
+ * the guard: the only exit is never conditional.
  */
 type DialogContextValue = {
     open: boolean;
@@ -202,7 +212,9 @@ function DialogContent({
                 className={cn('relative modal-box grid gap-4', className)}
                 {...props}
             >
-                {children}
+                {/* Mounted only while open — see "A closed dialog holds no
+                    state" in the docblock. */}
+                {open && children}
 
                 {/* The only way out — see the docblock. Never conditional. */}
                 <DialogClose

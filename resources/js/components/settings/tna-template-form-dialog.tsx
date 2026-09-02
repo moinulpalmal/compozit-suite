@@ -298,7 +298,13 @@ function MilestoneOffsets({
  */
 type Rung = {
     key: number;
-    notification_color_id: string;
+    /**
+     * The id as the server types it — a number, or `null` for a row not yet
+     * answered. It was `String(...)`ed here once, which made every band render its
+     * placeholder: `ColorOption.value` is an `int`, and `Combobox` matched with
+     * `===`. The control now normalises, but the honest type is still a number.
+     */
+    notification_color_id: number | null;
     max_days_remaining: string;
 };
 
@@ -325,7 +331,7 @@ function ColorLadder({
         () =>
             template?.colors.map((band) => ({
                 key: nextRungKey++,
-                notification_color_id: String(band.notification_color_id),
+                notification_color_id: band.notification_color_id,
                 max_days_remaining:
                     band.max_days_remaining === null
                         ? ''
@@ -423,7 +429,7 @@ function ColorLadder({
                                 ...current,
                                 {
                                     key: nextRungKey++,
-                                    notification_color_id: '',
+                                    notification_color_id: null,
                                     max_days_remaining: '',
                                 },
                             ])

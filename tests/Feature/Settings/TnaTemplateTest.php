@@ -204,6 +204,33 @@ test('one colour may not be used by two bands of the same template', function ()
     ]))->assertSessionHasErrors('colors.1.notification_color_id');
 });
 
+/**
+ * The ladder is read first-match-wins ascending, so the second rung at a given bound
+ * can never be reached — it reads as a working colour and paints nothing.
+ */
+test('two bands may not share an upper bound', function () {
+    $this->post(route('settings.master-data.tna-templates.store'), tnaTemplatePayload([
+        'colors' => [
+            ['notification_color_id' => NotificationColor::factory()->create()->id, 'max_days_remaining' => 7],
+            ['notification_color_id' => NotificationColor::factory()->create()->id, 'max_days_remaining' => 7],
+        ],
+    ]))->assertSessionHasErrors('colors.1.max_days_remaining');
+
+    expect(TnaTemplate::count())->toBe(0);
+});
+
+test('bands with different bounds are not a duplicate', function () {
+    $this->post(route('settings.master-data.tna-templates.store'), tnaTemplatePayload([
+        'colors' => [
+            ['notification_color_id' => NotificationColor::factory()->create()->id, 'max_days_remaining' => 0],
+            ['notification_color_id' => NotificationColor::factory()->create()->id, 'max_days_remaining' => -1],
+            ['notification_color_id' => NotificationColor::factory()->create()->id, 'max_days_remaining' => null],
+        ],
+    ]))->assertSessionHasNoErrors();
+
+    expect(TnaTemplate::sole()->colors)->toHaveCount(3);
+});
+
 test('shipment cannot be scheduled by a template', function () {
     $this->post(route('settings.master-data.tna-templates.store'), tnaTemplatePayload([
         'milestones' => [

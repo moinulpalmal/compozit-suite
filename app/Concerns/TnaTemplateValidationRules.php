@@ -16,7 +16,7 @@ use Illuminate\Validation\Validator;
  * Extracted the way {@see NotificationColorValidationRules} is, so the two requests
  * differ only in the id they ignore.
  *
- * Three rules here cannot be expressed as field rules and live in
+ * Four rules here cannot be expressed as field rules and live in
  * {@see self::validateTnaTemplate()} instead. Each is a constraint the database
  * cannot carry either, which is why validation is the only thing standing behind
  * them — see the migrations for why in each case.
@@ -60,7 +60,7 @@ trait TnaTemplateValidationRules
     }
 
     /**
-     * The three cross-field rules, applied after the field rules pass.
+     * The four cross-field rules, applied after the field rules pass.
      *
      * They are here rather than in the database because none of them can be:
      *
@@ -70,6 +70,12 @@ trait TnaTemplateValidationRules
      *   `NULL`s are permitted in unique indexes on both drivers, so the index would
      *   read as a guard while allowing exactly what it appears to forbid — the same
      *   trap documented on `bqs_sheets.root_id`.
+     * - **No two rungs may share an upper bound.** The ladder is read first-match-wins
+     *   in ascending order ({@see TnaTemplate::colors()}), so the second rung at a
+     *   given bound is unreachable — dead configuration that reads as a working
+     *   colour. A unique index on `(tna_template_id, max_days_remaining)` would carry
+     *   the numbered rungs but let repeated `NULL`s through, so it would enforce this
+     *   rule and silently drop the one above it.
      * - **Only schedulable milestones may carry an offset.** `Shipment` comes from
      *   the purchase order; a template offsetting it would contradict the order it
      *   describes, and the lead time it was chosen by.
@@ -159,7 +165,8 @@ trait TnaTemplateValidationRules
     }
 
     /**
-     * Refuse a second catch-all rung, and the same colour used twice.
+     * Refuse a second catch-all rung, the same colour used twice, and two rungs
+     * sharing an upper bound.
      */
     private function validateColors(Validator $validator): void
     {
@@ -167,34 +174,52 @@ trait TnaTemplateValidationRules
         $colors = $this->input('colors', []);
 
         $catchAll = null;
-        $seen = [];
+        $seenColors = [];
+        $seenBounds = [];
 
         foreach ($colors as $index => $color) {
             $colorId = (int) ($color['notification_color_id'] ?? 0);
 
-            if (in_array($colorId, $seen, true)) {
+            if (in_array($colorId, $seenColors, true)) {
                 $validator->errors()->add(
                     "colors.{$index}.notification_color_id",
                     __('This colour is already used by another band on this template.'),
                 );
             } else {
-                $seen[] = $colorId;
+                $seenColors[] = $colorId;
             }
 
-            if (($color['max_days_remaining'] ?? null) !== null) {
+            $bound = $color['max_days_remaining'] ?? null;
+
+            if ($bound === null) {
+                if ($catchAll !== null) {
+                    $validator->errors()->add(
+                        "colors.{$index}.max_days_remaining",
+                        __('Only one band may be left open-ended. Give this one an upper bound in days.'),
+                    );
+
+                    continue;
+                }
+
+                $catchAll = $index;
+
                 continue;
             }
 
-            if ($catchAll !== null) {
+            $bound = (int) $bound;
+
+            if (in_array($bound, $seenBounds, true)) {
                 $validator->errors()->add(
                     "colors.{$index}.max_days_remaining",
-                    __('Only one band may be left open-ended. Give this one an upper bound in days.'),
+                    __('Another band already ends at :days days, and the ladder is read in order — this one would never be reached. Give it a different bound.', [
+                        'days' => $bound,
+                    ]),
                 );
 
                 continue;
             }
 
-            $catchAll = $index;
+            $seenBounds[] = $bound;
         }
     }
 
