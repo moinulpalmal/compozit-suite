@@ -38,9 +38,11 @@ type Props = {
  * named pages rather than the `settings/` prefix, precisely so a full-width
  * table like this one has somewhere to go (§8.1).
  *
- * Delete is unconditional here, unlike designations. Nothing references a colour
- * until `notifications` is built, so there is no holder to refuse on — the guard
- * that becomes owed at that point is recorded in documentation/settings.md §3.5.
+ * Delete is refused when a TNA template paints a milestone with the colour, the
+ * same way a designation somebody holds is refused. The server decides and answers
+ * with a `warning` toast — this page always offers the button, because a client
+ * that predicted the refusal would need the holder count on every row and would go
+ * stale the moment someone else edited a template.
  */
 export default function NotificationColorsIndex({
     notificationColors,

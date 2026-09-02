@@ -84,13 +84,20 @@ class NotificationColorController extends Controller
     /**
      * Delete the given notification colour.
      *
-     * Unconditional today, because nothing references a colour yet. When
-     * `notifications` lands this grows the same blocker-then-warn shape
-     * `DesignationController::destroy` uses — see
-     * {@see NotificationColorService} for why that guard belongs in the service.
+     * Refuses when a TNA template paints a milestone with it — the blocker-then-warn
+     * shape `DesignationController::destroy` uses. See {@see NotificationColorService}
+     * for why that guard belongs in the service and not in a policy.
      */
     public function destroy(NotificationColor $notificationColor): RedirectResponse
     {
+        $blocker = $this->notificationColors->deletionBlocker($notificationColor);
+
+        if ($blocker !== null) {
+            Inertia::flash('toast', ['type' => 'warning', 'message' => $blocker]);
+
+            return back();
+        }
+
         $this->notificationColors->delete($notificationColor);
 
         Inertia::flash('toast', ['type' => 'success', 'message' => __('Notification colour deleted.')]);

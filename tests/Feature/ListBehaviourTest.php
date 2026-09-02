@@ -6,8 +6,13 @@ use App\Models\Admin\Buyer;
 use App\Models\Admin\Designation;
 use App\Models\Admin\Permission;
 use App\Models\Admin\Role;
+use App\Models\Merchandising\BqsImport;
+use App\Models\Merchandising\BqsSheet;
+use App\Models\Merchandising\PurchaseOrder;
 use App\Models\Settings\NotificationColor;
+use App\Models\Settings\TnaTemplate;
 use App\Models\User;
+use Illuminate\Support\Facades\Auth;
 
 /*
 |--------------------------------------------------------------------------
@@ -39,10 +44,15 @@ use App\Models\User;
 const FILTER_TOKEN = 'Qqzz';
 
 /**
- * Every list surface: route name, prop key, permission, how to make N rows, and
- * how to make one row with a given name.
+ * Every list surface: route name, prop key, permission, how to make N rows, how to
+ * make one row carrying a given token, and the two columns the shared cases drive.
  *
- * @return array<string, array{0: string, 1: string, 2: string, 3: callable(int): void, 4: callable(string): void}>
+ * The last two used to be hard-coded as `name`, which held while every surface had a
+ * `name` column. Purchase orders do not — an order is identified by its number, and
+ * the column worth finding mid-string is the vendor. Naming them per surface is what
+ * lets a list with different columns still inherit the whole contract.
+ *
+ * @return array<string, array{0: string, 1: string, 2: string, 3: callable(int): void, 4: callable(string): void, 5: string, 6: string}>
  */
 function surfaces(): array
 {
@@ -53,6 +63,8 @@ function surfaces(): array
             'admin.users.view',
             fn (int $count) => User::factory()->count($count)->create(),
             fn (string $name) => User::factory()->create(['name' => $name]),
+            'name',
+            'name',
         ],
         'designations' => [
             'admin.designations.index',
@@ -60,6 +72,8 @@ function surfaces(): array
             'admin.designations.view',
             fn (int $count) => Designation::factory()->count($count)->create(),
             fn (string $name) => Designation::factory()->create(['name' => $name]),
+            'name',
+            'name',
         ],
         'buyers' => [
             'admin.buyers.index',
@@ -67,6 +81,8 @@ function surfaces(): array
             'admin.buyers.view',
             fn (int $count) => Buyer::factory()->count($count)->create(),
             fn (string $name) => Buyer::factory()->create(['name' => $name]),
+            'name',
+            'name',
         ],
         'roles' => [
             'admin.roles.index',
@@ -76,6 +92,8 @@ function surfaces(): array
                 fn (int $i) => Role::findOrCreate("role-{$i}", 'web'),
             ),
             fn (string $name) => Role::findOrCreate($name, 'web'),
+            'name',
+            'name',
         ],
         'permissions' => [
             'admin.permissions.index',
@@ -85,6 +103,8 @@ function surfaces(): array
                 fn (int $i) => Permission::findOrCreate("listing.things.act-{$i}", 'web'),
             ),
             fn (string $name) => Permission::findOrCreate($name, 'web'),
+            'name',
+            'name',
         ],
         /*
          * The only non-Admin surface, and the reason this file is no longer an
@@ -97,8 +117,128 @@ function surfaces(): array
             'settings.master-data.view',
             fn (int $count) => NotificationColor::factory()->count($count)->create(),
             fn (string $name) => NotificationColor::factory()->create(['name' => $name]),
+            'name',
+            'name',
+        ],
+        /*
+         * The first buyer-scoped surface, and the first with no `name` column.
+         * Its seeds also grant the acting user access to the buyer they create —
+         * without that `BuyerScope` filters every row away and each shared case
+         * fails on an empty list, which reads as a pagination bug and is not one.
+         */
+        'purchase orders' => [
+            'merchandising.purchase-orders.index',
+            'purchaseOrders',
+            'merchandising.purchase-orders.view',
+            fn (int $count) => seedPurchaseOrders($count),
+            fn (string $name) => seedPurchaseOrders(1, $name),
+            'po_number',
+            'vendor_name',
+        ],
+
+        /*
+         * Buyer-scoped like purchase orders, and seeded the same way for the same
+         * reason. `title` is the contains column — a BQS's only human label is its
+         * workbook file name, and people remember the middle of one ("skater dress")
+         * rather than its opening.
+         */
+        'bqs' => [
+            'merchandising.bqs.index',
+            'sheets',
+            'merchandising.bqs.view',
+            fn (int $count) => seedBqsSheets($count),
+            fn (string $name) => seedBqsSheets(1, $name),
+            'bqs_date',
+            'title',
+        ],
+        /*
+         * Settings' second master-data surface, proving the one-bucket permission
+         * really does serve a second table with no entry of its own.
+         */
+        'tna templates' => [
+            'settings.master-data.tna-templates.index',
+            'templates',
+            'settings.master-data.view',
+            fn (int $count) => seedTnaTemplates($count),
+            fn (string $name) => TnaTemplate::factory()->create(['name' => $name]),
+            'name',
+            'name',
+        ],
+        /*
+         * The TNA board lists purchase orders rather than a model of its own, so it
+         * is seeded exactly like that surface — including the buyer grant, without
+         * which every row is filtered away and the shared cases fail on an empty
+         * list. Its sort and contains columns are the order's, because they are the
+         * only ones the database can narrow by: everything else on the page is
+         * computed per row after the query (see `TnaIndexRequest`).
+         */
+        'tna' => [
+            'merchandising.tna.index',
+            'orders',
+            'merchandising.tna.view',
+            fn (int $count) => seedPurchaseOrders($count),
+            fn (string $name) => seedPurchaseOrders(1, $name),
+            'po_number',
+            'vendor_name',
         ],
     ];
+}
+
+/**
+ * Create TNA templates whose bands cannot collide.
+ *
+ * The factory's default band is 1–30 for every row, and `name` is unique — so
+ * seeding thirty of them needs distinct bands as well as distinct names. Overlap is
+ * a *validation* rule rather than a constraint, so this is about realism rather than
+ * about the insert succeeding.
+ */
+function seedTnaTemplates(int $count): void
+{
+    foreach (range(1, $count) as $index) {
+        TnaTemplate::factory()->covering($index * 10, $index * 10 + 9)->create();
+    }
+}
+
+/**
+ * Create BQS records the acting user can actually see.
+ *
+ * `BqsSheet` is `BuyerScoped` (ARCHITECTURE.md §9.2), so rows are invisible unless
+ * the signed-in user holds their buyer — the same grant `seedPurchaseOrders()` makes.
+ */
+function seedBqsSheets(int $count, ?string $title = null): void
+{
+    $buyer = Buyer::factory()->create();
+
+    BqsSheet::factory()
+        ->count($count)
+        ->for(BqsImport::factory()->for($buyer, 'buyer'), 'import')
+        ->create([
+            'buyer_id' => $buyer->id,
+            ...($title === null ? [] : ['title' => $title]),
+        ]);
+
+    Auth::user()?->buyers()->syncWithoutDetaching([$buyer->id]);
+}
+
+/**
+ * Create purchase orders the acting user can actually see.
+ *
+ * `PurchaseOrder` is `BuyerScoped` (ARCHITECTURE.md §9.2), so rows are invisible
+ * unless the signed-in user holds their buyer. Every shared case signs in before it
+ * seeds, so the grant can be made here rather than in each one.
+ */
+function seedPurchaseOrders(int $count, ?string $vendorName = null): void
+{
+    $buyer = Buyer::factory()->create();
+
+    PurchaseOrder::factory()
+        ->count($count)
+        ->create([
+            'buyer_id' => $buyer->id,
+            ...($vendorName === null ? [] : ['vendor_name' => $vendorName]),
+        ]);
+
+    Auth::user()?->buyers()->syncWithoutDetaching([$buyer->id]);
 }
 
 dataset('list surfaces', fn () => surfaces());
@@ -109,6 +249,8 @@ test('every list is paginated at 10 rows by default', function (
     string $permission,
     callable $seed,
     callable $seedNamed,
+    string $sortColumn,
+    string $containsColumn,
 ) {
     $this->actingAs(userWithPermissions($permission));
 
@@ -130,6 +272,8 @@ test('every list serves a second page', function (
     string $permission,
     callable $seed,
     callable $seedNamed,
+    string $sortColumn,
+    string $containsColumn,
 ) {
     $this->actingAs(userWithPermissions($permission));
 
@@ -148,6 +292,8 @@ test('every list honours an allow-listed page size', function (
     string $permission,
     callable $seed,
     callable $seedNamed,
+    string $sortColumn,
+    string $containsColumn,
 ) {
     $this->actingAs(userWithPermissions($permission));
 
@@ -173,6 +319,8 @@ test('every list refuses a page size outside the allow-list', function (
     string $permission,
     callable $seed,
     callable $seedNamed,
+    string $sortColumn,
+    string $containsColumn,
 ) {
     $this->actingAs(userWithPermissions($permission));
 
@@ -187,6 +335,8 @@ test('every list rejects an unknown sort column rather than reaching the databas
     string $permission,
     callable $seed,
     callable $seedNamed,
+    string $sortColumn,
+    string $containsColumn,
 ) {
     $this->actingAs(userWithPermissions($permission));
 
@@ -206,6 +356,8 @@ test('every list rejects an unknown filter column', function (
     string $permission,
     callable $seed,
     callable $seedNamed,
+    string $sortColumn,
+    string $containsColumn,
 ) {
     $this->actingAs(userWithPermissions($permission));
 
@@ -221,16 +373,18 @@ test('every list accepts its own allow-listed sort columns in both directions', 
     string $permission,
     callable $seed,
     callable $seedNamed,
+    string $sortColumn,
+    string $containsColumn,
 ) {
     $this->actingAs(userWithPermissions($permission));
 
     $seed(3);
 
-    $this->get(route($route, ['sort' => 'name', 'direction' => 'desc']))
+    $this->get(route($route, ['sort' => $sortColumn, 'direction' => 'desc']))
         ->assertOk()
         ->assertSessionHasNoErrors()
         ->assertInertia(fn ($page) => $page
-            ->where('filters.sort', 'name')
+            ->where('filters.sort', $sortColumn)
             ->where('filters.direction', 'desc'));
 })->with('list surfaces');
 
@@ -240,6 +394,8 @@ test('every list keeps its sort and page size across pages', function (
     string $permission,
     callable $seed,
     callable $seedNamed,
+    string $sortColumn,
+    string $containsColumn,
 ) {
     $this->actingAs(userWithPermissions($permission));
 
@@ -251,14 +407,14 @@ test('every list keeps its sort and page size across pages', function (
      * `DEFAULT_PER_PAGE`, so a reverted page size is visible here.
      */
     $this->get(route($route, [
-        'sort' => 'name',
+        'sort' => $sortColumn,
         'direction' => 'desc',
         'per_page' => 25,
         'page' => 2,
     ]))
         ->assertOk()
         ->assertInertia(fn ($page) => $page
-            ->where('filters.sort', 'name')
+            ->where('filters.sort', $sortColumn)
             ->where('filters.direction', 'desc')
             ->where('filters.per_page', 25)
             ->where("{$prop}.per_page", 25)
@@ -272,16 +428,18 @@ test('every list has a contains column that matches mid-string', function (
     string $permission,
     callable $seed,
     callable $seedNamed,
+    string $sortColumn,
+    string $containsColumn,
 ) {
     $this->actingAs(userWithPermissions($permission));
 
     $seed(3);
     $seedNamed('alpha-'.FILTER_TOKEN.'-omega');
 
-    // The contract reversed here: `name` is FilterType::Contains on all four
-    // surfaces, so a mid-string term must find the row. This costs the index —
+    // The contract reversed here: every surface declares one FilterType::Contains
+    // column, so a mid-string term must find the row. This costs the index —
     // see App\Enums\FilterType.
-    $this->get(route($route, ['filter' => ['name' => FILTER_TOKEN]]))
+    $this->get(route($route, ['filter' => [$containsColumn => FILTER_TOKEN]]))
         ->assertOk()
         ->assertSessionHasNoErrors()
         ->assertInertia(fn ($page) => $page->has("{$prop}.data", 1));
@@ -293,6 +451,8 @@ test('a wildcard in a filter value is escaped, not honoured', function (
     string $permission,
     callable $seed,
     callable $seedNamed,
+    string $sortColumn,
+    string $containsColumn,
 ) {
     $this->actingAs(userWithPermissions($permission));
 
@@ -301,7 +461,7 @@ test('a wildcard in a filter value is escaped, not honoured', function (
 
     // Unescaped under `LIKE '%term%'`, "%" would match every row instead of
     // only rows containing a literal percent sign.
-    $this->get(route($route, ['filter' => ['name' => '%']]))
+    $this->get(route($route, ['filter' => [$containsColumn => '%']]))
         ->assertOk()
         ->assertInertia(fn ($page) => $page->has("{$prop}.data", 0));
 })->with('list surfaces');

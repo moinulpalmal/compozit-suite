@@ -5,6 +5,7 @@ namespace App\Services\Admin;
 use App\Models\Admin\Buyer;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Support\Facades\Auth;
 
 /**
  * Creates, updates and deletes buyers, and decides which ones a picker may offer.
@@ -25,6 +26,53 @@ class BuyerService
     public function create(array $attributes): Buyer
     {
         return Buyer::create($attributes);
+    }
+
+    /**
+     * The buyers the signed-in user may import for: active, and within their access.
+     *
+     * Unpaginated by design — a picker and a list are different queries
+     * (ARCHITECTURE.md §8.6), and a user's buyer set is short by construction.
+     * `Buyer` is not itself buyer-scoped, so the access filter is applied here.
+     *
+     * **This lived on `PurchaseOrderImportService` while purchase orders were the only
+     * importer.** The BQS import asks the identical question, and a second copy is how
+     * two importers start disagreeing about who may upload for whom — so it moved here,
+     * which this class's docblock already claimed as its job. `PurchaseOrderImportService`
+     * keeps its own method name and delegates, so no caller of it changed.
+     *
+     * @return array<int, string> buyer id => name
+     */
+    public function assignableToActor(): array
+    {
+        $query = Buyer::query()->active();
+
+        $actor = Auth::user();
+
+        if ($actor !== null && ! $actor->seesAllBuyers()) {
+            $query->whereIn('id', $actor->accessibleBuyerIds());
+        }
+
+        /** @var array<int, string> $buyers */
+        $buyers = $query->orderBy('name')->pluck('name', 'id')->all();
+
+        return $buyers;
+    }
+
+    /**
+     * The same set, shaped for `components/ui/combobox.tsx`.
+     *
+     * @return list<array{value: int, label: string}>
+     */
+    public function assignableOptions(): array
+    {
+        $options = [];
+
+        foreach ($this->assignableToActor() as $id => $name) {
+            $options[] = ['value' => $id, 'label' => $name];
+        }
+
+        return $options;
     }
 
     /**

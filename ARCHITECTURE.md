@@ -35,8 +35,24 @@ database, five functional modules plus a dashboard.
 | Combobox | downshift | `^9.4` | Headless ARIA combobox behind `components/ui/combobox.tsx` — see [§8.5](#85-selects-are-comboboxes). The **only** third-party UI behaviour library; everything else is built on native elements + daisyUI |
 | Build | Vite | `8.x` | |
 | Tests | Pest | `^5.1` | |
+| Browser tests | `pestphp/pest-plugin-browser` | `^5.0` | Drives a real Chromium. **Requires `ext-sockets`** (enabled in php.ini, like `ext-zip`) and the `playwright` npm package + `npx playwright install chromium`. Own config — see [§13.2](#132-a-dom-level-test-harness-exists--testsbrowser) |
 | Static analysis | Larastan / PHPStan | `^3.9` | |
 | Format | Pint (PHP), Prettier + ESLint (TS) | | |
+| Doc parsing | `ext-zip` (PHP extension) | — | **Required.** `ZipArchive` reads a `.docx`; without it the whole purchase-order import fails. Enabled in `php.ini` — see [`documentation/deployment.md`](documentation/deployment.md) |
+| Doc parsing | LibreOffice (`soffice`) | 26.8 | **External binary, optional.** Converts `.doc`/`.rtf` to `.docx`. Needed only for those two formats; `LIBREOFFICE_BIN` in `.env` |
+| Doc parsing | Xpdf `pdftotext` | 4.06 | **External binary, optional.** `-layout` extraction for `.pdf`. Must be the **Xpdf** build, not Poppler — the parser reads column positions and the two differ. `PDFTOTEXT_BIN` in `.env` |
+| Workbook parsing | `phpoffice/phpspreadsheet` | `^5.9` | Reads the BQS `.xlsx`/`.xls` import — see [§5 Module 3](#module-3--merchandising). In-process, no external binary. The **only** consumer is `Merchandising\BqsWorkbookReader`; nothing else may import from `PhpOffice\` |
+
+The two external-binary rows are the application's only dependencies on software outside
+Composer and npm. Each is needed by exactly one upload format, and each fails with a message
+naming the `.env` key to set, so a machine without LibreOffice still imports `.docx` and `.pdf`
+normally. Configuration is `config/po-parser.php` for purchase orders and
+`config/bqs-import.php` for BQS workbooks.
+
+> PhpSpreadsheet was added for the BQS import rather than hand-rolling an `ext-zip` reader.
+> The owner chose it: a hand-rolled reader covers the one file in hand and not `.xls`, shared
+> formulas, or the date and style edge cases a real Excel export produces. It is confined to one
+> class so that decision stays reversible.
 
 Database: **MySQL** (`compozitsuite` on `127.0.0.1:3306` via Laragon) for local development —
 `.env` sets `DB_CONNECTION=mysql`. Tests run against in-memory SQLite (`phpunit.xml`) — *provided no
@@ -67,7 +83,9 @@ compozit-suite/
 │   │   └── Fortify/         Fortify's auth action contracts (not a module)
 │   ├── Concerns/            Shared traits (validation rule sets, etc.)
 │   ├── Console/Commands/    Artisan commands
+│   ├── DataTransferObjects/ Immutable value objects, grouped by module — see §6.7
 │   ├── Enums/               Backed enums, grouped by module
+│   ├── Exceptions/          Custom exception types, grouped by module
 │   ├── Http/
 │   │   ├── Controllers/     Grouped by module
 │   │   ├── Middleware/      App-wide middleware
@@ -114,10 +132,15 @@ compozit-suite/
 │   ├── reports.php          Module 5
 │   └── console.php          Scheduled/CLI routes
 │
-└── tests/
-    ├── Feature/             Grouped by module — the default place to write a test
-    │   └── Auth/            Fortify auth flows (not a module)
-    └── Unit/                Pure logic only
+├── tests/
+│   ├── Feature/             Grouped by module — the default place to write a test
+│   │   └── Auth/            Fortify auth flows (not a module)
+│   ├── Browser/             Real-browser tests — only what a DOM can answer; see §13.2
+│   ├── Fixtures/            Binary sample documents the importers are proved against
+│   └── Unit/                Pure logic only
+│
+├── phpunit.xml              The main suite — sqlite `:memory:`, never edited for browsers
+└── phpunit.browser.xml      Browser suite only — sqlite file + real session driver (§13.2)
 ```
 
 ---
@@ -150,6 +173,19 @@ Why this and not a `app/Modules/*` package-per-module layout:
 bookings) are expressed through *file naming*, not deeper folders. Frontend pages are the one
 exception — see [§6.4](#64-frontend-pages).
 
+**An engine is one unit, and may nest.** `app/Services/Merchandising/PoParser/` is the sole
+exception, and it is a deliberate one. The purchase-order document parser is 33 collaborating
+classes forming a single pipeline — text extraction, line processing, a section state machine,
+fifteen field extractors, validation — that nothing outside `PurchaseOrderImportService` calls
+into. Flattening it produces `app/Services/Merchandising/PoParserLineItemHeaderExtractor.php`
+thirty-three times, which does not remove the hierarchy, it just moves it into the filenames and
+makes the directory listing unreadable.
+
+The test for this exception, so it does not become a licence: **the nested tree has exactly one
+entry point, and its internals are not referenced from outside it.** A sub-area with several
+callers — tech packs, BQS, bookings — is a *sub-area* and stays flat, as above. If a second
+engine ever qualifies, it earns its own line here.
+
 ---
 
 ## 5. Module registry
@@ -159,7 +195,7 @@ exception — see [§6.4](#64-frontend-pages).
 | 0 | Dashboard | `Dashboard` | `routes/web.php` | `dashboard` | `/dashboard` | `pages/dashboard.tsx` | ✅ built (placeholder content) |
 | 1 | Admin | `Admin` | `routes/admin.php` | `admin.` | `/admin` | `pages/admin/` | 🟡 users + RBAC + designations built, rest scaffolded |
 | 2 | Settings | `Settings` | `routes/settings.php` | *(see note)* | `/settings` | `pages/settings/` | ✅ partly built |
-| 3 | Merchandising | `Merchandising` | `routes/merchandising.php` | `merchandising.` | `/merchandising` | `pages/merchandising/` | 🟡 scaffolded |
+| 3 | Merchandising | `Merchandising` | `routes/merchandising.php` | `merchandising.` | `/merchandising` | `pages/merchandising/` | 🟡 purchase-order and BQS imports built, tech packs and bookings scaffolded |
 | 4 | Production | `Production` | `routes/production.php` | `production.` | `/production` | `pages/production/` | 🟡 scaffolded |
 | 5 | Reports | `Reports` | `routes/reports.php` | `reports.` | `/reports` | `pages/reports/` | 🟡 scaffolded |
 
@@ -254,7 +290,7 @@ Two distinct halves, deliberately separated:
 | Half | What it holds | Backend | Pages |
 | --- | --- | --- | --- |
 | Account settings | The signed-in user's own profile, security, appearance | `app/Http/Controllers/Settings/` ✅ | `pages/settings/{profile,security,appearance}.tsx` ✅ |
-| Master data | Product/process reference tables: notification colors ✅, then colors, sizes, UOM, seasons, fabric & trim types, machine types, process stages | `app/Http/Controllers/Settings/` 🟡 | `pages/settings/master-data/` 🟡 |
+| Master data | Product/process reference tables: notification colors ✅, TNA templates ✅, then colors, sizes, UOM, seasons, fabric & trim types, machine types, process stages | `app/Http/Controllers/Settings/` 🟡 | `pages/settings/master-data/` 🟡 |
 | App configuration | Optional app-level toggles and defaults | 🟡 | `pages/settings/application/` 🟡 |
 
 Master data models go in `app/Models/Settings/`. Every other module *reads* them and none of them
@@ -267,9 +303,19 @@ nothing else; master data renders under plain `AppLayout` like the Admin lists. 
 **Notification colours are the first master-data surface**, and they set the shape the rest follow:
 one page with modals, `status` rather than `deleted_at`, the shared list apparatus, and the whole
 `settings.master-data.*` permission bucket rather than a permission per table — so a second master
-table adds no seeder entry and no role change. `documentation/settings.md` holds the reasoning,
-including the one thing deliberately left undone: **there is no deletion guard**, because nothing
-references a colour until `notifications` is built.
+table adds no seeder entry and no role change. `documentation/settings.md` holds the reasoning.
+
+**TNA templates are the second**, and they prove that claim: `tna_templates` added a route group to
+the existing `settings/master-data` prefix and nothing else — no permission, no seeder entry, no
+role change. A template is a lead-time band plus the milestone offsets and colour thresholds that
+apply inside it; Merchandising reads it to draw the TNA page and never writes it. Its two child
+tables (`tna_template_milestones`, `tna_template_colors`) are the first master data with children,
+and they are written as a set rather than merged — see `documentation/settings.md`.
+
+**`tna_template_colors` is also the first foreign key into `notification_colors`**, which retires
+the note that used to stand here saying there was deliberately no deletion guard. There is one now:
+`NotificationColorService::deletionBlocker()` refuses to delete a colour a template paints with, and
+the FK is `restrictOnDelete` behind it. Any further reference into master data owes the same pair.
 
 **Departments are not here.** HR/org-structure reference data (designations, departments) is
 Admin-owned; only product and process reference data is Settings-owned. The split and its reason
@@ -277,15 +323,216 @@ are in [§9.4](#94-master-data).
 
 ### Module 3 — Merchandising
 
-| Sub-area | Naming | Pages |
-| --- | --- | --- |
-| a. Development tech pack management | `Merchandising\TechPack*` | `pages/merchandising/tech-packs/` |
-| b. BQS (budget quotation sheet) | `Merchandising\Bqs*` | `pages/merchandising/bqs/` |
-| b. Purchase order management | `Merchandising\PurchaseOrder*` | `pages/merchandising/purchase-orders/` |
-| c. Fabric & accessory booking | `Merchandising\Booking*` | `pages/merchandising/bookings/` |
+| Sub-area | Naming | Pages | Status |
+| --- | --- | --- | --- |
+| a. Development tech pack management | `Merchandising\TechPack*` | `pages/merchandising/tech-packs/` | 🟡 |
+| b. BQS (the buyer's buy plan workbook) | `Merchandising\Bqs*` | `pages/merchandising/bqs/` | ✅ import + list + detail |
+| c. Purchase order import & management | `Merchandising\PurchaseOrder*` | `pages/merchandising/purchase-orders/` | ✅ import + list + detail |
+| d. Fabric & accessory booking | `Merchandising\Booking*` | `pages/merchandising/bookings/` | 🟡 |
+| e. TNA (time & action schedule) | `Merchandising\Tna*` | `pages/merchandising/tna/` | ✅ read-only board |
 
 Merchandising owns the order lifecycle up to the point production begins. It is the upstream
 source of truth for style, buyer order, and consumption data that Production reads.
+
+#### Purchase orders arrive by parsing a document
+
+There is **no create form.** A purchase order is imported by uploading the buyer's own document
+(`.docx`, `.doc`, `.rtf`, `.pdf`), which is parsed by the engine in
+`app/Services/Merchandising/PoParser/` — the [§4](#4-the-organizing-rule) nesting exception. That is
+why `import` is its own permission rather than an alias for `create`.
+
+**The upload is a modal on the list page**, and there is no `GET` route for it — the standalone
+import page it replaced was this application's last exception to "one page with modals". The list
+controller therefore carries the dialog's two props, `importBuyers` and `pendingImport`, both gated
+on the import permission so a read-only role pays for neither.
+
+**An upload takes two requests when it collides.** A document holds up to fifty orders
+(`po-parser.limits.max_pos_per_file`), and an order matching one already held is a question only a
+person can answer — a genuine Walmart reissue and a re-uploaded stale document are identical to the
+parser. Orders that collide with nothing are written immediately; the rest are **staged** on
+`po_imports.staged_orders` and answered through `purchase-orders.import.resolve` with one of
+**skip / revise / overwrite** per order. `overwrite` destroys the current revision and so requires
+`merchandising.purchase-orders.delete` on top of `import`.
+
+**The parser is specific to Walmart's import purchase-order template**, despite the general class
+names. It recognises pages by a header of the form `Purchase Order: <10 digits> … Page: <n>` and
+finds nothing in any other document. A second buyer's template is a second parser, not a wider
+regex. The buyer is therefore chosen on the upload form rather than inferred, and is validated
+against the uploader's own [§9.2](#92-buyer-scoped-access-control) access — importing into a buyer
+you cannot see would write rows the scope then hides from you.
+
+Three tables, and the split between them is the module's central decision:
+
+| Table | Holds |
+| --- | --- |
+| `po_imports` | One row per uploaded file: the document, the whole parse result, every warning, and any orders still awaiting a decision |
+| `purchase_orders` | One row per order per revision. Header fields are columns; the remaining ~10 sections ride in a `payload` JSON column |
+| `po_line_items` | The colour/size lines — the only part of a document that becomes rows |
+
+Line items are rows because Production computes consumption from quantity × colour × size and must
+join to them; everything else is display-only and nothing queries it. Revisions are keyed on the
+document's own `Revised Date … By:`, with a `source_hash` making a byte-identical re-upload
+idempotent — nothing changed, so there is nothing to *ask* about. It is skipped without a
+decision, but not without a word: `PurchaseOrderImportController::toastFor()` answers it with a
+`warning` naming the orders ("Nothing imported — purchase orders … are already imported"), which
+is a different branch from the staging one below. This line previously read "silently skipped",
+and a reader could fairly have built it as no feedback at all. A revision is
+now something the uploader **confirms**, not something the upload decides.
+**Orders that fail to parse are stored and flagged**, so their warnings stay next to the
+document — which means every downstream reader must exclude them, and `PurchaseOrder::scopeUsable()`
+is how. The reasoning for all of this, and the trade-offs declined along the way, are in
+[`documentation/merchandising.md`](documentation/merchandising.md).
+
+#### A BQS is a workbook the buyer sends, not a quotation we prepare
+
+> **This sub-area was previously described as a "budget quotation sheet".** That was wrong, and
+> the line above is corrected rather than annotated. A BQS here is the buy plan George/Walmart
+> sends: one row per vendor style per colourway, carrying store/ecomm/omni buy quantities, a cost
+> stack, pack structure and month-by-month DC intake. Nothing in it is prepared by this company.
+
+Like a purchase order, **there is no create form** — a BQS arrives as an `.xlsx`/`.xls` upload,
+read by `Merchandising\BqsWorkbookReader`, and `import` is its own permission. The upload is a
+modal on the list page, and the list controller carries the same two gated props,
+`importBuyers` and `pendingImport`.
+
+**The upload form asks for three things, and two are not in the file.** The buyer is chosen for
+the [§9.2](#92-buyer-scoped-access-control) reason purchase orders are, and **`bqs_date` is
+required master data entered by the uploader** — the workbook carries no date of any kind, so it
+cannot be read and must not be guessed from a file timestamp.
+
+Five tables, and the split is driven by one fact about the source:
+
+| Table | Holds |
+| --- | --- |
+| `bqs_imports` | One row per uploaded workbook: the file, the resolved header map, every warning, and any BQS awaiting a decision |
+| `bqs_sheets` | One row per BQS per revision. Buyer-owned; the thing the list lists |
+| `bqs_rows` | One row per vendor style per colourway — 61 columns |
+| `bqs_row_months` | The `In DC Units` band, one row per month |
+| `bqs_row_pack_sizes` | The `Break Packs` / `Case Packs` bands, one row per size |
+
+**28 of the workbook's 89 columns are data, not schema.** Eighteen are headed with month names
+(`November-2026 … April-2028`) and ten with size labels (`XS(4/5) … XL(14/16)`); both sets change
+with every season and size range. As columns they would need an `ALTER TABLE` per upload, so they
+are child rows — which also keeps sizes joinable to `po_line_items`, where colour and size are
+rows for the same reason. The remaining 61 are columns, named `{band}_{leaf}` because `Store`,
+`Ecomm` and `OMNI` each appear six times in the leaf header and are ambiguous alone.
+
+**Revisions are keyed on the rows, because the workbook has no key.** There is no document
+number, no revision date, and a `Quote ID` column blank in every file received. So:
+
+> Two uploads are the same BQS when their sets of `bqs_rows.row_key` **intersect**.
+
+`row_key` is a hash of seven identity components — FYE, season, department, vendor style, pantone
+colour, colour variant, item description — each also stored as an ordinary column. The collision
+is answered **once per workbook** (skip / revise / overwrite), not once per row: a 200-row BQS
+would otherwise produce a 200-decision dialog. A workbook overlapping *two* held revisions is
+refused, being a revision of neither. `overwrite` destroys a revision and so requires
+`merchandising.bqs.delete` on top of `import`, and `source_hash` makes a byte-identical
+re-upload idempotent — skipped without a decision, and reported with a `warning` naming the
+file, exactly as the purchase-order importer does above.
+
+Revisions chain through `bqs_sheets.root_id`, a self-reference that revision 1 points at itself.
+The file name cannot key them — a reissue routinely arrives under a different one — and leaving
+`root_id` null on revision 1 would not bind the unique index, because both MySQL and SQLite
+permit repeated NULLs in one.
+
+**Header columns are matched by name, never by position**, so an inserted column cannot silently
+shift 89 fields. A missing *required* column refuses the file by name; an unrecognised one is
+imported with a warning. `Merchandising\BqsHeaderMap` owns that mapping and
+`documentation/merchandising.md` records the rest.
+
+#### A BQS row and a purchase-order line are the same garment, and are joined
+
+A BQS row is what the buyer *planned*; a PO line is what they *ordered*. `po_line_items.bqs_row_id`
+connects them, written only by `Merchandising\BqsPoLinker` — the single writer, so its rules hold
+on every path rather than on the paths someone remembered.
+
+**The match is strict equality on vendor style, colour family and Pantone colour, and that is a
+decision with a measured cost.** A Walmart PO states colour as `{family}-{pantone}` in a
+**15-character** column, so `BALLAD BLUE` arrives as `LTBLUE-BALLAD B` and `SANDSHELL` as
+`NATURL-SANDSHEL`. On the reference documents only `PINK-CANDY PINK` auto-links; the other two go
+to a person, permanently. The owner was shown this and confirmed the rule — **do not widen it to a
+prefix match**, and note that `BqsPoLinkTest` pins both non-matches so that widening it fails
+loudly. `Merchandising\BqsColourMatch` is the only place that colour string is parsed.
+
+**A manual decision is stored as a rule, not as a fact about a line.** `bqs_colour_links` maps
+(buyer, vendor style, PO colour) → BQS **row key**, so the next order carrying that colour resolves
+with no second visit. That table exists *because* of strict equality; without it the same decision
+would be re-made on every order forever. It is keyed on the row key rather than a row id so it
+outlives revisions, and it is deliberately not a foreign key — the row it names may not be imported
+yet.
+
+Three further rules, each a decision:
+
+- **Both import directions link.** `linkForPurchaseOrder()` and `linkForSheet()` both exist,
+  because a PO routinely arrives before its BQS *and* after it. Wiring one leaves half the links
+  unformed, invisibly.
+- **Never across buyers.** Neither `po_line_items` nor `bqs_rows` carries a `buyer_id` — see
+  [§9.2](#92-buyer-scoped-access-control) — so nothing in the database prevents a Walmart line
+  pointing at a George row. The guard is the linker's queries plus `BqsLinkRequest`, and it is the
+  only thing preventing it.
+- **Ambiguity is refused.** Two current BQS rows matching one colour leaves the line unlinked, the
+  same posture the importer takes for a workbook straddling two revisions.
+
+**`po_line_items.quantity` is a pack ratio, not an ordered quantity**, and anything comparing an
+order to a plan must know it. The five sizes of a colour read 3, 4, 4, 2, 1 — the fourteen of
+"14PC GR SS SKATER DRESS" — and `total_cartons_per_line` says how many packs were ordered.
+`PoLineItem::orderedUnits()` is the only thing that should do that multiplication; summing
+`quantity` reports 14 where the answer is 5,502.
+
+**Ordered is compared against the OMNI columns, split by PO type.** A purchase order counts as
+initial or replenishment by matching `purchase_orders.po_type` to the codes the BQS row itself
+states (`43 Import` / `42 Import Seasonal`), so nothing about Walmart's numbering is hard-coded.
+The reference documents reconcile exactly:
+
+```text
+PO …001 (type 43)   5,502  = Initial Set Units / Store
+PO …002 (type 43)     266  = Initial Set Units / Ecomm
+                   -------
+                    5,768  = Initial Set Units / OMNI
+PO …003 (type 42)  21,868  = Replenishment Units / OMNI
+```
+
+Ecomm is ordered as its own purchase order, which is why the total is OMNI rather than Store —
+against Store an exactly-complete initial buy reads 105%. **This was got wrong once**, by reading
+a single pack's carton count as if it applied to the whole order; the counts in that document range
+from 16 to 1,562. Do not reintroduce it.
+
+#### TNA schedules are computed, never stored
+
+The TNA board answers "is this order on schedule?" for every current, usable purchase order. It is
+the proof-of-concept slice of `Master Order recap.xls`, which tracks ~25 milestone groups by hand.
+`Merchandising\TnaCalculator` is the **only** place any of this arithmetic lives.
+
+The chain, and it fails loudly at every link:
+
+```text
+purchase order → linked BQS rows → one BQS sheet → bqs_date
+                              vendor_ship_date − bqs_date = lead time
+                                    → the active tna_templates band covering it
+                                          → bqs_date + each offset = the planned dates
+```
+
+**Lead time is `vendor_ship_date − bqs_date`**, which is the recap sheet's own formula (`=I4-D4`).
+Shipment comes from the order, never from a template offset: it is the date lead time is measured
+*to*, so scheduling it would let a template contradict the order it describes.
+`TnaMilestone::offsetFromBqs()` is that distinction and the write requests enforce it.
+
+**Templates match a lead-time *band*, not a lead time.** This is measured, not preference: the three
+orders in the reference data run **263, 264 and 265 days** against one BQS, because ship dates are
+staggered by a day each. An exact key matches none of them and needs a row per integer. Bands are
+inclusive at both ends, may not overlap while active, and are checked in the form request because
+neither MySQL nor SQLite can express range exclusion.
+
+**No TNA table exists.** A plan is derived on every read, so correcting a template corrects every
+order and there is nothing to backfill. The trade: **editing a template rewrites the past**, and a
+schedule printed last week is not reproducible. That is right for a proof of concept; capturing
+*actual* dates alongside the planned ones is what will force plans to be stored.
+
+**Every failure names itself.** No BQS link, two BQS sheets behind one order, no ship date, a
+non-positive lead time, no band covering it — each returns a `TnaPlanDto` carrying a `reason` the
+page prints. Three blank cells and three blank cells with a sentence are the difference between "add
+a band in Settings" and "link a colour on the order", and a reader cannot tell them apart otherwise.
 
 ### Module 4 — Production
 
@@ -451,6 +698,29 @@ Shared, app-wide types live in `resources/js/types/` and are re-exported from
 `types/index.ts`. Module domain types go in `resources/js/types/{module}.ts` and must also be
 re-exported there so `@/types` stays the single import path.
 
+### 6.7 Data transfer objects and exceptions
+
+Two `app/` directories were added with the purchase-order import, both grouped by module like every
+other layer:
+
+| Kind | Location | Example |
+| --- | --- | --- |
+| DTO | `app/DataTransferObjects/{Module}/` | `Merchandising\Po\PurchaseOrderDto` |
+| Exception | `app/Exceptions/{Module}/` | `Merchandising\PoParser\TextExtractionException` |
+
+**A DTO is `final readonly` with promoted typed properties, and carries a `toArray()`.** They exist
+where data crosses a boundary in a shape no Eloquent model has — here, what a parser read out of a
+document before anything decides which parts become columns. They are not a general replacement for
+arrays: a service returning `['id' => …, 'name' => …]` to its own controller does not need one.
+
+`toArray()` keys are snake_case and are a **contract in two directions** wherever a DTO is stored:
+`PurchaseOrderDto::toArray()` is both the `purchase_orders.payload` column and the prop the React
+page renders, so changing a key is a migration *and* a front-end change.
+
+An exception type earns its place when a caller catches it *specifically*. The parser's four form a
+hierarchy under one base so that "this document could not be read" is one `catch`, which is what
+the import controller does.
+
 ---
 
 ## 7. Request lifecycle
@@ -520,6 +790,12 @@ Two consequences worth keeping in mind:
 `resources/js/actions/` and `resources/js/routes/` are generated by the Wayfinder Vite plugin.
 
 - Never hand-edit them, and never hand-write a URL string in a page.
+- **`.prettierignore` excludes all three generated paths** — `actions/`, `routes/` and the
+  `wayfinder/` runtime — because `npm run format` formats all of `resources/` and would otherwise
+  rewrite ~9,200 lines across 68 generated files that the next `wayfinder:generate` writes straight
+  back unformatted. The tree then flips between two states depending on which command ran last,
+  which is diff noise and a standing merge conflict. This was found by running the two prescribed
+  commands in the order [§10](#10-adding-a-feature-to-an-existing-module) prescribes them.
 - Import controller actions from `@/actions/...` and named routes from `@/routes/...`.
 - They regenerate on `npm run dev` / `npm run build`, or via
   **`php artisan wayfinder:generate --with-form`**.
@@ -602,6 +878,14 @@ presentation only — the route's `permission:` middleware is what actually deni
   nothing. Any new control that replaces a native form element must do the same.
 - **`multiple` renders removable chips** and emits one hidden `name[]` input per selection, so the
   server sees exactly what a checkbox list would have sent.
+- **Option values match by value, not by identity.** The same id reaches the control as a number
+  from the server (`assignableOptions()` and every `options` endpoint emit an `int` `value`) and,
+  from a call site that seeded `defaultValue` out of form-shaped state, as a string. `===` reads
+  those as different: the trigger falls back to its placeholder while the hidden input goes on
+  submitting the right id, which looks like data loss and is not. `combobox.tsx` therefore compares
+  through `sameValue()`, which normalises to a string and treats `null`/`undefined` as matching
+  nothing. The TNA template colour ladder shipped with this bug. Call sites should still pass ids
+  in the type the server uses; the normalisation is a floor, not a licence.
 - **The hidden-input contract binds every compound control, not just this one.**
   `components/ui/color-input.tsx` is the second: a native `<input type="color">` for picking and a
   text `<Input>` for typing the same hex, of which **only the text field carries `name`** — the
@@ -634,9 +918,9 @@ URL, sending every later `back()` to it.
 
 ### 8.6 Every list is paginated, sortable and filtered per column
 
-**A list screen is never a bare `->get()`.** All six lists — the five Admin ones and Settings'
-notification colours — go through one apparatus, and a new one inherits it rather than
-re-implementing it:
+**A list screen is never a bare `->get()`.** All eight lists — the five Admin ones, Settings'
+notification colours, and Merchandising's purchase orders and BQS records — go through one
+apparatus, and a new one inherits it rather than re-implementing it:
 
 | Piece | Job |
 | --- | --- |
@@ -709,6 +993,16 @@ typed work or a destructive confirmation, and a stray click outside one was disc
   `showCloseButton` no longer exists — `DialogContent` always renders it. `sidebar.tsx` used to
   pass `showCloseButton={false}` for the mobile drawer; under this rule that would have been a
   trap with no exit, and it now shows the X like everything else.
+- **A closed dialog holds no state**, and this is what makes Cancel actually cancel.
+  `DialogContent` mounts its children when the panel opens and unmounts them when it closes, so
+  every `defaultValue` re-seeds from props and every `useState` inside re-initialises on the next
+  open. The children used to be mounted permanently: Cancel discarded nothing, and a form reopened
+  showing the edit you had abandoned rather than the row the server holds. It was worst where a
+  dialog kept React state of its own — the TNA colour ladder is a repeater, so rows added and
+  removed survived Cancel *and* a successful save. `DialogClose` stays outside the guard, because
+  the only exit is never conditional. A dialog that must survive being closed keeps that state in
+  the component *above* `DialogContent`, the way the two import dialogs keep their
+  reopen-on-pending `useRef`.
 - **`Sheet` inherits it**, being the same primitive with a different placement. The mobile
   navigation drawer therefore closes by its X, not by tapping the page behind it.
 - **Menus are the opposite case and keep light dismiss.** `dropdown-menu.tsx` keeps
@@ -719,10 +1013,49 @@ typed work or a destructive confirmation, and a stray click outside one was disc
 - `.modal-box` is `position: static` in daisyUI, so `DialogContent` adds `relative`; without it
   the close button anchors to `.modal` (`position: fixed; inset: 0`) and lands in the viewport
   corner rather than the panel's.
+- **A multi-step dialog needs nothing extra**, and this was checked rather than assumed.
+  `purchase-order-import-dialog.tsx` is the first: step two holds decisions about orders already
+  parsed and staged on the server, which is squarely the "typed work" case the rule protects. Its
+  one addition is that closing it is *safe* — the staging survives on `po_imports`, and the list
+  offers the import back. Do not read that as licence to make dialogs dismissible; it is what let
+  the close button stay the only exit without the work being lost.
 
 One trap worth knowing in `combobox.tsx`: downshift's reducer treats a click on its input as
 `isOpen: !isOpen`, which closed the menu when the user clicked the search box *inside* it. Every
 `useCombobox` there needs a `stateReducer` holding `isOpen` steady for `InputClick`.
+
+### 8.9 A detail page goes back to the list *as it was*
+
+**A detail page carries a back control, and it is not the breadcrumb.** The two do different
+jobs, deliberately:
+
+| Control | Goes to |
+| --- | --- |
+| Breadcrumb (`BQS`, `Purchase orders`) | The top of the list — page 1, unfiltered |
+| Back button (`components/merchandising/back-link.tsx`) | The list **as the reader left it** — same filters, sort, page size and page |
+
+A list's whole state lives in its query string ([§8.6](#86-every-list-is-paginated-sortable-and-filtered-per-column)),
+and `index()` has none of it — so opening a record from page 3 of a filtered list and returning
+by the crumb lands on page 1 with the filtering gone. The list therefore hands its own address
+forward: `buildReturnQuery(filters, currentPage)` encodes it into a `back` parameter on each row's
+link, and `BackLink` reads it out of `usePage().url` again. Missing — a pasted URL, a bookmark, a
+new tab — it falls back to the bare index, which is the honest answer when there is no list state
+to return to.
+
+Two things follow that a later reader will otherwise try to "fix":
+
+- **`page` is not part of `ListRequest::filters()`** and comes from the paginator instead. That is
+  why `buildReturnQuery` takes two arguments; without the second, back returns you to the right
+  filters on the wrong page.
+- **The breadcrumb was left alone on purpose.** The owner asked for the button and for the crumb
+  to stay as it is, so the divergence in the table above is a decision, not drift.
+
+Read the state from the `filters` prop, never from `window.location.search`: SSR runs in Vite dev
+mode ([§2](#2-stack)), where `window` does not exist during render.
+
+The component sits in `components/merchandising/` because both callers are Merchandising pages;
+per [§6.5](#65-components) it moves to `components/shared/` the moment a second module imports it,
+which is likely as soon as any other detail page wants one.
 
 ### 8.8 Toasts carry severity, and they clear themselves
 
@@ -851,10 +1184,33 @@ Rules, each of which is a decision rather than an accident:
 - **The id list is memoised on the `User` instance.** A global scope runs on *every* query; a fresh
   `buyer_user` round trip per query is not affordable.
 
-The scope ships with no buyer-owned models — `purchase_orders`, `tech_packs` and the rest do not
-exist yet — so it is proven against a throwaway model declared inside
-`tests/Feature/Admin/BuyerScopeTest.php`. The first real buyer-owned table adds `use BuyerScoped;`
-and inherits tested behaviour.
+**`purchase_orders` and `po_imports` are the first real buyer-owned tables**, and they took the
+mechanism exactly as promised: one `use BuyerScoped;` each, no other registration, and the
+behaviour tested in `tests/Feature/Admin/BuyerScopeTest.php` applied to them unchanged. That test's
+throwaway model stays — it pins the trait's contract independently of any module — and
+`tests/Feature/Merchandising/PurchaseOrderScopeTest.php` now proves it on a real table.
+
+> This paragraph previously read "the scope ships with no buyer-owned models … `tech_packs` and the
+> rest do not exist yet". `purchase_orders` exists; the line is corrected rather than annotated.
+
+`po_line_items` is the first model to hit the stated limit: it reaches its buyer through its parent
+and therefore has **no** `buyer_id` and does **not** use the trait. Every read goes through
+`PurchaseOrder`, which is scoped, and the foreign key cascades. Do not add a scope that joins.
+
+**A relationship spanning two scoped trees has no database-level guard, and needs a written one.**
+`po_line_items.bqs_row_id` joins two tables that each reach their buyer through a parent, so
+neither end carries the column the scope filters on — the database will accept a link between two
+different buyers' records without complaint. `Merchandising\BqsPoLinker` constrains every candidate
+query to one buyer and `BqsLinkRequest` validates the chosen row against the order's buyer; those
+two are the whole guard. **Any future relationship between two child tables inherits this problem**
+— check for it rather than assuming `BuyerScoped` covers it, because it does not.
+
+**The BQS tables took the mechanism unchanged and extended that limit one level deeper.**
+`bqs_imports` and `bqs_sheets` are buyer-owned and carry `use BuyerScoped;` and a `buyer_id`.
+`bqs_rows` reaches its buyer through `bqs_sheets`, and `bqs_row_months` / `bqs_row_pack_sizes`
+reach it through `bqs_rows` — none of the three has a `buyer_id` or the trait, and the cascades
+mean none is reachable without a scoped ancestor. A two-hop parent is still a parent; the rule
+does not change with depth.
 
 ### 9.3 Audit logging
 
@@ -907,10 +1263,20 @@ Reference master data by foreign key, never by copying its label into another ta
 
 | Kind | Owner | Examples | Models | Seeders |
 | --- | --- | --- | --- | --- |
-| **Product / process** reference data | Settings | notification colors ✅, colors, sizes, UOM, seasons, fabric & trim types, machine types, process stages | `app/Models/Settings/` | `database/seeders/Settings/` |
+| **Product / process** reference data | Settings | notification colors ✅, TNA templates ✅, colors, sizes, UOM, seasons, fabric & trim types, machine types, process stages | `app/Models/Settings/` | `database/seeders/Settings/` |
 | **HR / org-structure** reference data | Admin | designations ✅, departments | `app/Models/Admin/` | `database/seeders/Admin/` |
 
 Everyone else *reads* both and writes neither.
+
+**A reference into master data owes a deletion guard.** `tna_template_colors.notification_color_id`
+is the first one, and it made good a debt `NotificationColorService` had been carrying explicitly:
+that class shipped with no `deletionBlocker()` on the stated grounds that nothing referenced a
+colour and a blocker returning only `null` is dead code. The pair to add is always the same — a
+`restrictOnDelete` foreign key so the database refuses, and a `deletionBlocker()` returning a
+sentence so a person is told why, because an integrity-constraint exception is a stack trace rather
+than an explanation. The blocker belongs in the **service**, never a policy: `Gate::before` bypasses
+a policy for a super admin ([§9.1](#91-rbac-roles--permissions)), and a super admin deleting a
+referenced row breaks it just as thoroughly.
 
 > This section previously said master data was Settings-owned without exception, and listed
 > departments among the Settings tables. The owner decided otherwise when `designations` was built:
@@ -1115,20 +1481,53 @@ Deleting rather than refusing is deliberate: a cached config is invalid for a te
 preserve. What was missing is that **`php artisan test`, the command this file and `CLAUDE.md` tell
 everyone to run, had no such protection**; the guard puts it on every entry point instead of one.
 
-⬜ **No DOM-level test harness exists.** A `<Combobox multiple name="buyers[]">` shipped emitting
-`buyers[][]`, which no submit could have survived, while the feature tests stayed green because they
-post arrays straight to the controller. It was caught by driving a browser by hand. Adding
-`pestphp/pest-plugin-browser` would close the gap and is a dependency decision the owner has not yet
-made; until then, **a change to a form control is not proven by the PHP suite** and needs a manual
-pass.
+### 13.2 A DOM-level test harness exists — `tests/Browser/`
+
+**The owner took the dependency decision this section used to be waiting on**, and
+`pestphp/pest-plugin-browser` is installed. The gap it closes is real and had already cost twice: a
+`<Combobox multiple name="buyers[]">` shipped emitting `buyers[][]`, which no submit could have
+survived, and the TNA template dialog shipped unable to save a template with no colour bands —
+both while the feature suite stayed green, because a feature test posts the array straight to the
+controller and never sees what the *form* put on the wire.
+
+| Piece | Where |
+| --- | --- |
+| Tests | `tests/Browser/` — bound in `tests/Pest.php` alongside `Feature` |
+| Config | `phpunit.browser.xml` — **`phpunit.xml` is deliberately untouched** |
+| Run | `php artisan test -c phpunit.browser.xml` |
+| Requires | `ext-sockets` (php.ini), and `npm i -D playwright` + `npx playwright install chromium` |
+
+Three things about it are decisions rather than defaults:
+
+- **A second config file, not a second testsuite in the first.** PHPUnit's `<php>` block is global,
+  and a browser run needs two settings the main suite must never get: a sqlite **file** (a served
+  process cannot see `:memory:`) and a real `SESSION_DRIVER` (`array` drops the login between
+  requests). Splitting the file is what keeps 464 tests running on exactly the config they always
+  did.
+- **`TestCase::createApplication()` was widened, and only in the direction that is safe.** It now
+  accepts a `.sqlite` file **under `database/`** as well as `:memory:`, and still refuses every
+  non-sqlite connection outright. That is the half that matters: the hazard this guard exists for
+  is the development **MySQL** database, which it has watched be dropped twice. Development runs on
+  MySQL, so any sqlite file is throwaway by construction, and the path is compared against
+  `realpath(databasePath())` so a `..` cannot walk out of it.
+- **A browser test earns its place by testing something a DOM can only answer.** Anything provable
+  by posting a payload belongs in `tests/Feature/`, which is an order of magnitude faster. The rule
+  of thumb: if removing the fix would still fail the feature test, the browser test is redundant.
+
+`database/browser-testing.sqlite` is rebuilt by `RefreshDatabase` on every run and is git-ignored.
 
 ---
 
 ## 14. Module reference documentation
 
 `documentation/` holds one `{module}.md` per module — currently
-[`documentation/admin.md`](documentation/admin.md) and
-[`documentation/settings.md`](documentation/settings.md).
+[`documentation/admin.md`](documentation/admin.md),
+[`documentation/settings.md`](documentation/settings.md) and
+[`documentation/merchandising.md`](documentation/merchandising.md).
+
+`documentation/deployment.md` is the exception: it describes an *operation* rather than a module —
+what to type, in order, to get the application running — and is the home for anything a machine
+needs installed on it.
 
 **These files and this one do different jobs. Do not let them overlap.**
 

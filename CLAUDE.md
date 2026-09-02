@@ -93,10 +93,15 @@ playwright configuration:
 APP BASE URL: http://localhost:8000
   (served by `composer run dev`, which runs `php artisan serve` + queue + vite concurrently.
    The URL is only live while that is running. Port 8080 is the Laragon landing page, not this app.)
-Login Auth: 
-User Name: test@example.com
+Login Auth:
+Employee ID: 15868
 Password: password
 user this authentication for using playwright mcp server.
+  **The login identifier is `employee_id`, not email.** `config/fortify.php` sets
+  `'username' => 'employee_id'` and the login form posts that field — there is no email input to
+  type an address into (ARCHITECTURE.md §9.6). This block previously read `test@example.com`, which
+  was wrong twice over: wrong field, and no such user exists in the development database.
+  Matching is case-sensitive (`lowercase_usernames` is `false`).
 playwright trigger clause: if user write plarywright trigger command at prompt explicitly only than use it. 
 PHP Path: D:\Projects\laragon\bin\php\php-8.4.12-nts-Win32-vs17-x64
   (php is not on PATH in the bash shell; invoke it via this full path or use PowerShell.)

@@ -246,7 +246,7 @@ update.patch = (args: { notification_color: number | { id: number } } | [notific
     update.form = updateForm
 /**
 * @see \App\Http\Controllers\Settings\NotificationColorController::destroy
- * @see app/Http/Controllers/Settings/NotificationColorController.php:92
+ * @see app/Http/Controllers/Settings/NotificationColorController.php:91
  * @route '/settings/master-data/notification-colors/{notification_color}'
  */
 export const destroy = (args: { notification_color: number | { id: number } } | [notification_color: number | { id: number } ] | number | { id: number }, options?: RouteQueryOptions): RouteDefinition<'delete'> => ({
@@ -261,7 +261,7 @@ destroy.definition = {
 
 /**
 * @see \App\Http\Controllers\Settings\NotificationColorController::destroy
- * @see app/Http/Controllers/Settings/NotificationColorController.php:92
+ * @see app/Http/Controllers/Settings/NotificationColorController.php:91
  * @route '/settings/master-data/notification-colors/{notification_color}'
  */
 destroy.url = (args: { notification_color: number | { id: number } } | [notification_color: number | { id: number } ] | number | { id: number }, options?: RouteQueryOptions) => {
@@ -294,7 +294,7 @@ destroy.url = (args: { notification_color: number | { id: number } } | [notifica
 
 /**
 * @see \App\Http\Controllers\Settings\NotificationColorController::destroy
- * @see app/Http/Controllers/Settings/NotificationColorController.php:92
+ * @see app/Http/Controllers/Settings/NotificationColorController.php:91
  * @route '/settings/master-data/notification-colors/{notification_color}'
  */
 destroy.delete = (args: { notification_color: number | { id: number } } | [notification_color: number | { id: number } ] | number | { id: number }, options?: RouteQueryOptions): RouteDefinition<'delete'> => ({
@@ -304,7 +304,7 @@ destroy.delete = (args: { notification_color: number | { id: number } } | [notif
 
     /**
 * @see \App\Http\Controllers\Settings\NotificationColorController::destroy
- * @see app/Http/Controllers/Settings/NotificationColorController.php:92
+ * @see app/Http/Controllers/Settings/NotificationColorController.php:91
  * @route '/settings/master-data/notification-colors/{notification_color}'
  */
     const destroyForm = (args: { notification_color: number | { id: number } } | [notification_color: number | { id: number } ] | number | { id: number }, options?: RouteQueryOptions): RouteFormDefinition<'post'> => ({
@@ -319,7 +319,7 @@ destroy.delete = (args: { notification_color: number | { id: number } } | [notif
 
             /**
 * @see \App\Http\Controllers\Settings\NotificationColorController::destroy
- * @see app/Http/Controllers/Settings/NotificationColorController.php:92
+ * @see app/Http/Controllers/Settings/NotificationColorController.php:91
  * @route '/settings/master-data/notification-colors/{notification_color}'
  */
         destroyForm.delete = (args: { notification_color: number | { id: number } } | [notification_color: number | { id: number } ] | number | { id: number }, options?: RouteQueryOptions): RouteFormDefinition<'post'> => ({
