@@ -72,10 +72,17 @@ foreach ($cachedArtifacts as $kind => $cachedPath) {
 |
 */
 
+/*
+ * `Browser` joins `Feature` here rather than getting a binding of its own: a browser
+ * test needs the same application, the same fresh schema and the same permission-cache
+ * reset, and only the *connection* differs — which `phpunit.browser.xml` supplies, not
+ * this file. Both suites are never loaded at once, so the file-backed sqlite the browser
+ * config names cannot reach a `phpunit.xml` run.
+ */
 pest()->extend(TestCase::class)
     ->use(RefreshDatabase::class)
     ->beforeEach(fn () => app(PermissionRegistrar::class)->forgetCachedPermissions())
-    ->in('Feature');
+    ->in('Feature', 'Browser');
 
 /*
 |--------------------------------------------------------------------------

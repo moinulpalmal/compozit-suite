@@ -1,1 +1,12 @@
 resources/views/mail/*
+
+# Wayfinder output (ARCHITECTURE.md §8.2) — generated, never hand-edited.
+#
+# `npm run format` formats all of `resources/`, so without these two lines it
+# reformats 68 generated files (~9,200 lines: semicolons, quote style, wrapping)
+# and the next `php artisan wayfinder:generate --with-form` writes them straight
+# back unformatted. The result is a tree that flips between two states depending on
+# which command ran last — pure diff noise, and a guaranteed merge conflict.
+resources/js/actions/
+resources/js/routes/
+resources/js/wayfinder/

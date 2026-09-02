@@ -76,6 +76,23 @@ export default function TnaTemplateFormDialog({
 
                 <Form
                     {...submit}
+                    /* A repeater with no rows renders no inputs, so `milestones` and
+                       `colors` vanish from the payload entirely — and both are `present`
+                       in `TnaTemplateValidationRules`, which then rejects a template
+                       carrying no colour bands with "The colors field must be present."
+                       That is a state the form itself offers ("No bands yet, so dates on
+                       this template render uncoloured") and `TnaDateCell` renders, so it
+                       has to be submittable.
+
+                       Sending `[]` explicitly rather than relaxing `present` server-side:
+                       the children are written as a *set* (ARCHITECTURE.md §5), so the
+                       rule is what stops a partial payload silently keeping stale rows.
+                       The client owes a complete set, and an empty one is a set. */
+                    transform={(data) => ({
+                        ...data,
+                        milestones: data.milestones ?? [],
+                        colors: data.colors ?? [],
+                    })}
                     options={{ preserveScroll: true }}
                     onSuccess={() => setOpen(false)}
                     className="mt-4 space-y-4"

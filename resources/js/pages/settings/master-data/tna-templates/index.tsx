@@ -208,7 +208,10 @@ export default function TnaTemplatesIndex({
                                                             {
                                                                 milestone.offset_days
                                                             }
-                                                            {' days'}
+                                                            {milestone.offset_days ===
+                                                            1
+                                                                ? ' day'
+                                                                : ' days'}
                                                         </li>
                                                     ),
                                                 )}

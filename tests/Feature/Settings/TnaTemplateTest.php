@@ -72,6 +72,32 @@ test('a template is created with its offsets and colour ladder', function () {
         ->and($template->colors)->toHaveCount(2);
 });
 
+/*
+ * The form offers this state in words — "No bands yet, so dates on this template
+ * render uncoloured" — and `TnaDateCell` has a branch that renders it, so it has to
+ * be storable. It was not: the repeater emits no inputs when it holds no rows, so
+ * `colors` left the browser missing rather than empty and `present` refused the
+ * template with "The colors field must be present."
+ *
+ * The fix is a `transform` on the dialog's `<Form>` sending `[]` explicitly, which
+ * this pins from the server's side. **The client half is not provable here** — a
+ * feature test posts the array directly and would have passed throughout. That gap
+ * is ARCHITECTURE.md §13.1, and it is what found this.
+ */
+test('a template may be created with no colour ladder at all', function () {
+    $response = $this->post(
+        route('settings.master-data.tna-templates.store'),
+        tnaTemplatePayload(['colors' => []]),
+    );
+
+    assertToast($response, 'success');
+
+    $template = TnaTemplate::with(['milestones', 'colors'])->sole();
+
+    expect($template->colors)->toHaveCount(0)
+        ->and($template->milestones)->toHaveCount(2);
+});
+
 test('the colour ladder is ordered with the catch-all last, whatever order it was saved in', function () {
     $this->post(route('settings.master-data.tna-templates.store'), tnaTemplatePayload([
         'colors' => [
