@@ -37,13 +37,21 @@ return [
     | and `post_max_size` are what actually bound an upload, and the owner's
     | decision is that whatever the server allows, the library accepts.
     |
-    | `max_files_per_batch` is a different kind of number: it is **PHP's**
-    | `max_file_uploads`, not a preference. Files beyond that count are dropped
-    | from `$_FILES` before any PHP code runs — no warning, no validation error,
-    | they simply never arrive. Validating against it is the only way the user
-    | hears about it at all, which is why the message names batching rather than
-    | a policy. Raise `max_file_uploads` in `php.ini` and raise this to match;
-    | setting this higher on its own re-opens the silent loss.
+    | `max_files_per_batch` is a different kind of number: it shadows **PHP's**
+    | `max_file_uploads`, and is not a preference. Files beyond PHP's count are
+    | dropped from `$_FILES` before any PHP code runs — no warning, no validation
+    | error, they simply never arrive. Validating against it is the only way the
+    | user hears about it at all, which is why the message names batching rather
+    | than a policy.
+    |
+    | **`max_file_uploads` must be set HIGHER than this number, never equal to
+    | it.** Equal is the one setting where the validation cannot work: PHP
+    | truncates a 21-file post to exactly 20 before the rule runs, so `max:20`
+    | passes and the batch stores as a success with the 21st file destroyed.
+    | Measured on a real deployment — 21 sent, 20 stored, success page shown.
+    | With `max_file_uploads = 25` all 21 arrive, the rule rejects the batch, and
+    | the user is told. This file previously advised raising the two together,
+    | which is precisely the configuration that loses files in silence.
     |
     */
 

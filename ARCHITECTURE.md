@@ -104,6 +104,17 @@ compozit-suite/
 │
 ├── config/                  Laravel config
 ├── documentation/           Per-module reference docs — one `{module}.md` each; see §14
+│
+├── deploy/                  Process supervisor for a server — see §15
+│   ├── compozit.ps1         All the logic: menu/start/stop/restart/status/logs/boot task
+│   ├── compozit.config.ps1  Settings; auto-detects, rarely edited
+│   ├── manage.bat           Interactive console — the operator entry point
+│   ├── start.bat            Single-verb wrappers, for scripts and exit codes
+│   ├── stop.bat
+│   ├── restart.bat
+│   ├── status.bat
+│   └── run/                 GENERATED — PIDs and loop scripts; git-ignored
+│
 ├── database/
 │   ├── factories/           Grouped by module (mirrors app/Models/)
 │   ├── migrations/          FLAT — chronological, never nested
@@ -1518,6 +1529,10 @@ Local URL is **http://localhost:8000** (port 8080 is the Laragon landing page, n
 PHP is not on the bash `PATH`; invoke it via
 `D:\Projects\laragon\bin\php\php-8.4.12-nts-Win32-vs17-x64\php.exe` or use PowerShell.
 
+`composer run dev` already includes a queue listener, so a development machine needs nothing else.
+**A server does** — the queue worker and scheduler are started by `deploy/`, see [§15](#15-deploy--the-process-supervisor).
+Deployment commands live in [`documentation/deployment.md`](documentation/deployment.md), not here.
+
 ### 13.1 Never run the suite with a cached config — and it can no longer happen
 
 `bootstrap/cache/config.php` is not merely stale in a test run, it is **destructive**.
@@ -1619,3 +1634,42 @@ restating it. Two copies of a decision means one of them is silently wrong later
 
 A module doc is updated in the same change as the module surface it describes — the same standing
 obligation as [§12](#12-keeping-this-file-in-sync), though the `PostToolUse` hook does not check it.
+
+---
+
+## 15. `deploy/` — the process supervisor
+
+A deployed Compozit Suite is four processes, not one: Apache, MySQL, a **queue worker**, and the
+**scheduler**. Apache and MySQL belong to Laragon or XAMPP. The other two have no owner, and before
+`deploy/` existed there was nothing to start them — a server would serve pages perfectly while every
+queued job sat in the `jobs` table forever.
+
+`deploy/` is that owner, and **only** that owner. It does not start Apache or MySQL: two managers
+fighting over one service is worse than none. It checks they are up, refuses to start without the
+database, and says so.
+
+| Decision | Why |
+| --- | --- |
+| **A new top-level directory**, not `app/` or `documentation/` | These are operator scripts, not application code and not prose. They must be version-controlled and must travel with a `git clone`, which rules out keeping them on each machine |
+| **`.bat` wrappers over one `.ps1`** | An operator double-clicks a `.bat`. Every one of them is a few lines and holds no logic |
+| **`manage.bat` is the operator entry point** | It is an interactive console over the same verbs, with live status that redraws after each action. The single-verb `.bat` files stay because a scheduled task or an update script needs one command and an exit code — but a person should not have to remember which of four files to run |
+| **The console cannot deploy** | No menu option runs `git pull` / `composer install` / `migrate`. That sequence belongs in front of a human with a release in hand, not one keypress away from "view logs" on a live server |
+| **Every prompt goes through `Read-Choice`** | `Read-Host` returns `$null`, not `''`, at EOF — which is what happens whenever the console is launched with redirected input. `.Trim()` on that throws, and `$ErrorActionPreference = 'Stop'` turns it into a crash. Three empty reads is taken as "nobody is there" and exits, so a redirected console cannot spin forever |
+| **Targets Windows PowerShell 5.1** | `.bat` launches `powershell.exe`, which is 5.1 — and 5.1 is what Windows Server ships. `pwsh` 7 is not guaranteed present. This is why `Get-HttpStatus` digs a status code out of an exception instead of using `-SkipHttpErrorCheck`, which is 7-only |
+| **`Win32_Process.Create`, not `Start-Process`** | A `Start-Process` child inherits the caller's console handles, so a detached worker holds the parent's stdout pipe open for its whole life and `start.bat > log.txt` never returns. Found by testing; the comment in `Start-Component` says so |
+| **A supervising loop per component** | The loop relaunches its `php.exe` after a crash or the hourly `--max-time` recycle. Verified: a killed worker was back in ~2s |
+| **PID + command-line check before any kill** | Windows recycles PIDs. The recorded PID must also *be* this component's loop script, or `stop` could eventually kill something unrelated |
+| **Graceful only where it means something** | Queue workers get `queue:restart` and a wait, because killing one mid-job leaves that job reserved until it times out. The scheduler holds nothing and ignores that signal — waiting on it made `stop` take 120s instead of 4s |
+
+**The queue is currently idle.** `app/Jobs/` does not exist, nothing implements `ShouldQueue`,
+nothing calls `dispatch()`, and `routes/console.php` schedules nothing. Both processes still run, so
+that the first job or scheduled task somebody adds simply works rather than silently never running.
+
+**A deployment must restart the workers.** A queue worker loads the application into memory once and
+keeps it, so one left running across a release executes the *old* code against the *new* schema.
+[`documentation/deployment.md §7`](documentation/deployment.md#7-updating-a-running-server) puts
+`deploy\stop.bat` and `deploy\start.bat` in the update sequence for that reason.
+
+Everything an operator needs — configuration, verbs, boot registration, troubleshooting — is in
+[`documentation/deployment.md §5`](documentation/deployment.md#5-the-service-layer). This section
+records *why* it is shaped this way; that one records *what to type*.

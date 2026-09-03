@@ -1,0 +1,3 @@
+# Runtime state. PIDs and the stop flag are per-machine and must never
+# be committed - a stale PID from another host is worse than none.
+run/
