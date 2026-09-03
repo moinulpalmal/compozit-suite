@@ -1,17 +1,17 @@
 import { Form } from '@inertiajs/react';
 import { RefreshCw } from 'lucide-react';
+import { useCallback } from 'react';
 import DocumentFileController from '@/actions/App/Http/Controllers/Merchandising/DocumentFileController';
 import InputError from '@/components/input-error';
-import { Button } from '@/components/ui/button';
+import FormDialogFooter from '@/components/shared/form-dialog-footer';
 import {
     Dialog,
-    DialogClose,
     DialogContent,
     DialogDescription,
-    DialogFooter,
     DialogTitle,
 } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
+import { useFormDialog } from '@/hooks/use-form-dialog';
 import type { DocumentFileItem } from '@/types';
 
 type Props = {
@@ -33,6 +33,12 @@ type Props = {
  * The row keeps its id and its place in the batch; only the bytes and the name change.
  *
  * `POST`, not `PUT`: a browser form cannot send a multipart body with `PUT`.
+ *
+ * **This dialog used to stay open after a successful replace**, because its `open`
+ * derives from `file !== null` and nothing cleared it — so the panel sat there
+ * offering to replace the file it had just replaced. It now closes through the
+ * standard in ARCHITECTURE.md §8.10. No "Save & add another": a replacement acts
+ * on one named file, and there is no next one to add.
  */
 export default function DocumentReplaceDialog({
     uploadId,
@@ -41,6 +47,8 @@ export default function DocumentReplaceDialog({
     onOpenChange,
 }: Props) {
     const accept = allowedExtensions.map((ext) => `.${ext}`).join(',');
+    const close = useCallback(() => onOpenChange(false), [onOpenChange]);
+    const { formKey, formProps, setIntent } = useFormDialog(close);
 
     return (
         <Dialog open={file !== null} onOpenChange={onOpenChange}>
@@ -55,10 +63,12 @@ export default function DocumentReplaceDialog({
 
                 {file && (
                     <Form
+                        key={formKey}
                         {...DocumentFileController.update.form({
                             documentUpload: uploadId,
                             documentFile: file.id,
                         })}
+                        {...formProps}
                         options={{ preserveScroll: true }}
                         className="mt-4 space-y-4"
                     >
@@ -75,35 +85,26 @@ export default function DocumentReplaceDialog({
                                         type="file"
                                         accept={accept}
                                         required
+                                        autoFocus
                                         className="file-input-bordered file-input w-full"
+                                        aria-invalid={Boolean(errors.file)}
                                         data-test="document-replacement-file"
                                     />
 
                                     <InputError message={errors.file} />
                                 </div>
 
-                                <DialogFooter className="gap-2">
-                                    <DialogClose asChild>
-                                        <Button
-                                            variant="secondary"
-                                            type="button"
-                                        >
-                                            Cancel
-                                        </Button>
-                                    </DialogClose>
-
-                                    <Button
-                                        type="submit"
-                                        variant="destructive"
-                                        disabled={processing}
-                                        data-test="submit-document-replacement"
-                                    >
-                                        <RefreshCw />
-                                        {processing
-                                            ? 'Replacing…'
-                                            : 'Replace file'}
-                                    </Button>
-                                </DialogFooter>
+                                {/* Destructive styling survives the standard
+                                    label: the panel's title and description say
+                                    what is destroyed, and the red button is what
+                                    stops it reading as an ordinary save. */}
+                                <FormDialogFooter
+                                    processing={processing}
+                                    onIntent={setIntent}
+                                    saveVariant="destructive"
+                                    saveIcon={<RefreshCw />}
+                                    saveTestId="submit-document-replacement"
+                                />
                             </>
                         )}
                     </Form>

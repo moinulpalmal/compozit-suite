@@ -392,6 +392,18 @@ test, and it stayed green throughout.
 | `admin/list-toolbar.tsx` | The thin bar above the table: rows-per-page, Clear filters, and surface extras such as this page's Active/Historical tabs. |
 | `admin/sortable-header.tsx` | Clickable `<th>` and `nextSort()`. Shared by all four lists. |
 | `admin/pagination.tsx` | Numbered pages with previous/next. Moves to `components/shared/` the moment a second module imports it, per [ARCHITECTURE.md §6.5](../ARCHITECTURE.md#65-components). |
+| `shared/form-dialog-footer.tsx` | The Cancel / Save & add another / Save & close footer every form modal above wears. |
+
+The first three dialogs, plus `admin/user-buyer-access-dialog.tsx`, all follow the form-modal
+standard in
+[ARCHITECTURE.md §8.10](../ARCHITECTURE.md#810-a-form-modal-has-three-buttons-and-each-one-means-something)
+— what each button does, how the form clears, and what a rejected field looks like are all stated
+there and are not repeated here. Two things about *this* module's dialogs are worth knowing on top
+of it: **only the user form offers "Save & add another"**, because roles, passwords and buyer access
+each act on one named user and there is no next record to add; and **`user-password-dialog` and
+`user-buyer-access-dialog` keep state above `DialogContent`** (the typed password, the all-buyers
+checkbox), which the panel's unmount-on-close does *not* clear — both therefore re-seed it in their
+own close callback, and a new dialog that hoists state owes the same.
 
 A cell can be `stack`ed because a table column is not always one database column: this page shows
 the email under the name and two numbers under "Contact", so those headings carry two and three

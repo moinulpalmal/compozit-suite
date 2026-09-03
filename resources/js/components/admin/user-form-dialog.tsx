@@ -1,18 +1,16 @@
 import { Form } from '@inertiajs/react';
 import { Check, LoaderCircle, X } from 'lucide-react';
 import type { ReactNode } from 'react';
-import { useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import InputError from '@/components/input-error';
 import PasswordInput from '@/components/password-input';
-import { Button } from '@/components/ui/button';
+import FormDialogFooter from '@/components/shared/form-dialog-footer';
 import { Checkbox } from '@/components/ui/checkbox';
 import Combobox from '@/components/ui/combobox';
 import {
     Dialog,
-    DialogClose,
     DialogContent,
     DialogDescription,
-    DialogFooter,
     DialogTitle,
     DialogTrigger,
 } from '@/components/ui/dialog';
@@ -20,6 +18,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import type { AvailabilityState } from '@/hooks/use-availability';
 import { useAvailability } from '@/hooks/use-availability';
+import { useFormDialog } from '@/hooks/use-form-dialog';
 import { options as designationOptionsRoute } from '@/routes/admin/designations';
 import type {
     DesignationOption,
@@ -36,7 +35,9 @@ const EMPLOYEE_ID_PATTERN = /^[A-Za-z0-9-]{3,10}$/;
 const MOBILE_PATTERN = /^01[3-9][0-9]{8}$/;
 
 /**
- * Create/edit a user in a modal.
+ * Create/edit a user in a modal — the largest instance of the form-modal standard
+ * in ARCHITECTURE.md §8.10, and the one that most needs its focus-on-error rule:
+ * a rejected field here can sit several rows above the fold.
  *
  * Client-side checks here are for feedback only — `UserStoreRequest` and
  * `UserUpdateRequest` are what enforce the rules, and their errors render
@@ -51,7 +52,6 @@ export default function UserFormDialog({
     user,
     title,
     description,
-    submitLabel,
     children,
 }: {
     submit: RouteFormDefinition<'post'>;
@@ -68,10 +68,11 @@ export default function UserFormDialog({
     user?: UserListItem;
     title: string;
     description: string;
-    submitLabel: string;
     children: ReactNode;
 }) {
     const [open, setOpen] = useState(false);
+    const close = useCallback(() => setOpen(false), []);
+    const { formKey, formProps, setIntent } = useFormDialog(close);
     const isCreate = user === undefined;
 
     const [employeeId, setEmployeeId] = useState(user?.employee_id ?? '');
@@ -134,9 +135,10 @@ export default function UserFormDialog({
                 <DialogDescription>{description}</DialogDescription>
 
                 <Form
+                    key={formKey}
                     {...submit}
+                    {...formProps}
                     options={{ preserveScroll: true }}
-                    onSuccess={() => setOpen(false)}
                     className="mt-4 space-y-4"
                 >
                     {({ processing, errors }) => (
@@ -154,6 +156,7 @@ export default function UserFormDialog({
                                         required
                                         autoFocus
                                         autoComplete="off"
+                                        aria-invalid={Boolean(errors.name)}
                                     />
                                 </Field>
 
@@ -184,7 +187,8 @@ export default function UserFormDialog({
                                         autoComplete="off"
                                         placeholder="15868"
                                         aria-invalid={
-                                            employeeIdState === 'taken'
+                                            employeeIdState === 'taken' ||
+                                            Boolean(errors.employee_id)
                                         }
                                     />
                                 </Field>
@@ -207,7 +211,10 @@ export default function UserFormDialog({
                                         }
                                         required
                                         autoComplete="off"
-                                        aria-invalid={emailState === 'taken'}
+                                        aria-invalid={
+                                            emailState === 'taken' ||
+                                            Boolean(errors.email)
+                                        }
                                     />
                                 </Field>
 
@@ -222,6 +229,7 @@ export default function UserFormDialog({
                                         defaultValue={user?.gender ?? 'M'}
                                         options={genders}
                                         required
+                                        aria-invalid={Boolean(errors.gender)}
                                     />
                                 </Field>
 
@@ -253,6 +261,9 @@ export default function UserFormDialog({
                                         searchUrl={designationSearchUrl}
                                         placeholder="Choose a designation"
                                         required
+                                        aria-invalid={Boolean(
+                                            errors.designation_id,
+                                        )}
                                         data-test="designation-select"
                                     />
                                 </Field>
@@ -283,6 +294,9 @@ export default function UserFormDialog({
                                         inputMode="numeric"
                                         maxLength={11}
                                         placeholder="01712345678"
+                                        aria-invalid={Boolean(
+                                            errors.personal_mobile_no,
+                                        )}
                                     />
                                 </Field>
 
@@ -312,6 +326,9 @@ export default function UserFormDialog({
                                         inputMode="numeric"
                                         maxLength={11}
                                         placeholder="01812345678"
+                                        aria-invalid={Boolean(
+                                            errors.official_mobile_no,
+                                        )}
                                     />
                                 </Field>
 
@@ -329,6 +346,9 @@ export default function UserFormDialog({
                                         inputMode="numeric"
                                         maxLength={4}
                                         placeholder="204"
+                                        aria-invalid={Boolean(
+                                            errors.official_extension_no,
+                                        )}
                                     />
                                 </Field>
 
@@ -352,6 +372,9 @@ export default function UserFormDialog({
                                             }
                                             required
                                             autoComplete="new-password"
+                                            aria-invalid={Boolean(
+                                                errors.password,
+                                            )}
                                         />
                                     </Field>
                                 )}
@@ -367,6 +390,9 @@ export default function UserFormDialog({
                                             name="password_confirmation"
                                             required
                                             autoComplete="new-password"
+                                            aria-invalid={Boolean(
+                                                errors.password_confirmation,
+                                            )}
                                         />
                                     </Field>
                                 )}
@@ -391,6 +417,7 @@ export default function UserFormDialog({
                                         defaultValue={user?.status ?? 'A'}
                                         options={statuses}
                                         required
+                                        aria-invalid={Boolean(errors.status)}
                                         data-test="user-status"
                                     />
                                     <p className="text-xs text-base-content/60">
@@ -455,21 +482,12 @@ export default function UserFormDialog({
                                 </fieldset>
                             )}
 
-                            <DialogFooter className="gap-2">
-                                <DialogClose asChild>
-                                    <Button variant="secondary" type="button">
-                                        Cancel
-                                    </Button>
-                                </DialogClose>
-
-                                <Button
-                                    type="submit"
-                                    disabled={processing}
-                                    data-test="save-user"
-                                >
-                                    {submitLabel}
-                                </Button>
-                            </DialogFooter>
+                            <FormDialogFooter
+                                processing={processing}
+                                addAnother={isCreate}
+                                onIntent={setIntent}
+                                saveTestId="save-user"
+                            />
                         </>
                     )}
                 </Form>

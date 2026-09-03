@@ -1,20 +1,19 @@
 import { Form } from '@inertiajs/react';
 import type { ReactNode } from 'react';
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 import { PasswordStrength } from '@/components/admin/user-form-dialog';
 import InputError from '@/components/input-error';
 import PasswordInput from '@/components/password-input';
-import { Button } from '@/components/ui/button';
+import FormDialogFooter from '@/components/shared/form-dialog-footer';
 import {
     Dialog,
-    DialogClose,
     DialogContent,
     DialogDescription,
-    DialogFooter,
     DialogTitle,
     DialogTrigger,
 } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
+import { useFormDialog } from '@/hooks/use-form-dialog';
 import type { UserListItem } from '@/types';
 import type { RouteFormDefinition } from '@/wayfinder';
 
@@ -24,6 +23,9 @@ import type { RouteFormDefinition } from '@/wayfinder';
  * No current-password confirmation: this is an administrator acting on someone
  * else's account, gated by `admin.users.reset-password`. Changing your own
  * password still goes through the security settings page, which does ask.
+ *
+ * **No "Save & add another"** — it acts on one named user, so there is no next
+ * record to add (ARCHITECTURE.md §8.10).
  */
 export default function UserPasswordDialog({
     submit,
@@ -37,6 +39,15 @@ export default function UserPasswordDialog({
     const [open, setOpen] = useState(false);
     const [password, setPassword] = useState('');
 
+    // `password` lives out here, above `DialogContent`, so it survives the
+    // children unmounting and has to be cleared by hand.
+    const close = useCallback(() => {
+        setPassword('');
+        setOpen(false);
+    }, []);
+
+    const { formKey, formProps, setIntent } = useFormDialog(close);
+
     return (
         <Dialog open={open} onOpenChange={setOpen}>
             <DialogTrigger asChild>{children}</DialogTrigger>
@@ -49,12 +60,10 @@ export default function UserPasswordDialog({
                 </DialogDescription>
 
                 <Form
+                    key={formKey}
                     {...submit}
+                    {...formProps}
                     options={{ preserveScroll: true }}
-                    onSuccess={() => {
-                        setPassword('');
-                        setOpen(false);
-                    }}
                     className="mt-4 space-y-4"
                 >
                     {({ processing, errors }) => (
@@ -77,6 +86,7 @@ export default function UserPasswordDialog({
                                     required
                                     autoFocus
                                     autoComplete="new-password"
+                                    aria-invalid={Boolean(errors.password)}
                                 />
 
                                 <InputError message={errors.password} />
@@ -92,6 +102,9 @@ export default function UserPasswordDialog({
                                     name="password_confirmation"
                                     required
                                     autoComplete="new-password"
+                                    aria-invalid={Boolean(
+                                        errors.password_confirmation,
+                                    )}
                                 />
 
                                 <InputError
@@ -99,21 +112,11 @@ export default function UserPasswordDialog({
                                 />
                             </div>
 
-                            <DialogFooter className="gap-2">
-                                <DialogClose asChild>
-                                    <Button variant="secondary" type="button">
-                                        Cancel
-                                    </Button>
-                                </DialogClose>
-
-                                <Button
-                                    type="submit"
-                                    disabled={processing}
-                                    data-test="save-user-password"
-                                >
-                                    Set password
-                                </Button>
-                            </DialogFooter>
+                            <FormDialogFooter
+                                processing={processing}
+                                onIntent={setIntent}
+                                saveTestId="save-user-password"
+                            />
                         </>
                     )}
                 </Form>

@@ -943,6 +943,19 @@ this is the first table needing
 gets a null backwards: `whereIn` never matches `NULL`, so an unassigned row would have been visible
 to nobody rather than to everyone.
 
+**Neither dialog used to close after a successful save.** `document-upload-dialog.tsx` carried no
+`onSuccess` at all, and `document-replace-dialog.tsx` derives its `open` from `file !== null` with
+nothing clearing it — so an upload left the panel standing with the file input still populated, one
+click away from sending the same batch twice, and a replace offered to replace the file it had just
+replaced. Both now follow
+[ARCHITECTURE.md §8.10](../ARCHITECTURE.md#810-a-form-modal-has-three-buttons-and-each-one-means-something),
+which is also where the standard's clearing mechanism is explained. Worth knowing here because a
+**file input is the one control nothing else can clear** — assigning to its `value` is refused by
+every browser, so the remount that section prescribes is not a preference on this surface.
+
+Batches arrive in runs, so **upload keeps "Save & add another"**; replace does not, acting on one
+named file.
+
 ### 10.4 What is deliberately absent
 
 | Not built | Why |

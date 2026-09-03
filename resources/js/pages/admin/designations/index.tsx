@@ -84,7 +84,6 @@ export default function DesignationsIndex({
                             statuses={statuses}
                             title="New designation"
                             description="It becomes selectable on the user form straight away."
-                            submitLabel="Create designation"
                         >
                             <Button data-test="new-designation">
                                 <Plus /> New designation
@@ -202,7 +201,6 @@ export default function DesignationsIndex({
                                                     designation={designation}
                                                     title={`Edit ${designation.name}`}
                                                     description="Renaming updates it everywhere — users reference the designation, not a copy of its name."
-                                                    submitLabel="Save changes"
                                                 >
                                                     <Button
                                                         variant="ghost"

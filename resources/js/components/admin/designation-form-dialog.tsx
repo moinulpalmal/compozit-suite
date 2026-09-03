@@ -1,26 +1,26 @@
 import { Form } from '@inertiajs/react';
 import type { ReactNode } from 'react';
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 import InputError from '@/components/input-error';
-import { Button } from '@/components/ui/button';
+import FormDialogFooter from '@/components/shared/form-dialog-footer';
 import Combobox from '@/components/ui/combobox';
 import {
     Dialog,
-    DialogClose,
     DialogContent,
     DialogDescription,
-    DialogFooter,
     DialogTitle,
     DialogTrigger,
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { useFormDialog } from '@/hooks/use-form-dialog';
 import type { DesignationListItem, StatusOption } from '@/types';
 import type { RouteFormDefinition } from '@/wayfinder';
 
 /**
  * Create/edit a designation in a modal — the small sibling of
- * `user-form-dialog.tsx`.
+ * `user-form-dialog.tsx`, and the reference implementation of the form-modal
+ * standard in ARCHITECTURE.md §8.10.
  *
  * `DesignationStoreRequest` and `DesignationUpdateRequest` are what enforce the
  * rules; everything here is feedback, and their errors render in the same
@@ -32,7 +32,6 @@ export default function DesignationFormDialog({
     designation,
     title,
     description,
-    submitLabel,
     children,
 }: {
     submit: RouteFormDefinition<'post'>;
@@ -40,10 +39,11 @@ export default function DesignationFormDialog({
     designation?: DesignationListItem;
     title: string;
     description: string;
-    submitLabel: string;
     children: ReactNode;
 }) {
     const [open, setOpen] = useState(false);
+    const close = useCallback(() => setOpen(false), []);
+    const { formKey, formProps, setIntent } = useFormDialog(close);
 
     return (
         <Dialog open={open} onOpenChange={setOpen}>
@@ -54,9 +54,10 @@ export default function DesignationFormDialog({
                 <DialogDescription>{description}</DialogDescription>
 
                 <Form
+                    key={formKey}
                     {...submit}
+                    {...formProps}
                     options={{ preserveScroll: true }}
-                    onSuccess={() => setOpen(false)}
                     className="mt-4 space-y-4"
                 >
                     {({ processing, errors }) => (
@@ -72,6 +73,7 @@ export default function DesignationFormDialog({
                                     autoFocus
                                     autoComplete="off"
                                     placeholder="Senior Merchandiser"
+                                    aria-invalid={Boolean(errors.name)}
                                 />
                                 <InputError message={errors.name} />
                             </div>
@@ -90,6 +92,7 @@ export default function DesignationFormDialog({
                                     maxLength={50}
                                     autoComplete="off"
                                     placeholder="SMER"
+                                    aria-invalid={Boolean(errors.short_form)}
                                 />
                                 <InputError message={errors.short_form} />
                             </div>
@@ -105,6 +108,7 @@ export default function DesignationFormDialog({
                                     defaultValue={designation?.status ?? 'A'}
                                     options={statuses}
                                     required
+                                    aria-invalid={Boolean(errors.status)}
                                     data-test="designation-status"
                                 />
                                 <p className="text-xs text-base-content/60">
@@ -114,21 +118,12 @@ export default function DesignationFormDialog({
                                 <InputError message={errors.status} />
                             </div>
 
-                            <DialogFooter className="gap-2">
-                                <DialogClose asChild>
-                                    <Button variant="secondary" type="button">
-                                        Cancel
-                                    </Button>
-                                </DialogClose>
-
-                                <Button
-                                    type="submit"
-                                    disabled={processing}
-                                    data-test="save-designation"
-                                >
-                                    {submitLabel}
-                                </Button>
-                            </DialogFooter>
+                            <FormDialogFooter
+                                processing={processing}
+                                addAnother={designation === undefined}
+                                onIntent={setIntent}
+                                saveTestId="save-designation"
+                            />
                         </>
                     )}
                 </Form>

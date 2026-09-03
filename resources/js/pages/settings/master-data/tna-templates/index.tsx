@@ -97,7 +97,6 @@ export default function TnaTemplatesIndex({
                             submit={TnaTemplateController.store.form()}
                             title="New TNA template"
                             description="Orders whose lead time falls in the band pick it up immediately."
-                            submitLabel="Create template"
                         >
                             <Button data-test="new-tna-template">
                                 <Plus /> New template
@@ -273,7 +272,6 @@ export default function TnaTemplatesIndex({
                                                     template={template}
                                                     title={`Edit ${template.name}`}
                                                     description="Dates are worked out on every view, so a change here reschedules every order in the band immediately — including ones already printed."
-                                                    submitLabel="Save changes"
                                                 >
                                                     <Button
                                                         variant="ghost"

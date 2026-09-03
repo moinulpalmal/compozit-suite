@@ -727,6 +727,14 @@ thin preset over `confirm-action-dialog`, and promoting the wrapper alone would 
 component importing out of `components/admin/` — which is the coupling the rule exists to remove.
 The `*-form-dialog.tsx` files stayed put; they know their module's fields and have one caller each.
 
+**`form-dialog-footer.tsx` was born in `components/shared/`, and that is not an exception to the
+rule but its conclusion reached early.** Admin, Settings and Merchandising all imported it in the
+change that created it, so starting it in one module's folder would have meant promoting it in the
+same commit. Read the rule as "a component lives where its importers say it does"; the usual case is
+that they say so one module at a time. Note what stayed behind: the `*-form-dialog.tsx` files still
+know their own fields, and it is only the *footer* — three buttons and their states — that every
+module shares. See [§8.10](#810-a-form-modal-has-three-buttons-and-each-one-means-something).
+
 File names are kebab-case; the exported component is PascalCase.
 
 ### 6.6 TypeScript types
@@ -929,6 +937,15 @@ presentation only — the route's `permission:` middleware is what actually deni
   colour swatch is an unnamed visual control that writes into it. Two named inputs would submit the
   field twice and the last one would win, which is a bug that looks like nothing until the values
   disagree. Any further control built from more than one element does the same.
+- **A compound control must also accept and paint `aria-invalid`.** Server errors set it on every
+  field in a form modal ([§8.10](#810-a-form-modal-has-three-buttons-and-each-one-means-something)),
+  and a control that swallows the attribute shows a red message under a normal border while its
+  plain-`Input` neighbours turn red. `Combobox` paints `select-error` from it and `ColorInput` takes
+  an `invalid` prop; a third compound control owes the same.
+- **A control that replaces a native element must also be focusable by `id`.** The same section
+  moves focus to the first rejected field, and it finds it by `#id` before falling back to `name` —
+  which works only because `Combobox` puts the caller's `id` on its trigger `<button>` rather than
+  on the hidden input. Keep that where it is.
 - **Why a dependency at all**, when `dropdown-menu.tsx` deliberately replaced Radix by hand: that
   file's docblock states the rule — hand-roll the simple primitive, buy the complicated one.
   `aria-activedescendant`, roving virtual focus and filtered-result announcements are the
@@ -1039,7 +1056,17 @@ typed work or a destructive confirmation, and a stray click outside one was disc
   removed survived Cancel *and* a successful save. `DialogClose` stays outside the guard, because
   the only exit is never conditional. A dialog that must survive being closed keeps that state in
   the component *above* `DialogContent`, the way the two import dialogs keep their
-  reopen-on-pending `useRef`.
+  reopen-on-pending `useRef` — and note the cost of doing so: state up there is *not* cleared by
+  closing, so `user-password-dialog` and `user-buyer-access-dialog` both have to re-seed it by hand.
+  **The same remount, driven by a `key` instead of by closing, is how a form modal clears itself
+  without closing** — that is "Save & add another", and it lives in
+  [§8.10](#810-a-form-modal-has-three-buttons-and-each-one-means-something).
+- **"Never conditional" has exactly one narrowing: `busy`.** A form modal disables both exits —
+  Cancel and the X — while its save is in flight, so the panel cannot be dismissed between the
+  request leaving and the answer arriving. It is a *disable*, not a removal, and it lifts the moment
+  the request settles, so the user is never without an exit for longer than a round trip. Only
+  `FormDialogFooter` sets it; a dialog with no form footer never touches the flag, so the
+  confirmation and preview dialogs are unaffected. §8.10 has the reasoning.
 - **`Sheet` inherits it**, being the same primitive with a different placement. The mobile
   navigation drawer therefore closes by its X, not by tapping the page behind it.
 - **Menus are the opposite case and keep light dismiss.** `dropdown-menu.tsx` keeps
@@ -1135,6 +1162,121 @@ surface.
   exposes.
 - **Severity is asserted, not assumed.** `assertToast($response, 'warning')` in `tests/Pest.php`
   reaches into the `inertia.flash_data` session key; use it on both sides of every guard.
+
+### 8.10 A form modal has three buttons, and each one means something
+
+**Every insert/update modal in this application wears the same footer**, and a new one inherits it
+rather than choosing its own verbs. This is a standard, not a description: it governs the modals
+that exist and the ones that do not exist yet.
+
+| Button | On success | On failure |
+| --- | --- | --- |
+| **Cancel** | Clears the form and closes | — it does not submit |
+| **Save & add another** | Clears the form; the panel **stays open** for the next record | Error shown, panel stays open, typed values untouched |
+| **Save & close** | Clears the form and closes | Error shown, panel stays open, typed values untouched |
+
+Two files carry it, and a dialog needs nothing else:
+
+| Piece | Job |
+| --- | --- |
+| `hooks/use-form-dialog.ts` | The remount key, the save intent, and focus-on-error. Returns `formKey`, `formProps` and `setIntent` |
+| `components/shared/form-dialog-footer.tsx` | The three buttons, their disabled states, and the panel's busy flag |
+
+```tsx
+const close = useCallback(() => setOpen(false), []);
+const { formKey, formProps, setIntent } = useFormDialog(close);
+
+<Form key={formKey} {...submit} {...formProps} options={{ preserveScroll: true }}>
+    {({ processing, errors }) => (
+        <>
+            {/* fields */}
+            <FormDialogFooter
+                processing={processing}
+                addAnother={designation === undefined}
+                onIntent={setIntent}
+                saveTestId="save-designation"
+            />
+        </>
+    )}
+</Form>
+```
+
+`designation-form-dialog.tsx` is the reference implementation; `user-form-dialog.tsx` is the same
+shape at ten fields.
+
+#### The rules, and why each one is what it is
+
+- **"Save & add another" is create-only.** An edit modal posts to *that record's* update route, so a
+  second submit would re-save the same row rather than create a new one. Pass `addAnother` from
+  whether the dialog was handed a record. An edit modal shows Cancel + Save & close.
+- **Clearing is a `key` remount, never `reset()`.** Inertia's `resetOnSuccess` and the slot's
+  `reset()` write `el.value` straight onto the named DOM nodes, which is wrong for every control
+  here that is React-controlled behind its `name` — `combobox.tsx` submits through a hidden input
+  and `color-input.tsx` through a controlled text field, so React repaints its own state over the
+  write and the visible control ends up disagreeing with what is submitted. That is the "looks like
+  data loss" failure [§8.5](#85-selects-are-comboboxes) already records once, arrived at from the
+  other direction. It also cannot clear a `<input type="file">` at all, and it leaves a repeater's
+  `useState` rows standing — the TNA colour ladder is the case that proves both.
+  Bumping `key` unmounts and remounts the subtree instead: every `defaultValue` re-seeds, every
+  `useState` re-initialises, every file input empties, and the `<Form>`'s own errors clear. It is
+  the same mechanism [§8.7](#87-modals-never-light-dismiss-menus-always-do) uses when a panel
+  closes, driven by a key rather than by closing.
+- **"Clear" means back to the seed, not empty.** On a create modal the seed is blank; on an edit
+  modal it is the row the server holds. That is what makes Cancel on an edit modal discard the edit
+  rather than blank the record.
+- **The panel survives the round trip, and that is why any of this works.** `<Form>` submits through
+  `router.post`, which defaults `preserveState: true`, so the page component is *not* remounted
+  after a successful save and the dialog's `open` state lives through it. Verified against
+  `@inertiajs/react` 3.7.0 — if a future upgrade changes that default, "Save & add another" is the
+  first thing to break.
+- **The intent never reaches the server.** `<Form>` builds its payload with
+  `new FormData(element, submitter)`, so a `name`d submit button would post an extra field that
+  every form request would then need a rule to ignore. It lives in a ref written by the button's
+  `onClick`.
+- **Enter submits the leftmost save button** — "Save & add another" on create, "Save & close" on
+  edit, where the middle button is absent. That is what implicit submission does for free, and the
+  `onClick` that records the intent fires on it too. Visual order, DOM order and tab order all
+  agree; reordering the DOM to make Enter mean "close" was considered and declined, because it
+  leaves tab order disagreeing with what the eye sees.
+- **The first field carries `autoFocus`, and this is required.** Without it, focus after a
+  "Save & add another" remount falls to the document and a keyboard user is stranded mid-run.
+  `Combobox` accepts `autoFocus` for the dialogs whose first control is a picker.
+- **A rejected field turns red, takes focus, and is announced.** Every field passes
+  `aria-invalid={Boolean(errors.x)}` — `Input` and `Combobox` both paint their error variant from
+  it, and `ColorInput` takes `invalid`. `useFormDialog`'s `onError` moves focus to the first
+  rejected control and scrolls it into view, and `InputError` carries `role="alert"`. On a modal the
+  size of the user form the message alone is not enough: it can sit several rows above the fold, and
+  the reader is left looking at a panel that simply did not close. This generalises what
+  `delete-user.tsx` and `settings/security.tsx` each hand-rolled with their own refs.
+  - The lookup is by `#id` **first**, then by `name`. A `Combobox` carries the caller's `id` on its
+    trigger `<button>` while its `name` belongs to a hidden input, which cannot take focus.
+  - A nested key from a repeater (`colors.0.max_days_remaining`) matches neither and fails softly.
+    Do not synthesise ids to make it match.
+- **Both exits are disabled while the save is in flight**, not just the save buttons.
+  `FormDialogFooter` mirrors `processing` into the dialog context and `DialogContent` disables its
+  X from it. This is the one narrowing of §8.7's "the close button is never conditional", and it is
+  a *disable*, never a removal — the moment the request settles the X is back. Escape needs nothing:
+  §8.7 already refuses it.
+- **Cancel gets no unsaved-changes confirmation.** It is an explicit action, unlike the stray
+  outside click §8.7 exists to refuse. Adding a second dialog over the first was considered and
+  declined.
+
+#### What is in scope
+
+The ten modals that take a form: the five `*-form-dialog.tsx` create/edit dialogs, the document
+library's upload and replace dialogs, and the three single-record user actions (password, roles,
+buyer access). The last five show two buttons — they act on one named record, so there is no next
+one to add.
+
+**The two import dialogs are deliberately outside it.** `bqs-import-dialog.tsx` and
+`purchase-order-import-dialog.tsx` are multi-step: step two holds skip/revise/overwrite decisions
+about orders already staged on the server ([§5](#5-module-registry)), and neither "add another" nor
+"clear the form" describes anything there. `role-form.tsx` and `permission-form.tsx` are pages, not
+modals, and keep their own `submitLabel`.
+
+The contract is proved once, in `tests/Browser/FormDialogStandardTest.php`, against
+`admin/designations` — a DOM is the only thing that can answer any of it
+([§13.2](#132-a-dom-level-test-harness-exists--testsbrowser)).
 
 ---
 
@@ -1587,6 +1729,26 @@ Three things about it are decisions rather than defaults:
 - **A browser test earns its place by testing something a DOM can only answer.** Anything provable
   by posting a payload belongs in `tests/Feature/`, which is an order of magnitude faster. The rule
   of thumb: if removing the fix would still fail the feature test, the browser test is redundant.
+
+**The suite runs against whatever assets are on disk, and a stale bundle fails every test at once.**
+The served process reads `public/build/manifest.json` unless a Vite dev server is running, which it
+knows by `public/hot`. So the suite passes against `composer run dev`'s live bundle right up until
+that dev server stops — at which point `public/hot` disappears, the app silently falls back to
+whichever build was last written, and the failures read like application bugs rather than a missing
+build: dialogs that never open, a `[popover]` menu visible before it is opened, timeouts everywhere.
+It cost a full diagnosis once, on a run where fourteen of eighteen tests failed including four that
+had passed minutes earlier. **Run `npm run build` before the browser suite** rather than relying on a
+dev server that may not outlive the session, and recognise the symptom by its shape: near-total
+failure, including tests untouched by the change.
+
+**The plugin's bare-text click is an *exact* `getByText`.** `->click('Size chart')` works because
+that option's element holds exactly that text; `->click('Kingfisher Urgent')` does **not**, because
+[§8.5](#85-selects-are-comboboxes)'s options render their `hint` inside the same element as the
+label, so the only exact text is `Kingfisher Urgent#D8A60B`. There is nothing wrong with the markup
+and nothing wrong with the test — it simply times out. Any option carrying a hint must be clicked by
+selector (`li:has-text("…")`), and the same caution applies to any label rendered beside a badge or
+a count. `GuessLocator` also tries `[id]` and `[name]` before falling back to text, which is why
+`->fill('input[name="name"]', …)` is the form idiom here.
 
 **A browser test cannot complete a file upload, and the limit is the plugin.** Its HTTP driver
 parses a request body only when the content type is `application/x-www-form-urlencoded`, and passes

@@ -81,7 +81,6 @@ export default function BuyersIndex({
                             statuses={statuses}
                             title="New buyer"
                             description="Anyone with access to all buyers can see it immediately. Individual grants are made on the Users screen."
-                            submitLabel="Create buyer"
                         >
                             <Button data-test="new-buyer">
                                 <Plus /> New buyer
@@ -202,7 +201,6 @@ export default function BuyersIndex({
                                                     buyer={buyer}
                                                     title={`Edit ${buyer.name}`}
                                                     description="Renaming updates it everywhere — orders reference the buyer, not a copy of its name."
-                                                    submitLabel="Save changes"
                                                 >
                                                     <Button
                                                         variant="ghost"
