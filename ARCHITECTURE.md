@@ -1047,6 +1047,17 @@ typed work or a destructive confirmation, and a stray click outside one was disc
   keeps downshift's outside-click and Escape handling. A menu holds no work, so there is nothing
   to protect and a user who opens one by accident must be able to leave. Do not extend the modal
   rule to them.
+- **Never put a class that sets `display` on a `[popover]` element**, and that includes daisyUI's
+  `.menu`. The browser hides a closed popover with a *User-Agent* rule
+  (`[popover]:not(:popover-open){display:none}`), and any author declaration beats it outright —
+  specificity and `@layer` only order rules within one origin. `dropdown-menu.tsx` wore
+  `.menu`, which is `display:flex`, and the user menu could not be dismissed by anything: the
+  trigger, Escape and outside-click all fired, `hidePopover()` ran, `:popover-open` went false,
+  and the menu stayed on screen in every engine — visible even before it had been opened. The
+  bullet above was describing dismissal the app did not actually have. `dropdown-menu.tsx` is
+  therefore styled with plain utilities and lays out in block flow with `space-y-*`, never
+  `flex flex-col`; `combobox.tsx` avoids the same trap by gating its own `hidden` on React state.
+  `tests/Browser/UserMenuDismissalTest.php` guards it, because only a real engine can see it.
 - `.modal-box` is `position: static` in daisyUI, so `DialogContent` adds `relative`; without it
   the close button anchors to `.modal` (`position: fixed; inset: 0`) and lands in the viewport
   corner rather than the panel's.
