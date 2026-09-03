@@ -3,16 +3,21 @@
     Compozit Suite process supervisor.
 
 .DESCRIPTION
-    Starts, stops and reports on the application's own long-running processes:
-    the queue worker(s) and the scheduler.
+    Starts, stops and reports on everything the application needs to be up: the
+    web server, the queue worker(s) and the scheduler.
 
-    It does NOT start Apache or MySQL. Those belong to Laragon or XAMPP, and two
-    managers fighting over one service is worse than none. It does check they are
-    up, and says so, because the application cannot work without them.
+    Apache is managed when ManageWebServer is set (the default). Be aware that
+    ONE Apache serves every vhost on the machine, so stopping it here stops any
+    other site it is hosting too. Turn the switch off to leave it to Laragon or
+    XAMPP.
+
+    MySQL is never started or stopped here -- only checked. Killing mysqld
+    outright risks InnoDB crash recovery on live data, and shutting it down
+    safely is a different job from supervising a process.
 
     Each managed component runs as a small PowerShell supervising loop that
-    relaunches its php.exe child whenever that child exits -- on a crash, or on
-    the hourly --max-time recycle. The loop's PID is recorded under deploy/run/.
+    relaunches its child whenever that child exits -- on a crash, or on the
+    hourly --max-time recycle. The loop's PID is recorded under deploy/run/.
 
 .PARAMETER Action
     menu           Interactive console. The entry point for an operator.
@@ -97,7 +102,50 @@ function Get-Config {
     }
     if (-not $cfg.AppUrl) { $cfg.AppUrl = 'http://localhost' }
 
+    if ($cfg.ManageWebServer) { Resolve-Apache $cfg }
+
     return $cfg
+}
+
+<#
+    Work out where Apache is.
+
+    Asking the running httpd first is deliberate and is the case that matters:
+    whatever is serving the site right now is by definition the right binary and
+    the right ServerRoot, whoever started it. Guessing from a list of well-known
+    paths can find a *different* Apache than the one already bound to the port,
+    and then `start` would try to bind it twice.
+#>
+function Resolve-Apache($cfg) {
+    if (-not $cfg.ApacheExe) {
+        $running = Get-CimInstance Win32_Process -Filter "Name = 'httpd.exe'" -ErrorAction SilentlyContinue |
+            Select-Object -First 1
+        if ($running -and $running.ExecutablePath) {
+            $cfg.ApacheExe = $running.ExecutablePath
+            if (-not $cfg.ApacheRoot -and $running.CommandLine -match '-d\s+"?([^"]+?)"?(\s|$)') {
+                $cfg.ApacheRoot = $Matches[1].TrimEnd('\', '/')
+            }
+        }
+    }
+
+    if (-not $cfg.ApacheExe) {
+        $candidates = @()
+        foreach ($base in @('C:\laragon', 'D:\laragon', 'D:\Projects\laragon')) {
+            $candidates += Get-ChildItem "$base\bin\apache" -Directory -ErrorAction SilentlyContinue |
+                ForEach-Object { Join-Path $_.FullName 'bin\httpd.exe' }
+        }
+        $candidates += 'C:\xampp\apache\bin\httpd.exe'
+        $cfg.ApacheExe = $candidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+    }
+
+    if (-not $cfg.ApacheExe) {
+        throw 'Apache not found. Set ApacheExe in compozit.config.ps1, or set ManageWebServer = $false.'
+    }
+
+    # <root>\bin\httpd.exe -- ServerRoot is two levels up.
+    if (-not $cfg.ApacheRoot) {
+        $cfg.ApacheRoot = Split-Path (Split-Path $cfg.ApacheExe -Parent) -Parent
+    }
 }
 
 function Get-EnvValue($cfg, $key, $default) {
@@ -128,10 +176,31 @@ function Get-EnvValue($cfg, $key, $default) {
 #>
 function Get-Components($cfg) {
     $list = @()
+
+    <#
+        Apache first, so `start` has the site answering before the health check
+        and `stop` (which walks this list backwards) takes the workers down
+        before the front door.
+
+        Run without -k, httpd stays in the foreground, which is exactly what the
+        supervising loop needs: the loop blocks on it and relaunches it if it
+        ever exits.
+    #>
+    if ($cfg.ManageWebServer) {
+        $list += [pscustomobject]@{
+            Name        = 'apache'
+            Description = 'Web server (Apache)'
+            Exe         = $cfg.ApacheExe
+            Arguments   = @('-d', $cfg.ApacheRoot)
+            Graceful    = $false
+        }
+    }
+
     for ($i = 1; $i -le $cfg.QueueWorkers; $i++) {
         $list += [pscustomobject]@{
             Name        = "queue-$i"
             Description = "Queue worker $i"
+            Exe         = $cfg.PhpExe
             Arguments   = @('artisan', 'queue:work') + $cfg.QueueArgs
             Graceful    = $true
         }
@@ -140,6 +209,7 @@ function Get-Components($cfg) {
         $list += [pscustomobject]@{
             Name        = 'scheduler'
             Description = 'Task scheduler'
+            Exe         = $cfg.PhpExe
             Arguments   = @('artisan', 'schedule:work')
             Graceful    = $false
         }
@@ -178,25 +248,46 @@ function Get-ChildPids($parentPid) {
         Select-Object -ExpandProperty ProcessId
 }
 
-# Only the php.exe doing the actual work. Used by `status`, where listing
-# conhost.exe alongside the worker would just look like a second worker.
-function Get-ChildPhpPids($parentPid) {
-    Get-CimInstance Win32_Process -Filter "ParentProcessId = $parentPid AND Name = 'php.exe'" -ErrorAction SilentlyContinue |
+<#
+    Only the children actually doing the work -- php.exe for a worker,
+    httpd.exe for the web server. Used by `status`, where listing the
+    conhost.exe Windows attaches would just look like a second worker.
+#>
+function Get-ChildWorkPids($parentPid, $exeName) {
+    Get-CimInstance Win32_Process -Filter "ParentProcessId = $parentPid AND Name = '$exeName'" -ErrorAction SilentlyContinue |
         Select-Object -ExpandProperty ProcessId
+}
+
+<#
+    Every descendant of a process, depth first, deepest last.
+
+    One level is not enough. httpd spawns its own worker child, so that child is
+    a *grandchild* of the supervising loop -- kill only direct children and it is
+    left orphaned. Apache happens to tidy up after itself when its parent dies,
+    but relying on the supervised program to be well behaved is not supervision.
+#>
+function Get-DescendantPids($parentPid) {
+    $found = @()
+    foreach ($child in Get-ChildPids $parentPid) {
+        $found += Get-DescendantPids $child
+        $found += $child
+    }
+    return $found
 }
 
 <#
     Kill a component's supervising loop and everything under it.
 
-    Children first: killing the loop alone would orphan the php.exe it spawned,
-    and an orphaned queue worker keeps consuming jobs with nothing tracking it.
+    Descendants first, deepest first: killing the loop before its children would
+    orphan them, and an orphaned queue worker keeps consuming jobs with nothing
+    tracking it.
 #>
 function Stop-ComponentTree($component) {
     $procId = Test-ManagedProcess $component.Name
     if (-not $procId) { return }
 
-    foreach ($child in Get-ChildPids $procId) {
-        Stop-Process -Id $child -Force -ErrorAction SilentlyContinue
+    foreach ($descendant in Get-DescendantPids $procId) {
+        Stop-Process -Id $descendant -Force -ErrorAction SilentlyContinue
     }
     Stop-Process -Id $procId -Force -ErrorAction SilentlyContinue
 }
@@ -274,6 +365,22 @@ function Start-Component($cfg, $component) {
         return $true
     }
 
+    <#
+        Apache started by something else -- Laragon's GUI, or a leftover from a
+        previous session -- is already bound to the port. Starting a second one
+        would fail to bind and leave a confusing pair of processes, so say what
+        is there and leave it alone. Refusing is better than fighting it.
+    #>
+    if ($component.Name -eq 'apache') {
+        $foreign = Get-CimInstance Win32_Process -Filter "Name = 'httpd.exe'" -ErrorAction SilentlyContinue |
+            Select-Object -First 1
+        if ($foreign) {
+            Write-Warn "Apache is already running (PID $($foreign.ProcessId)) but was not started by this script."
+            Write-Info '         Run stop.bat first, or stop it in Laragon, then start again to put it under supervision.'
+            return $true
+        }
+    }
+
     $logDir = Join-Path $cfg.AppPath 'storage\logs'
     New-Item -ItemType Directory -Force $logDir | Out-Null
     $outLog = Join-Path $logDir "$($component.Name).log"
@@ -308,9 +415,9 @@ function Start-Component($cfg, $component) {
 # Supervising loop for: $($component.Description)
 `$ErrorActionPreference = 'Continue'
 Set-Location '$($cfg.AppPath -replace "'", "''")'
-`$phpArgs = @($argLiterals)
+`$exeArgs = @($argLiterals)
 while (-not (Test-Path '$($Script:StopFlag -replace "'", "''")')) {
-    & '$($cfg.PhpExe -replace "'", "''")' @phpArgs *>> '$($outLog -replace "'", "''")'
+    & '$($component.Exe -replace "'", "''")' @exeArgs *>> '$($outLog -replace "'", "''")'
     if (Test-Path '$($Script:StopFlag -replace "'", "''")') { break }
     Start-Sleep -Seconds 2
 }
@@ -356,7 +463,9 @@ function Invoke-Start($cfg) {
         Write-Warn "Database unreachable ($($db.Target)) - starting anyway"
     }
 
-    if ($cfg.ExpectWebServer) {
+    # Only worth reporting when somebody else owns it. When ManageWebServer is
+    # on, Apache is a component and is reported as one, below.
+    if ($cfg.ExpectWebServer -and -not $cfg.ManageWebServer) {
         $web = Test-WebUp $cfg
         if ($web.Up) {
             Write-Ok "Web server listening ($($web.Target))"
@@ -393,7 +502,20 @@ function Invoke-Stop($cfg) {
     Write-Head 'Compozit Suite - stopping'
     New-Item -ItemType Directory -Force $Script:RunDir | Out-Null
 
-    $running = @(Get-Components $cfg | Where-Object { Test-ManagedProcess $_.Name })
+    <#
+        Reverse the start order, then stop the non-graceful components before
+        the graceful ones -- which puts the web server down before the queue
+        worker drains.
+
+        That is the right way round, though it reads backwards at first. Killing
+        Apache first means the site stops accepting new work, and *then* the
+        queue finishes what it already has. Draining first while the front door
+        is still open just lets more work arrive during shutdown.
+    #>
+    $ordered = @(Get-Components $cfg)
+    [array]::Reverse($ordered)
+
+    $running = @($ordered | Where-Object { Test-ManagedProcess $_.Name })
     if ($running.Count -eq 0) {
         Write-Info 'Nothing running.'
         Get-ChildItem $Script:RunDir -Filter *.pid -ErrorAction SilentlyContinue | Remove-Item -Force
@@ -463,22 +585,28 @@ function Invoke-Status($cfg) {
 
     $healthy = $true
 
+    $web = Test-WebUp $cfg
+
     Write-Host '  Not managed by this script (Laragon / XAMPP owns these):' -ForegroundColor DarkGray
     $db = Test-DatabaseUp $cfg
     if ($db.Up) { Write-Ok "MySQL       listening on $($db.Target)" }
     else { Write-Bad "MySQL       nothing on $($db.Target)"; $healthy = $false }
 
-    $web = Test-WebUp $cfg
-    if ($web.Up) { Write-Ok "Web server  listening on $($web.Target)" }
-    else { Write-Bad "Web server  nothing on $($web.Target)"; $healthy = $false }
+    if (-not $cfg.ManageWebServer) {
+        if ($web.Up) { Write-Ok "Web server  listening on $($web.Target)" }
+        else { Write-Bad "Web server  nothing on $($web.Target)"; $healthy = $false }
+    } else {
+        Write-Info 'nothing else - the web server is managed, see below'
+    }
 
     Write-Host ''
     Write-Host '  Managed by this script:' -ForegroundColor DarkGray
     foreach ($c in Get-Components $cfg) {
         $procId = Test-ManagedProcess $c.Name
         if ($procId) {
-            $children = @(Get-ChildPhpPids $procId)
-            $note = if ($children.Count) { "supervisor PID $procId, php PID $($children -join ',')" } else { "supervisor PID $procId, php restarting" }
+            $exeName = Split-Path $c.Exe -Leaf
+            $children = @(Get-ChildWorkPids $procId $exeName)
+            $note = if ($children.Count) { "supervisor PID $procId, $exeName PID $($children -join ',')" } else { "supervisor PID $procId, $exeName restarting" }
             Write-Ok ("{0,-12}{1}" -f $c.Name, $note)
         } else {
             Write-Bad ("{0,-12}not running" -f $c.Name)
@@ -637,8 +765,9 @@ function Show-Console($cfg) {
     foreach ($c in Get-Components $cfg) {
         $procId = Test-ManagedProcess $c.Name
         if ($procId) {
-            $php = @(Get-ChildPhpPids $procId)
-            $detail = if ($php.Count) { "php PID $($php -join ',')" } else { 'restarting' }
+            $exeName = Split-Path $c.Exe -Leaf
+            $work = @(Get-ChildWorkPids $procId $exeName)
+            $detail = if ($work.Count) { "$exeName PID $($work -join ',')" } else { 'restarting' }
             Write-Row $c.Name $true $detail
         } else {
             Write-Row $c.Name $false 'not running'

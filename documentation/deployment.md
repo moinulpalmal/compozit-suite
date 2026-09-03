@@ -37,15 +37,24 @@ things, and **it is not one program you start**:
 
 | Piece | What runs it | Managed by |
 | --- | --- | --- |
-| **Web server** — serves every page | Apache, from `public/` | Laragon or XAMPP |
+| **Web server** — serves every page | Apache, from `public/` | **`deploy/start.bat`** |
 | **Database** — all application data, plus sessions, cache and the job queue | MySQL | Laragon or XAMPP |
 | **Queue worker** — runs background jobs | `php artisan queue:work` | `deploy/start.bat` |
 | **Scheduler** — fires timed tasks | `php artisan schedule:work` | `deploy/start.bat` |
 
-The last two are what `deploy/` exists for. Apache and MySQL are *not* started by it: they already
-belong to Laragon or XAMPP, and two managers fighting over one service is worse than none. So the
-running order is always **Laragon/XAMPP first, then `start.bat`** — and `start.bat` checks and tells
-you if you got it the wrong way round.
+Three of the four are what `deploy/` exists for, so `start.bat` brings the application up in one
+command. **MySQL must already be running** — start Laragon or XAMPP first, and `start.bat` refuses
+to start without it rather than leaving a queue worker failing on every poll.
+
+> **One Apache serves every vhost on the machine.** It is a single process hosting every site
+> configured on it, so on a Laragon box that is this application on :8787 *and* every other project
+> on :8080. **`stop.bat` stops all of them.** On a dedicated server that is exactly what you want;
+> on a machine you also develop on it may not be, and `ManageWebServer = $false` in
+> `compozit.config.ps1` hands Apache back to Laragon with nothing else changed.
+
+> **MySQL is deliberately never started or stopped here** — only checked. Killing `mysqld` outright
+> risks InnoDB crash recovery on live data, and shutting it down safely is a different job from
+> supervising a process.
 
 > **The queue is currently idle, and that is fine.** The application dispatches no jobs today and
 > schedules no tasks. The worker and scheduler still run, because the alternative is that the first
@@ -549,7 +558,7 @@ Apache and MySQL are running, but the application's own background processes are
 | File | Purpose |
 | --- | --- |
 | **`manage.bat`** | **Interactive console. Start here if you are not sure what you need** |
-| `start.bat` | Start the queue worker(s) and the scheduler |
+| `start.bat` | Start Apache, the queue worker(s) and the scheduler |
 | `stop.bat` | Stop them, letting an in-flight job finish first |
 | `restart.bat` | Both. **Run this after every deployment** |
 | `status.bat` | Report on everything, managed or not. Exit code 0 = healthy |
@@ -631,9 +640,9 @@ cd C:\laragon\www\compozit-suite\deploy
 Compozit Suite - starting
 --------------------------------------------------------------
   [ OK ]   Database reachable (127.0.0.1:3306)
-  [ OK ]   Web server listening (192.168.5.99:8787)
-  [ OK ]   Queue worker 1 started (PID 12788)
-  [ OK ]   Task scheduler started (PID 31132)
+  [ OK ]   Web server (Apache) started (PID 32664)
+  [ OK ]   Queue worker 1 started (PID 16524)
+  [ OK ]   Task scheduler started (PID 10844)
   [ OK ]   Application healthy at http://192.168.5.99:8787
 
   Started.
@@ -642,10 +651,14 @@ Compozit Suite - starting
 **Pass condition: exit code 0 and no `[FAIL]` lines.**
 
 It refuses to start if MySQL is unreachable, because the queue driver is `database` and a worker
-without a database just fails on every poll. If Apache is down it warns and starts anyway — the
-workers do not need it.
+without a database just fails on every poll. Start Laragon or XAMPP first.
 
 Running `start.bat` twice is safe; the second run reports what is already up and starts nothing new.
+
+> **If Apache was started by something else** — Laragon's GUI, or a leftover from a previous
+> session — it is already bound to the port, and `start.bat` says so and leaves it alone rather than
+> trying to bind it twice. To put it under supervision, stop it first (in Laragon, or by ending the
+> `httpd.exe` processes), then run `start.bat` again.
 
 ### 5.4 Stop it
 
@@ -653,10 +666,16 @@ Running `start.bat` twice is safe; the second run reports what is already up and
 .\stop.bat
 ```
 
-Stopping is graceful where it matters. The queue worker is signalled with `queue:restart` so it
-finishes the job in hand and exits — killing it mid-job would leave that job reserved until it timed
-out. The scheduler holds nothing and is stopped immediately. A component that has not exited within
-`StopGraceSeconds` (default 120) has its process tree terminated.
+Stopping is graceful where it matters, and in the right order: **Apache goes down before the queue
+drains.** That reads backwards but is correct — closing the front door first means no new work
+arrives while the queue finishes what it already has.
+
+The queue worker is signalled with `queue:restart` so it finishes the job in hand and exits; killing
+it mid-job would leave that job reserved until it timed out. Apache and the scheduler hold nothing
+and stop immediately. A component that has not exited within `StopGraceSeconds` (default 120) has
+its whole process tree terminated, descendants first.
+
+**Remember this stops every site on that Apache**, not just this one.
 
 ### 5.5 [ADMIN] Start at boot
 

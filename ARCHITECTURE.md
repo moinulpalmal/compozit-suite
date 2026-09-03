@@ -1644,9 +1644,21 @@ A deployed Compozit Suite is four processes, not one: Apache, MySQL, a **queue w
 `deploy/` existed there was nothing to start them — a server would serve pages perfectly while every
 queued job sat in the `jobs` table forever.
 
-`deploy/` is that owner, and **only** that owner. It does not start Apache or MySQL: two managers
-fighting over one service is worse than none. It checks they are up, refuses to start without the
-database, and says so.
+`deploy/` is that owner. It supervises **Apache, the queue worker and the scheduler**, so one
+command brings the application up.
+
+**MySQL it will not touch** — only check. Killing `mysqld` outright risks InnoDB crash recovery on
+live data, and a graceful `mysqladmin shutdown` is a different job from supervising a process.
+`start` refuses outright if the database is unreachable, because the queue driver is `database`.
+
+Apache was originally excluded too, on the reasoning that Laragon and XAMPP already own it and two
+managers fighting over one service is worse than none. That was wrong in practice: on a deployed
+machine nothing else supervises it, so a web server that died stayed dead. `ManageWebServer` (default
+on) now covers it, and turning it off restores the old behaviour exactly.
+
+**One Apache serves every vhost on the machine**, so stopping it here stops every other site it
+hosts. That is correct on a dedicated server and may not be on a shared one; it is the reason the
+switch exists rather than being unconditional.
 
 | Decision | Why |
 | --- | --- |
@@ -1659,7 +1671,10 @@ database, and says so.
 | **`Win32_Process.Create`, not `Start-Process`** | A `Start-Process` child inherits the caller's console handles, so a detached worker holds the parent's stdout pipe open for its whole life and `start.bat > log.txt` never returns. Found by testing; the comment in `Start-Component` says so |
 | **A supervising loop per component** | The loop relaunches its `php.exe` after a crash or the hourly `--max-time` recycle. Verified: a killed worker was back in ~2s |
 | **PID + command-line check before any kill** | Windows recycles PIDs. The recorded PID must also *be* this component's loop script, or `stop` could eventually kill something unrelated |
-| **Graceful only where it means something** | Queue workers get `queue:restart` and a wait, because killing one mid-job leaves that job reserved until it times out. The scheduler holds nothing and ignores that signal — waiting on it made `stop` take 120s instead of 4s |
+| **Graceful only where it means something** | Queue workers get `queue:restart` and a wait, because killing one mid-job leaves that job reserved until it times out. Apache and the scheduler hold nothing and ignore that signal — waiting on the scheduler made `stop` take 120s instead of 4s |
+| **Apache stops before the queue drains** | It reads backwards, but closing the front door first means no new work arrives while the queue finishes what it has. `stop` reverses the start order and takes non-graceful components first, which produces exactly that |
+| **Descendants are killed depth-first** | `httpd` spawns its own worker child, so that child is a *grandchild* of the supervising loop. Killing one level down leaves it orphaned. Apache happens to tidy up after itself, but relying on the supervised program to be well behaved is not supervision |
+| **An Apache we did not start is left alone** | It is already bound to the port; starting a second would fail to bind and leave a confusing pair. `start` reports it and skips, and says how to hand it over |
 
 **The queue is currently idle.** `app/Jobs/` does not exist, nothing implements `ShouldQueue`,
 nothing calls `dispatch()`, and `routes/console.php` schedules nothing. Both processes still run, so

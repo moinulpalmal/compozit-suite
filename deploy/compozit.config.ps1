@@ -58,16 +58,44 @@ $AppRoot = Split-Path -Parent $PSScriptRoot
     # Seconds to wait for the site to answer /up after `start`.
     HealthTimeoutSeconds = 45
 
+    # --- Web server ----------------------------------------------------------
+
+    <#
+        Start and supervise Apache alongside the queue worker and scheduler, so
+        one command brings the whole application up.
+
+        ** ONE APACHE SERVES EVERY VHOST ON THE MACHINE. **
+
+        That is the thing to understand before leaving this on. Apache is a
+        single process serving every site configured on it -- on a Laragon box
+        that is this application on :8787 *and* every other project on :8080.
+        Stopping it here stops all of them. On a dedicated server that is
+        exactly what you want; on a machine you also develop on, it may not be.
+
+        Set to $false to go back to only managing the queue worker and
+        scheduler, leaving Apache to Laragon or XAMPP. Nothing else changes.
+    #>
+    ManageWebServer = $true
+
+    # Full path to httpd.exe, and Apache's ServerRoot. $null = auto-detect:
+    # from a running httpd first, then the usual Laragon and XAMPP locations.
+    # `status.bat` prints what it resolved.
+    ApacheExe  = $null
+    ApacheRoot = $null
+
     # --- Preflight checks ----------------------------------------------------
-    #  This supervisor manages the application's own processes only. Apache and
-    #  MySQL belong to Laragon or XAMPP. These two switches decide whether their
-    #  absence is reported as a problem -- they are never started or stopped
-    #  here.
 
     # Refuse to start if the database is unreachable. Leave $true: the queue
     # worker uses the `database` queue driver and cannot run without it.
+    #
+    # MySQL is never started or stopped here. It belongs to Laragon or XAMPP,
+    # and killing mysqld outright risks InnoDB crash recovery on live data --
+    # a graceful `mysqladmin shutdown` is the only safe way, which is a
+    # different job from supervising a process.
     ExpectDatabase = $true
 
-    # Warn (but still start) if nothing is listening on the site's port.
+    # Warn if nothing is listening on the site's port. Only consulted when
+    # ManageWebServer is $false; otherwise the web server is a managed
+    # component and is reported as one.
     ExpectWebServer = $true
 }
