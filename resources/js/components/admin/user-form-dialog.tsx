@@ -5,6 +5,7 @@ import { useCallback, useMemo, useState } from 'react';
 import InputError from '@/components/input-error';
 import PasswordInput from '@/components/password-input';
 import FormDialogFooter from '@/components/shared/form-dialog-footer';
+import PasswordPolicyChecklist from '@/components/shared/password-policy-checklist';
 import { Checkbox } from '@/components/ui/checkbox';
 import Combobox from '@/components/ui/combobox';
 import {
@@ -357,11 +358,6 @@ export default function UserFormDialog({
                                         label="Password"
                                         htmlFor="password"
                                         error={errors.password}
-                                        hint={
-                                            <PasswordStrength
-                                                password={password}
-                                            />
-                                        }
                                     >
                                         <PasswordInput
                                             id="password"
@@ -375,6 +371,12 @@ export default function UserFormDialog({
                                             aria-invalid={Boolean(
                                                 errors.password,
                                             )}
+                                            aria-describedby="password-policy"
+                                        />
+
+                                        <PasswordPolicyChecklist
+                                            id="password-policy"
+                                            password={password}
                                         />
                                     </Field>
                                 )}
@@ -524,6 +526,14 @@ function Field({
     );
 }
 
+/*
+ * `PasswordStrength` used to live here — a Weak/Fair/Strong label scored
+ * against a hardcoded copy of the password policy, including a `length >= 12`
+ * tier. It was still advertising that minimum after the policy dropped to 8,
+ * because nothing connected the two. `components/shared/password-policy-checklist.tsx`
+ * replaces it and reads the rules from the server instead.
+ */
+
 /** Live result of the server-side uniqueness check. */
 function AvailabilityHint({ state }: { state: AvailabilityState }) {
     if (state === 'idle') {
@@ -551,31 +561,4 @@ function AvailabilityHint({ state }: { state: AvailabilityState }) {
             <X className="size-3" /> Already taken
         </span>
     );
-}
-
-/**
- * A rough strength read-out. `Password::default()` on the server is the rule
- * that actually decides — this only tells the admin how they are doing.
- */
-export function PasswordStrength({ password }: { password: string }) {
-    if (password === '') {
-        return null;
-    }
-
-    const score = [
-        password.length >= 8,
-        password.length >= 12,
-        /[a-z]/.test(password) && /[A-Z]/.test(password),
-        /[0-9]/.test(password),
-        /[^A-Za-z0-9]/.test(password),
-    ].filter(Boolean).length;
-
-    const [label, tone] =
-        score <= 2
-            ? ['Weak', 'text-error']
-            : score === 3 || score === 4
-              ? ['Fair', 'text-warning']
-              : ['Strong', 'text-success'];
-
-    return <span className={`text-xs ${tone}`}>{label}</span>;
 }

@@ -54,14 +54,47 @@ class AppServiceProvider extends ServiceProvider
             app()->isProduction(),
         );
 
-        Password::defaults(fn (): ?Password => app()->isProduction()
-            ? Password::min(12)
-                ->mixedCase()
-                ->letters()
-                ->numbers()
-                ->symbols()
-                ->uncompromised()
-            : null,
-        );
+        Password::defaults($this->passwordPolicy(...));
+    }
+
+    /**
+     * The application's password policy, assembled from `config/auth.php`.
+     *
+     * There is no environment branch here, and that is the point. This used to
+     * read `app()->isProduction() ? Password::min(12)->… : null`, which meant
+     * `Password::default()` fell through to Laravel's bare `min(8)` everywhere
+     * else — so the whole test suite exercised a policy the application never
+     * enforces, and any test asserting on password strength proved nothing.
+     *
+     * @see config('auth.password_policy')
+     */
+    protected function passwordPolicy(): Password
+    {
+        /** @var array{min_length: int, mixed_case: bool, letters: bool, numbers: bool, symbols: bool, uncompromised: bool} $policy */
+        $policy = config('auth.password_policy');
+
+        $rule = Password::min($policy['min_length']);
+
+        if ($policy['mixed_case']) {
+            $rule->mixedCase();
+        }
+
+        if ($policy['letters']) {
+            $rule->letters();
+        }
+
+        if ($policy['numbers']) {
+            $rule->numbers();
+        }
+
+        if ($policy['symbols']) {
+            $rule->symbols();
+        }
+
+        if ($policy['uncompromised']) {
+            $rule->uncompromised();
+        }
+
+        return $rule;
     }
 }

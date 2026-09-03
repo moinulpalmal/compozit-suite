@@ -1,10 +1,10 @@
 import { Form } from '@inertiajs/react';
 import type { ReactNode } from 'react';
 import { useCallback, useState } from 'react';
-import { PasswordStrength } from '@/components/admin/user-form-dialog';
 import InputError from '@/components/input-error';
 import PasswordInput from '@/components/password-input';
 import FormDialogFooter from '@/components/shared/form-dialog-footer';
+import PasswordPolicyChecklist from '@/components/shared/password-policy-checklist';
 import {
     Dialog,
     DialogContent,
@@ -69,12 +69,7 @@ export default function UserPasswordDialog({
                     {({ processing, errors }) => (
                         <>
                             <div className="grid gap-1.5">
-                                <div className="flex items-baseline justify-between gap-2">
-                                    <Label htmlFor="password">
-                                        New password
-                                    </Label>
-                                    <PasswordStrength password={password} />
-                                </div>
+                                <Label htmlFor="password">New password</Label>
 
                                 <PasswordInput
                                     id="password"
@@ -87,6 +82,12 @@ export default function UserPasswordDialog({
                                     autoFocus
                                     autoComplete="new-password"
                                     aria-invalid={Boolean(errors.password)}
+                                    aria-describedby="password-policy"
+                                />
+
+                                <PasswordPolicyChecklist
+                                    id="password-policy"
+                                    password={password}
                                 />
 
                                 <InputError message={errors.password} />

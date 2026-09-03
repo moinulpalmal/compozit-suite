@@ -1,20 +1,24 @@
 import { Form, Head } from '@inertiajs/react';
-import { useRef } from 'react';
+import { useRef, useState } from 'react';
 import SecurityController from '@/actions/App/Http/Controllers/Settings/SecurityController';
 import Heading from '@/components/heading';
 import InputError from '@/components/input-error';
 import PasswordInput from '@/components/password-input';
+import PasswordPolicyChecklist from '@/components/shared/password-policy-checklist';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
+import { usePasswordPolicy } from '@/hooks/use-password-policy';
 import { edit } from '@/routes/security';
 
-type Props = {
-    passwordRules: string;
-};
-
-export default function Security(props: Props) {
+export default function Security() {
     const passwordInput = useRef<HTMLInputElement>(null);
     const currentPasswordInput = useRef<HTMLInputElement>(null);
+
+    // Controlled so the checklist can read it. `resetOnError`/`resetOnSuccess`
+    // clear the DOM input but not React state, so both handlers below clear it
+    // explicitly — otherwise the ticks would describe a field that is empty.
+    const [password, setPassword] = useState('');
+    const { hint } = usePasswordPolicy();
 
     return (
         <>
@@ -40,7 +44,10 @@ export default function Security(props: Props) {
                         'current_password',
                     ]}
                     resetOnSuccess
+                    onSuccess={() => setPassword('')}
                     onError={(errors) => {
+                        setPassword('');
+
                         if (errors.password) {
                             passwordInput.current?.focus();
                         }
@@ -77,10 +84,20 @@ export default function Security(props: Props) {
                                     id="password"
                                     ref={passwordInput}
                                     name="password"
+                                    value={password}
+                                    onChange={(event) =>
+                                        setPassword(event.target.value)
+                                    }
                                     className="mt-1 block w-full"
                                     autoComplete="new-password"
                                     placeholder="New password"
-                                    passwordrules={props.passwordRules}
+                                    passwordrules={hint}
+                                    aria-describedby="password-policy"
+                                />
+
+                                <PasswordPolicyChecklist
+                                    id="password-policy"
+                                    password={password}
                                 />
 
                                 <InputError message={errors.password} />
@@ -97,7 +114,7 @@ export default function Security(props: Props) {
                                     className="mt-1 block w-full"
                                     autoComplete="new-password"
                                     placeholder="Confirm password"
-                                    passwordrules={props.passwordRules}
+                                    passwordrules={hint}
                                 />
 
                                 <InputError

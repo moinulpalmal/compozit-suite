@@ -735,6 +735,14 @@ that they say so one module at a time. Note what stayed behind: the `*-form-dial
 know their own fields, and it is only the *footer* — three buttons and their states — that every
 module shares. See [§8.10](#810-a-form-modal-has-three-buttons-and-each-one-means-something).
 
+**`password-policy-checklist.tsx` was born there for the same reason**, and it also records why the
+rule matters. It replaced `PasswordStrength`, which lived *inside* `components/admin/user-form-dialog.tsx`
+and was imported from `components/admin/user-password-dialog.tsx` — a dialog reaching into a sibling
+dialog for a component neither one owns. That component also carried its own hardcoded copy of the
+password rules and went on advertising a 12-character minimum after the policy had dropped to 8. The
+replacement reads the rules from the `passwordPolicy` shared prop ([§9.5](#95-shared-props)) and is
+imported by `pages/auth/`, `pages/settings/` and `components/admin/`.
+
 File names are kebab-case; the exported component is PascalCase.
 
 ### 6.6 TypeScript types
@@ -1505,12 +1513,24 @@ referenced row breaks it just as thoroughly.
 ### 9.5 Shared props
 
 `app/Http/Middleware/HandleInertiaRequests.php` shares `name`, `auth.user`, `sidebarOpen`,
-`collapsedNavGroups` and `theme` with every page. Anything added there is paid for on **every**
-request — prefer per-page props, and use `Inertia::optional()` for anything expensive.
+`collapsedNavGroups`, `theme` and `passwordPolicy` with every page. Anything added there is paid for
+on **every** request — prefer per-page props, and use `Inertia::optional()` for anything expensive.
 
-The last three are all cookie reads rather than queries, which is what makes them affordable here:
-each is a preference the *first paint* needs, so deferring it to the client would trade a byte on
-the wire for a visible flicker. That is the bar for adding a fourth — not "it is small".
+`sidebarOpen`, `collapsedNavGroups` and `theme` are all cookie reads rather than queries, which is
+what makes them affordable here: each is a preference the *first paint* needs, so deferring it to
+the client would trade a byte on the wire for a visible flicker.
+
+**`passwordPolicy` qualifies on a different ground, and it is the only one that does.** It is a
+static `config('auth.password_policy')` read — no query, no cookie — needed by
+`components/shared/password-policy-checklist.tsx` on both authed pages (security settings, the two
+Admin user dialogs) and a **guest** page (password reset), which no per-page convention covers in
+one place. The deciding argument is not size but omission: the checklist falls back to its loosest
+reading when the prop is absent, so a fifth password surface added later must not be *able* to ship
+without the rules. Per-page props would have made that a thing you remember.
+
+So the bar for adding a seventh is one of these two: a preference the first paint needs, or a
+cross-cutting constant whose absence would silently degrade a shared component. "It is small" is
+still not a reason.
 
 ### 9.6 Authentication identity
 
@@ -1528,6 +1548,33 @@ on it automatically.
 - `users` uses `SoftDeletes`, so a deleted user cannot authenticate: the default user provider
   applies the global scope. Their `employee_id` and `email` stay reserved by the unique indexes,
   which is intentional — reusing one is refused with a message pointing at the Historical tab.
+
+#### 9.6.1 Password policy
+
+**`config/auth.php` → `password_policy` is the single definition**, and the only place a rule may be
+written down. It is read exactly twice: `AppServiceProvider::passwordPolicy()` assembles
+`Password::defaults()` from it, and `HandleInertiaRequests` shares it as `passwordPolicy`
+([§9.5](#95-shared-props)) so `components/shared/password-policy-checklist.tsx` can state the same
+requirements the validator enforces. Every consumer — the three form requests and
+`Actions/Fortify/ResetUserPassword` — goes through `App\Concerns\PasswordValidationRules`, so
+nothing needs touching when a value changes.
+
+The current policy is **8 characters** with mixed case, letters, numbers, symbols and
+`uncompromised`. It was `min(12)`, and it applied **only in production**: the closure read
+`app()->isProduction() ? Password::min(12)->… : null`, so `Password::default()` fell through to
+Laravel's bare `min(8)` everywhere else and the suite could not exercise the real rule at all.
+**That branch is gone and must not come back** — one policy in every environment is what makes
+`tests/Feature/PasswordPolicyTest.php` mean anything, and that file asserts it.
+
+`uncompromised` is a live Have I Been Pwned range lookup. `tests/Pest.php` fakes the endpoint for
+the whole suite via `fakeBreachedPasswordLookup()`; without it every password test would make a real
+HTTPS call that fails **open** on network error, quietly passing without having checked. Pass the
+helper a password to get the opposite answer. The browser suite talks to a real server and cannot be
+faked, so browser tests type a password that is genuinely compliant and unbreached.
+
+`UserFactory` hashes `password` directly and never passes through validation, so seeded and
+factory-made logins — including the development credential in `CLAUDE.md` — are unaffected by the
+policy. Existing users are not forced to rotate: lowering a minimum cannot invalidate anyone.
 
 ---
 

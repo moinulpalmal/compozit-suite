@@ -5,7 +5,10 @@ use App\Models\Admin\Permission;
 use App\Models\Admin\Role;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\Client\Factory;
+use Illuminate\Http\Client\Request;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Testing\TestResponse;
 use PhpOffice\PhpSpreadsheet\IOFactory;
 use PhpOffice\PhpSpreadsheet\Writer\Xlsx as XlsxWriter;
@@ -82,6 +85,12 @@ foreach ($cachedArtifacts as $kind => $cachedPath) {
 pest()->extend(TestCase::class)
     ->use(RefreshDatabase::class)
     ->beforeEach(fn () => app(PermissionRegistrar::class)->forgetCachedPermissions())
+    // A closure, not `fakeBreachedPasswordLookup(...)`: Pest rebinds each
+    // `beforeEach` to the test case, and a first-class callable made from a
+    // global function has no scope to rebind.
+    ->beforeEach(function () {
+        fakeBreachedPasswordLookup();
+    })
     ->in('Feature', 'Browser');
 
 /*
@@ -113,6 +122,58 @@ expect()->extend('toBeOne', function () {
 function something()
 {
     // ..
+}
+
+/**
+ * A password that satisfies `config('auth.password_policy')` in full.
+ *
+ * Used wherever a test needs a password to be *accepted* and the password
+ * itself is not what is under test. Tests that assert a specific rule rejects
+ * something spell the offending value out inline instead — see
+ * `tests/Feature/PasswordPolicyTest.php`.
+ *
+ * The seeded/factory password is `password`, which this deliberately is not: it
+ * fails four of the six rules and is in every breach corpus there is.
+ */
+function compliantPassword(): string
+{
+    return 'Str0ng-Pass!word';
+}
+
+/**
+ * Answer every Have I Been Pwned range lookup with "not found".
+ *
+ * The password policy in `config/auth.php` includes `uncompromised`, and it is
+ * the *same* policy in every environment — there is deliberately no production
+ * branch, so a policy the suite does not exercise cannot exist. The cost is
+ * that every password-setting test would otherwise make a live HTTPS call to
+ * `api.pwnedpasswords.com`, which is slow, fails offline, and — worse — fails
+ * **open**: `NotPwnedVerifier` treats a network error as "not compromised", so
+ * the assertion would quietly pass without having checked anything.
+ *
+ * An empty 200 body is a valid range response containing no matching suffix,
+ * which is exactly "this password is not in a known breach". Pass `$breached`
+ * to get the opposite: the body then carries that password's own SHA-1 suffix,
+ * which is what a hit looks like.
+ *
+ * The factory is swapped rather than re-faked because `Http::fake()` *merges*
+ * stubs and the first matching one wins — a test calling it again would be
+ * silently overruled by the suite-wide stub installed above.
+ *
+ * Requests to any other host fall through to the real handler: the closure
+ * returns `null` for them rather than stubbing the whole internet.
+ */
+function fakeBreachedPasswordLookup(?string $breached = null): void
+{
+    Http::swap(new Factory(app('events')));
+
+    $body = $breached === null
+        ? ''
+        : substr(strtoupper(sha1($breached)), 5).':42';
+
+    Http::fake(fn (Request $request) => str_contains($request->url(), 'api.pwnedpasswords.com')
+        ? Http::response($body, 200)
+        : null);
 }
 
 /**
