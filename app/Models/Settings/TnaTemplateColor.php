@@ -2,12 +2,14 @@
 
 namespace App\Models\Settings;
 
+use App\Concerns\Audited;
 use Database\Factories\Settings\TnaTemplateColorFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Carbon;
+use OwenIt\Auditing\Contracts\Auditable;
 
 /**
  * One rung of a template's urgency ladder.
@@ -33,10 +35,10 @@ use Illuminate\Support\Carbon;
  * @property-read NotificationColor $color
  */
 #[Fillable(['notification_color_id', 'max_days_remaining'])]
-class TnaTemplateColor extends Model
+class TnaTemplateColor extends Model implements Auditable
 {
     /** @use HasFactory<TnaTemplateColorFactory> */
-    use HasFactory;
+    use Audited, HasFactory;
 
     /**
      * Cast the bound so it reaches the front end as a number or null.

@@ -2,11 +2,13 @@
 
 namespace App\Models\Admin;
 
+use App\Concerns\Audited;
 use App\Concerns\Listable;
 use App\Enums\FilterType;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Carbon;
+use OwenIt\Auditing\Contracts\Auditable;
 use Spatie\Permission\Models\Permission as SpatiePermission;
 
 /**
@@ -25,9 +27,9 @@ use Spatie\Permission\Models\Permission as SpatiePermission;
  * @property Carbon|null $updated_at
  * @property Collection<int, Role> $roles
  */
-class Permission extends SpatiePermission
+class Permission extends SpatiePermission implements Auditable
 {
-    use Listable;
+    use Audited, Listable;
 
     /**
      * The columns the permission list's filter row exposes.

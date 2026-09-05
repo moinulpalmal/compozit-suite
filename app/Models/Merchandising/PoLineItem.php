@@ -2,6 +2,7 @@
 
 namespace App\Models\Merchandising;
 
+use App\Concerns\Audited;
 use App\Enums\Merchandising\BqsLinkSource;
 use App\Services\Merchandising\BqsPoLinker;
 use Database\Factories\Merchandising\PoLineItemFactory;
@@ -10,6 +11,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Carbon;
+use OwenIt\Auditing\Contracts\Auditable;
 
 /**
  * One colour/size line of an imported purchase order.
@@ -62,10 +64,10 @@ use Illuminate\Support\Carbon;
     'mfg_stock_number', 'product_number', 'upc_number', 'item_description1', 'item_description2',
     'upc_description', 'signing_description', 'uom_qty', 'uom_code',
 ])]
-class PoLineItem extends Model
+class PoLineItem extends Model implements Auditable
 {
     /** @use HasFactory<PoLineItemFactory> */
-    use HasFactory;
+    use Audited, HasFactory;
 
     /**
      * The order this line belongs to.

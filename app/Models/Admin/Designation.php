@@ -2,6 +2,7 @@
 
 namespace App\Models\Admin;
 
+use App\Concerns\Audited;
 use App\Concerns\HasStatus;
 use App\Concerns\Listable;
 use App\Enums\FilterType;
@@ -17,6 +18,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Carbon;
+use OwenIt\Auditing\Contracts\Auditable;
 
 /**
  * A job title a user can hold.
@@ -40,10 +42,10 @@ use Illuminate\Support\Carbon;
  */
 #[ObservedBy(ActorObserver::class)]
 #[Fillable(['name', 'short_form', 'status'])]
-class Designation extends Model
+class Designation extends Model implements Auditable
 {
     /** @use HasFactory<DesignationFactory> */
-    use HasFactory, HasStatus, Listable;
+    use Audited, HasFactory, HasStatus, Listable;
 
     /**
      * The columns the designation list's filter row exposes.

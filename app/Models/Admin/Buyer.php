@@ -2,6 +2,7 @@
 
 namespace App\Models\Admin;
 
+use App\Concerns\Audited;
 use App\Concerns\HasStatus;
 use App\Concerns\Listable;
 use App\Enums\FilterType;
@@ -17,6 +18,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Support\Carbon;
+use OwenIt\Auditing\Contracts\Auditable;
 
 /**
  * A customer the factory produces for.
@@ -40,10 +42,10 @@ use Illuminate\Support\Carbon;
  */
 #[ObservedBy(ActorObserver::class)]
 #[Fillable(['name', 'code', 'status'])]
-class Buyer extends Model
+class Buyer extends Model implements Auditable
 {
     /** @use HasFactory<BuyerFactory> */
-    use HasFactory, HasStatus, Listable;
+    use Audited, HasFactory, HasStatus, Listable;
 
     /**
      * The columns the buyer list's filter row exposes.

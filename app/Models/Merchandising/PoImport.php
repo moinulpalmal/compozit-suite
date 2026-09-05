@@ -2,6 +2,7 @@
 
 namespace App\Models\Merchandising;
 
+use App\Concerns\Audited;
 use App\Concerns\BuyerScoped;
 use App\Enums\Merchandising\PoFileType;
 use App\Enums\Merchandising\PoParseStatus;
@@ -19,6 +20,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Carbon;
+use OwenIt\Auditing\Contracts\Auditable;
 
 /**
  * One uploaded purchase-order document, and what the parser made of it.
@@ -61,10 +63,28 @@ use Illuminate\Support\Carbon;
     'buyer_id', 'source_file_name', 'stored_path', 'detected_file_type', 'template_fingerprint',
     'page_count', 'po_count', 'parse_status', 'confidence', 'payload', 'staged_orders',
 ])]
-class PoImport extends Model
+class PoImport extends Model implements Auditable
 {
     /** @use HasFactory<PoImportFactory> */
-    use BuyerScoped, HasFactory;
+    use Audited, BuyerScoped, HasFactory;
+
+    /**
+     * The two columns that must never be copied into the trail.
+     *
+     * **This is the exclusion that made `audit_logs.old_values` a `longText`.**
+     * `payload` holds the parse result of a document carrying up to fifty purchase
+     * orders (`po-parser.limits.max_pos_per_file`), and `staged_orders` holds every
+     * order still awaiting a skip/revise/overwrite decision. A single staging
+     * round-trip writes both twice, and the package's own migration types those
+     * columns as `text` — 64 KB — so unexcluded this was a silent truncation on
+     * MySQL rather than a visible failure.
+     *
+     * See {@see BqsImport::$auditExclude} for the same decision on the other
+     * importer.
+     *
+     * @var array<int, string>
+     */
+    protected $auditExclude = ['payload', 'staged_orders'];
 
     /**
      * Imports still holding purchase orders nobody has decided about.

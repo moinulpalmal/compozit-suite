@@ -2,6 +2,7 @@
 
 namespace App\Models\Merchandising;
 
+use App\Concerns\Audited;
 use App\Concerns\BuyerScoped;
 use App\Concerns\Listable;
 use App\Enums\FilterType;
@@ -20,6 +21,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Carbon;
+use OwenIt\Auditing\Contracts\Auditable;
 
 /**
  * A purchase order imported from a buyer's document.
@@ -87,10 +89,23 @@ use Illuminate\Support\Carbon;
     'net_first_cost_usd', 'net_first_cost_cnd', 'vendor_name', 'factory_id', 'factory_name',
     'template_fingerprint', 'parse_status', 'confidence', 'payload',
 ])]
-class PurchaseOrder extends Model
+class PurchaseOrder extends Model implements Auditable
 {
     /** @use HasFactory<PurchaseOrderFactory> */
-    use BuyerScoped, HasFactory, Listable;
+    use Audited, BuyerScoped, HasFactory, Listable;
+
+    /**
+     * `payload` is recorded as having changed, never copied.
+     *
+     * It is roughly ten document sections of parsed order, and every one of the
+     * twenty-nine header columns beside it *is* audited — so a revision still
+     * shows its dates, quantities, costs, vendor and `is_current` moving. What the
+     * trail declines to hold is a second copy of the document, per
+     * {@see PoImport::$auditExclude}.
+     *
+     * @var array<int, string>
+     */
+    protected $auditExclude = ['payload'];
 
     /**
      * The columns the purchase-order list's filter row exposes.

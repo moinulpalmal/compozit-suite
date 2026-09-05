@@ -2,6 +2,7 @@
 
 namespace App\Models\Settings;
 
+use App\Concerns\Audited;
 use App\Concerns\HasStatus;
 use App\Concerns\Listable;
 use App\Enums\FilterType;
@@ -19,6 +20,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Carbon;
+use OwenIt\Auditing\Contracts\Auditable;
 
 /**
  * A reusable schedule, matched to a purchase order by how long its programme runs.
@@ -47,10 +49,10 @@ use Illuminate\Support\Carbon;
  */
 #[ObservedBy(ActorObserver::class)]
 #[Fillable(['name', 'lead_time_from', 'lead_time_to', 'status'])]
-class TnaTemplate extends Model
+class TnaTemplate extends Model implements Auditable
 {
     /** @use HasFactory<TnaTemplateFactory> */
-    use HasFactory, HasStatus, Listable;
+    use Audited, HasFactory, HasStatus, Listable;
 
     /**
      * The columns the list's filter row exposes.

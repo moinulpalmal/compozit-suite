@@ -2,6 +2,7 @@
 
 namespace App\Models\Settings;
 
+use App\Concerns\Audited;
 use App\Enums\Merchandising\TnaMilestone;
 use Database\Factories\Settings\TnaTemplateMilestoneFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
@@ -9,6 +10,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Carbon;
+use OwenIt\Auditing\Contracts\Auditable;
 
 /**
  * One milestone of a template, and how many days after the BQS date it falls.
@@ -31,10 +33,10 @@ use Illuminate\Support\Carbon;
  * @property-read TnaTemplate $template
  */
 #[Fillable(['milestone', 'offset_days'])]
-class TnaTemplateMilestone extends Model
+class TnaTemplateMilestone extends Model implements Auditable
 {
     /** @use HasFactory<TnaTemplateMilestoneFactory> */
-    use HasFactory;
+    use Audited, HasFactory;
 
     /**
      * Cast the milestone to its enum and the offset to a number.

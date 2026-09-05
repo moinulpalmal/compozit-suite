@@ -2,6 +2,7 @@
 
 namespace App\Models\Merchandising;
 
+use App\Concerns\Audited;
 use App\Concerns\BuyerScoped;
 use App\Concerns\BuyerScopedOrGlobal;
 use App\Concerns\Listable;
@@ -20,6 +21,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Carbon;
+use OwenIt\Auditing\Contracts\Auditable;
 
 /**
  * One batch of files somebody uploaded, and what they called it.
@@ -52,10 +54,10 @@ use Illuminate\Support\Carbon;
  */
 #[ObservedBy(ActorObserver::class)]
 #[Fillable(['buyer_id', 'file_type', 'title', 'note', 'file_count'])]
-class DocumentUpload extends Model
+class DocumentUpload extends Model implements Auditable
 {
     /** @use HasFactory<DocumentUploadFactory> */
-    use BuyerScopedOrGlobal, HasFactory, Listable;
+    use Audited, BuyerScopedOrGlobal, HasFactory, Listable;
 
     /**
      * The columns the document list's filter row exposes.

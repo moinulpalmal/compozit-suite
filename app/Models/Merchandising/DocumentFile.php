@@ -2,6 +2,7 @@
 
 namespace App\Models\Merchandising;
 
+use App\Concerns\Audited;
 use App\Models\User;
 use App\Observers\ActorObserver;
 use Database\Factories\Merchandising\DocumentFileFactory;
@@ -11,6 +12,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Carbon;
+use OwenIt\Auditing\Contracts\Auditable;
 
 /**
  * One file inside a {@see DocumentUpload}.
@@ -47,10 +49,10 @@ use Illuminate\Support\Carbon;
     'document_upload_id', 'original_name', 'stored_path', 'extension',
     'mime_type', 'size_bytes', 'file_hash',
 ])]
-class DocumentFile extends Model
+class DocumentFile extends Model implements Auditable
 {
     /** @use HasFactory<DocumentFileFactory> */
-    use HasFactory;
+    use Audited, HasFactory;
 
     /**
      * The batch this file arrived in.

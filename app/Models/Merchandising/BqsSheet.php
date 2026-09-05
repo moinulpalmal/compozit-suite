@@ -2,6 +2,7 @@
 
 namespace App\Models\Merchandising;
 
+use App\Concerns\Audited;
 use App\Concerns\BuyerScoped;
 use App\Concerns\Listable;
 use App\Enums\FilterType;
@@ -20,6 +21,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Carbon;
+use OwenIt\Auditing\Contracts\Auditable;
 
 /**
  * A BQS — the buyer's buy plan for one product program — as one revision of it.
@@ -64,10 +66,23 @@ use Illuminate\Support\Carbon;
     'bqs_import_id', 'buyer_id', 'root_id', 'bqs_date', 'fye', 'season', 'department',
     'title', 'revision_no', 'is_current', 'source_hash', 'row_count', 'parse_status', 'payload',
 ])]
-class BqsSheet extends Model
+class BqsSheet extends Model implements Auditable
 {
     /** @use HasFactory<BqsSheetFactory> */
-    use BuyerScoped, HasFactory, Listable;
+    use Audited, BuyerScoped, HasFactory, Listable;
+
+    /**
+     * The parse result is recorded as changed, never copied into the trail.
+     *
+     * See {@see BqsImport::$auditExclude} for the reasoning — the same argument,
+     * and the same guard against `audit_logs` becoming a second copy of the
+     * imported workbooks. The columns that identify a revision — `revision_no`,
+     * `is_current`, `root_id`, `source_hash` — are all still diffed, which is what
+     * makes a retired revision legible in the trail.
+     *
+     * @var array<int, string>
+     */
+    protected $auditExclude = ['payload'];
 
     /**
      * The columns the BQS list's filter row exposes.

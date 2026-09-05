@@ -2,9 +2,11 @@
 
 namespace App\Models\Merchandising;
 
+use App\Concerns\Audited;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Carbon;
+use OwenIt\Auditing\Contracts\Auditable;
 
 /**
  * One month of a BQS row's `In DC Units` band.
@@ -28,8 +30,10 @@ use Illuminate\Support\Carbon;
  * @property Carbon|null $updated_at
  * @property-read BqsRow $row
  */
-class BqsRowMonth extends Model
+class BqsRowMonth extends Model implements Auditable
 {
+    use Audited;
+
     /**
      * @var list<string>
      */

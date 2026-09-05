@@ -2,11 +2,13 @@
 
 namespace App\Models\Admin;
 
+use App\Concerns\Audited;
 use App\Concerns\Listable;
 use App\Enums\FilterType;
 use App\Providers\AppServiceProvider;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Carbon;
+use OwenIt\Auditing\Contracts\Auditable;
 use Spatie\Permission\Models\Role as SpatieRole;
 
 /**
@@ -23,9 +25,9 @@ use Spatie\Permission\Models\Role as SpatieRole;
  * @property Carbon|null $updated_at
  * @property Collection<int, Permission> $permissions
  */
-class Role extends SpatieRole
+class Role extends SpatieRole implements Auditable
 {
-    use Listable;
+    use Audited, Listable;
 
     /**
      * The role that bypasses every permission check.

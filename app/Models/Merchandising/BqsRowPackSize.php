@@ -2,10 +2,12 @@
 
 namespace App\Models\Merchandising;
 
+use App\Concerns\Audited;
 use App\Enums\Merchandising\BqsPackType;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Carbon;
+use OwenIt\Auditing\Contracts\Auditable;
 
 /**
  * One size quantity from a BQS row's `Break Packs` or `Case Packs` band.
@@ -31,8 +33,10 @@ use Illuminate\Support\Carbon;
  * @property Carbon|null $updated_at
  * @property-read BqsRow $row
  */
-class BqsRowPackSize extends Model
+class BqsRowPackSize extends Model implements Auditable
 {
+    use Audited;
+
     /**
      * @var list<string>
      */

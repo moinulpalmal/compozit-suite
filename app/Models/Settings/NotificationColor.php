@@ -2,6 +2,7 @@
 
 namespace App\Models\Settings;
 
+use App\Concerns\Audited;
 use App\Concerns\HasStatus;
 use App\Concerns\Listable;
 use App\Concerns\NotificationColorValidationRules;
@@ -16,6 +17,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Carbon;
+use OwenIt\Auditing\Contracts\Auditable;
 
 /**
  * A colour a notification can be raised in, and how long it is kept.
@@ -41,10 +43,10 @@ use Illuminate\Support\Carbon;
  */
 #[ObservedBy(ActorObserver::class)]
 #[Fillable(['name', 'color_code', 'retention_days', 'status'])]
-class NotificationColor extends Model
+class NotificationColor extends Model implements Auditable
 {
     /** @use HasFactory<NotificationColorFactory> */
-    use HasFactory, HasStatus, Listable;
+    use Audited, HasFactory, HasStatus, Listable;
 
     /**
      * The columns the list's filter row exposes.

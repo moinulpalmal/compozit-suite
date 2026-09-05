@@ -2,6 +2,7 @@
 
 namespace App\Models\Merchandising;
 
+use App\Concerns\Audited;
 use App\Services\Merchandising\BqsImportService;
 use App\Services\Merchandising\BqsRowKey;
 use Database\Factories\Merchandising\BqsRowFactory;
@@ -11,6 +12,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Carbon;
+use OwenIt\Auditing\Contracts\Auditable;
 
 /**
  * One line of a BQS — a vendor style in one colourway.
@@ -45,10 +47,10 @@ use Illuminate\Support\Carbon;
  * @property-read Collection<int, BqsRowMonth> $months
  * @property-read Collection<int, BqsRowPackSize> $packSizes
  */
-class BqsRow extends Model
+class BqsRow extends Model implements Auditable
 {
     /** @use HasFactory<BqsRowFactory> */
-    use HasFactory;
+    use Audited, HasFactory;
 
     /**
      * @var list<string>

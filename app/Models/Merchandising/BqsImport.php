@@ -2,6 +2,7 @@
 
 namespace App\Models\Merchandising;
 
+use App\Concerns\Audited;
 use App\Concerns\BuyerScoped;
 use App\Enums\Merchandising\BqsFileType;
 use App\Enums\Merchandising\BqsParseStatus;
@@ -19,6 +20,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Carbon;
+use OwenIt\Auditing\Contracts\Auditable;
 
 /**
  * One uploaded BQS workbook, and what the reader made of it.
@@ -63,10 +65,27 @@ use Illuminate\Support\Carbon;
     'sheet_name', 'header_fingerprint', 'row_count', 'parse_status', 'source_hash',
     'payload', 'staged_rows',
 ])]
-class BqsImport extends Model
+class BqsImport extends Model implements Auditable
 {
     /** @use HasFactory<BqsImportFactory> */
-    use BuyerScoped, HasFactory;
+    use Audited, BuyerScoped, HasFactory;
+
+    /**
+     * Columns the audit trail records the *change* of, never the content.
+     *
+     * `payload` is the whole parse result of a workbook and `staged_rows` is every
+     * BQS awaiting a decision. Audited, each update would write two more copies of
+     * them into `audit_logs` — the trail would become a larger duplicate of the
+     * table it describes, and a single row could reach megabytes.
+     *
+     * Nothing is lost that this table does not already hold: the payload is kept
+     * on the import row itself, which is never rewritten in place. What the trail
+     * still answers is who imported, when, from where, and how the status and
+     * staging moved — which is the question anybody actually brings to it.
+     *
+     * @var array<int, string>
+     */
+    protected $auditExclude = ['payload', 'staged_rows'];
 
     /**
      * Imports still holding a BQS nobody has decided about.

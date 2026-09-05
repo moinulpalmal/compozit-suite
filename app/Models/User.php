@@ -3,6 +3,7 @@
 namespace App\Models;
 
 // use Illuminate\Contracts\Auth\MustVerifyEmail;
+use App\Concerns\Audited;
 use App\Concerns\HasStatus;
 use App\Concerns\Listable;
 use App\Enums\Admin\Gender;
@@ -25,6 +26,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Illuminate\Support\Carbon;
+use OwenIt\Auditing\Contracts\Auditable;
 use Spatie\Permission\Traits\HasRoles;
 
 /**
@@ -73,10 +75,34 @@ use Spatie\Permission\Traits\HasRoles;
     'theme',
 ])]
 #[Hidden(['password', 'two_factor_secret', 'two_factor_recovery_codes', 'remember_token'])]
-class User extends Authenticatable
+class User extends Authenticatable implements Auditable
 {
     /** @use HasFactory<UserFactory> */
-    use HasFactory, HasRoles, HasStatus, Listable, Notifiable, SoftDeletes;
+    use Audited, HasFactory, HasRoles, HasStatus, Listable, Notifiable, SoftDeletes;
+
+    /**
+     * Attributes the audit trail must never record.
+     *
+     * **This list is not a duplicate of `#[Hidden]` above — it is load-bearing on
+     * its own.** `config('audit.strict')` is `false`, and the package honours a
+     * model's hidden attributes *only* in strict mode. Without this property every
+     * one of these lands in `audit_logs.new_values` in clear, on the very first
+     * password change, readable from an admin screen.
+     *
+     * It mirrors `#[Hidden]` exactly and must keep mirroring it: a fifth secret
+     * added there is not protected here until it is added here too. The two cannot
+     * be collapsed, because a model's `$auditExclude` *replaces* rather than merges
+     * with `config('audit.exclude')`, and `#[Hidden]` governs serialisation rather
+     * than auditing.
+     *
+     * @var array<int, string>
+     */
+    protected $auditExclude = [
+        'password',
+        'remember_token',
+        'two_factor_secret',
+        'two_factor_recovery_codes',
+    ];
 
     /**
      * Memoised buyer ids — see {@see self::accessibleBuyerIds()}.
