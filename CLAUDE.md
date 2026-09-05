@@ -90,9 +90,15 @@ turn, including the rationale, so the next agent inherits the decision rather th
 ---
 
 playwright configuration:
-APP BASE URL: http://localhost:8000
-  (served by `composer run dev`, which runs `php artisan serve` + queue + vite concurrently.
-   The URL is only live while that is running. Port 8080 is the Laragon landing page, not this app.)
+APP BASE URL: read it from `.env` → `APP_URL`. Today that is http://192.168.5.99:8787
+  **Do not hardcode it** — more IPs are expected and the port may change on deployment.
+  **There are two different servers, and this block previously named the wrong one.** It read
+  `http://localhost:8000`, which is what `composer run dev` binds: that command runs a bare
+  `php artisan serve` on `127.0.0.1:8000` alongside queue + vite. The URL people actually use is
+  served by the Laragon/Apache vhost on **8787**, which binds `0.0.0.0` and so also answers on
+  `localhost:8787`. Both can be up at once; port 8080 is the Laragon landing page and is neither.
+  Because cookies are host-scoped, each of those hosts has its own session and its own `theme`
+  cookie — see ARCHITECTURE.md §9.5 before touching anything theme- or session-related.
 Login Auth:
 Employee ID: 15868
 Password: password

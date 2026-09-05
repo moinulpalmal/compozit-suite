@@ -1516,9 +1516,52 @@ referenced row breaks it just as thoroughly.
 `collapsedNavGroups`, `theme` and `passwordPolicy` with every page. Anything added there is paid for
 on **every** request — prefer per-page props, and use `Inertia::optional()` for anything expensive.
 
-`sidebarOpen`, `collapsedNavGroups` and `theme` are all cookie reads rather than queries, which is
-what makes them affordable here: each is a preference the *first paint* needs, so deferring it to
-the client would trade a byte on the wire for a visible flicker.
+`sidebarOpen` and `collapsedNavGroups` are cookie reads rather than queries, which is what makes
+them affordable here: each is a preference the *first paint* needs, so deferring it to the client
+would trade a byte on the wire for a visible flicker.
+
+#### `theme` is the one shared prop with a second job
+
+> This paragraph previously grouped `theme` with the two cookie reads above and stopped there. That
+> was accurate about its cost and wrong about its purpose, and the gap was a live bug: the prop had
+> **no reader in `resources/js` at all**, so it was paid for on every request and used by nothing.
+
+**`users.theme` is authoritative for a signed-in user; the `theme` cookie is a mirror the server
+maintains.** Three rules follow, and each is load-bearing:
+
+- **`Theme::forRequest()` prefers the stored theme over the cookie, unconditionally.** So a client
+  that paints a choice and then fails to save it is showing something the next page load will
+  contradict. That is the "the theme changed by itself" report, and it is why the client is not
+  allowed to treat its own paint as the truth.
+- **`components/theme-sync.tsx` reads the prop and re-paints on a mismatch.** It is rendered by
+  `app-layout.tsx` and `auth-layout.tsx` rather than by `app.tsx`'s `withApp`, because `<Toaster />`
+  is a sibling of the Inertia app and therefore outside its page context — the same reason
+  `use-appearance.tsx` is deliberately free of `usePage()`. `ThemeSync` is the page-tree half of
+  that module. With it, a lost save is corrected on the next Inertia visit instead of surviving
+  until a full reload.
+- **Only the server writes the cookie**, in `HandleAppearance`, via `Cookie::forever()` — which
+  takes its path, domain, secure and same-site attributes from `config/session.php`, so nothing is
+  hardcoded. A browser-written copy is not merely redundant: browsers key cookies by name **+ domain
+  + path**, so a client cookie whose attributes differ from the server's becomes a *second* `theme`
+  cookie and which one wins is order-dependent. `use-appearance.tsx` therefore paints and nothing
+  else.
+
+**The cookie is re-planted on every authenticated request, not written once on save**, and that is a
+deployment decision rather than belt-and-braces. This application answers on several hosts —
+`192.168.5.99:8787` and `localhost:8787` today, more IPs after deployment. Cookies are host-scoped
+and port-blind, and **a bare-IP host cannot carry a `Domain` attribute at all**: RFC 6265 forbids it
+and browsers drop such a cookie. So the jars can never be joined, and **`SESSION_DOMAIN` must stay
+`null`** — setting it to an IP silently breaks every cookie, the session included. Re-planting means
+a host the user has never visited is correct from their first authenticated page load there, and
+adding an IP costs no code and no configuration.
+
+The cookie's only readers are surfaces with **no authenticated user** — login, 419, 500, password
+confirm — where there is no `users.theme` to consult. A consequence worth stating: on a shared
+terminal the login screen keeps the last signed-in user's theme. That was chosen over clearing it at
+logout, which would make the theme visibly change at every sign-out by design.
+
+Note what this does **not** fix: each host remains a separate *session*. The theme now survives a
+host hop; the login does not, and that is inherent to IP-only hosting.
 
 **`passwordPolicy` qualifies on a different ground, and it is the only one that does.** It is a
 static `config('auth.password_policy')` read — no query, no cookie — needed by
@@ -1684,7 +1727,8 @@ Do not append a contradicting note that leaves both readings live.
 ## 13. Commands
 
 ```bash
-# Run everything (server :8000 + queue + vite) — the app is only live while this runs
+# Run everything (server :8000 + queue + vite) — this server is only live while this runs.
+# Note :8000 is NOT the URL people use; see the note under this block.
 composer run dev
 
 # Migrations — against the MySQL development database. The suite never runs these
@@ -1714,7 +1758,19 @@ php artisan route:list --path=merchandising
 php artisan wayfinder:generate --with-form   # the flag is required — see §8.2
 ```
 
-Local URL is **http://localhost:8000** (port 8080 is the Laragon landing page, not this app).
+**The base URL is whatever `.env`'s `APP_URL` names — today `http://192.168.5.99:8787`.** Do not
+hardcode it anywhere; more IPs are expected and the port may change on deployment.
+
+> This line previously read "Local URL is **http://localhost:8000**", and it was wrong in a way that
+> looked right. **There are two different servers.** `composer run dev` runs a bare
+> `php artisan serve`, which binds `127.0.0.1:8000`; the URL people actually use is served by the
+> Laragon/Apache vhost on **8787**, which binds `0.0.0.0` and therefore also answers on
+> `localhost:8787`. Both can be up at once. Port 8080 is the Laragon landing page, and is neither.
+>
+> That the app answers on more than one host is not cosmetic — cookies are host-scoped, so each host
+> has its own session and its own `theme` cookie. See [§9.5](#95-shared-props) for what that costs
+> and how the theme is made to survive it.
+
 PHP is not on the bash `PATH`; invoke it via
 `D:\Projects\laragon\bin\php\php-8.4.12-nts-Win32-vs17-x64\php.exe` or use PowerShell.
 

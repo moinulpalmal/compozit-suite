@@ -212,9 +212,15 @@ export function useThemeSetting(): UseThemeSettingReturn {
                 // it. That is the control working, not a failure, so `onCancel` is
                 // deliberately absent — only a real rejection rolls the paint back.
                 onError: revert,
-                onException: revert,
+                onHttpException: revert,
+                onNetworkError: revert,
                 onFinish: () => {
-                    pendingTheme = null;
+                    // A superseding click already claimed the slot; leave it to
+                    // that visit to release, or this one's cancellation would
+                    // reopen the window it is holding shut.
+                    if (pendingTheme === next) {
+                        pendingTheme = null;
+                    }
                 },
             },
         );
