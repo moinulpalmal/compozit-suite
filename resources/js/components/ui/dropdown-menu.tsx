@@ -14,8 +14,10 @@ import { ANCHOR_GAP, positionAnchored } from '@/lib/anchored-position';
 import { cn } from '@/lib/utils';
 
 /**
- * A menu built on the Popover API and daisyUI's `menu`, replacing Radix's
- * DropdownMenu.
+ * A menu built on the Popover API, replacing Radix's DropdownMenu.
+ *
+ * It is styled with plain utilities rather than daisyUI's `menu`, which it used to
+ * wear — see the warning below for why that is not a cosmetic preference.
  *
  * `popover="auto"` gives us the top layer (so the menu escapes the collapsed
  * sidebar's `overflow: hidden` without a portal), light dismiss on Escape and
@@ -24,6 +26,17 @@ import { cn } from '@/lib/utils';
  * focus out of the menu.
  *
  * Placement lives in `lib/anchored-position.ts`, shared with `combobox.tsx`.
+ *
+ * **Never put a class that sets `display` on the popover element.** The browser hides
+ * a closed popover with a User-Agent rule — `[popover]:not(:popover-open){display:none}`
+ * — and *any* author declaration beats it, because specificity and `@layer` only order
+ * rules within one origin. daisyUI's `.menu{display:flex}` was on this element and the
+ * menu could not be dismissed at all: `hidePopover()` ran, `:popover-open` went false,
+ * and it stayed on screen through Escape, outside-click and a second trigger click, in
+ * every engine. That is why the layout below is block flow with `space-y-*` rather than
+ * `flex flex-col`, and why the daisyUI menu styling is inlined onto the items instead:
+ * `.menu` cannot be worn here, so nothing may depend on it. `combobox.tsx` sidesteps the
+ * same trap by gating its own `hidden` class on React state.
  *
  * Deliberately not supported: typeahead, submenus, and checkbox/radio items — none
  * are used here. If they are ever needed, reinstate `@radix-ui/react-dropdown-menu`
@@ -194,7 +207,8 @@ function DropdownMenuContent({
             role="menu"
             data-slot="dropdown-menu-content"
             className={cn(
-                'menu dropdown-content fixed inset-auto z-50 m-0 min-w-40 gap-0.5 rounded-box bg-base-100 p-1.5 shadow-lg ring-1 ring-base-300',
+                // No `display` utility here, and none may be added — see the note above.
+                'fixed inset-auto z-50 m-0 min-w-40 space-y-0.5 rounded-box bg-base-100 p-1.5 text-sm shadow-lg ring-1 ring-base-300',
                 className,
             )}
             onKeyDown={(event) => handleMenuKeyDown(event.nativeEvent)}
@@ -236,7 +250,15 @@ function DropdownMenuItem({
                 data-inset={inset}
                 data-variant={variant}
                 className={cn(
-                    'flex cursor-pointer items-center gap-2 text-sm',
+                    /*
+                     * Padding, radius and transition were daisyUI's, from
+                     * `.menu :where(li:not(.menu-title)>:not(ul,menu,details,.menu-title,.btn))`.
+                     * That rule died with `.menu`, so the values it supplied are spelled
+                     * out here. The hover background is new — daisyUI 5.7's `.menu` has
+                     * none, so the items never highlighted.
+                     */
+                    'flex w-full cursor-pointer items-center gap-2 rounded-field px-3 py-1.5 text-start text-sm transition-colors select-none',
+                    'hover:bg-base-200 focus-visible:bg-base-200 focus-visible:outline-none',
                     inset && 'pl-8',
                     variant === 'destructive' && 'text-error',
                     className,
@@ -261,7 +283,13 @@ function DropdownMenuLabel({
             role="presentation"
             data-slot="dropdown-menu-label"
             className={cn(
-                'menu-title px-2 py-1.5 text-sm font-medium',
+                /*
+                 * Not `menu-title`: daisyUI fades it to
+                 * `color-mix(in oklab, var(--color-base-content) 40%, transparent)`,
+                 * which cascaded onto the avatar and name in the user menu's header
+                 * and rendered both washed out against the row below.
+                 */
+                'px-2 py-1.5 text-sm font-medium',
                 inset && 'pl-8',
                 className,
             )}

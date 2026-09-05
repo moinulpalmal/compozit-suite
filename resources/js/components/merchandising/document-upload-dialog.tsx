@@ -1,19 +1,18 @@
 import { Form } from '@inertiajs/react';
-import { Upload } from 'lucide-react';
+import { useCallback } from 'react';
 import DocumentUploadController from '@/actions/App/Http/Controllers/Merchandising/DocumentUploadController';
 import InputError from '@/components/input-error';
-import { Button } from '@/components/ui/button';
+import FormDialogFooter from '@/components/shared/form-dialog-footer';
 import Combobox from '@/components/ui/combobox';
 import {
     Dialog,
-    DialogClose,
     DialogContent,
     DialogDescription,
-    DialogFooter,
     DialogTitle,
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { useFormDialog } from '@/hooks/use-form-dialog';
 import type { ImportableBuyer, StatusOption } from '@/types';
 
 type Props = {
@@ -44,6 +43,12 @@ type Props = {
  * `name="files[]"` is what a `files.*` rule validates; a `Combobox multiple` once
  * shipped emitting `buyers[][]`, which no submit survived, and the browser suite
  * exists because a feature test cannot see what the form put on the wire.
+ *
+ * **This dialog used to stay open after a successful upload**, with the file input
+ * still populated, because it carried no `onSuccess` at all — one click away from
+ * uploading the same batch twice. It now follows the standard in
+ * ARCHITECTURE.md §8.10 like every other form modal, and a file input is the case
+ * that most needs its remount: nothing else can clear one.
  */
 export default function DocumentUploadDialog({
     buyers,
@@ -54,6 +59,8 @@ export default function DocumentUploadDialog({
     onOpenChange,
 }: Props) {
     const accept = allowedExtensions.map((ext) => `.${ext}`).join(',');
+    const close = useCallback(() => onOpenChange(false), [onOpenChange]);
+    const { formKey, formProps, setIntent } = useFormDialog(close);
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
@@ -66,7 +73,9 @@ export default function DocumentUploadDialog({
                 </DialogDescription>
 
                 <Form
+                    key={formKey}
                     {...DocumentUploadController.store.form()}
+                    {...formProps}
                     options={{ preserveScroll: true }}
                     className="mt-4 space-y-4"
                 >
@@ -83,6 +92,12 @@ export default function DocumentUploadDialog({
                                     options={documentTypes}
                                     placeholder="Choose a document type"
                                     required
+                                    /* The first control, so it is what focus
+                                       lands on when the panel opens and again
+                                       after a "Save & add another" remount —
+                                       ARCHITECTURE.md §8.10. */
+                                    autoFocus
+                                    aria-invalid={Boolean(errors.file_type)}
                                     data-test="document-type"
                                 />
 
@@ -107,6 +122,7 @@ export default function DocumentUploadDialog({
                                     name="buyer_id"
                                     options={buyers}
                                     placeholder="No particular buyer"
+                                    aria-invalid={Boolean(errors.buyer_id)}
                                     data-test="document-buyer"
                                 />
 
@@ -138,6 +154,7 @@ export default function DocumentUploadDialog({
                                     type="text"
                                     maxLength={255}
                                     placeholder="What this batch is"
+                                    aria-invalid={Boolean(errors.title)}
                                     data-test="document-title"
                                 />
 
@@ -159,6 +176,7 @@ export default function DocumentUploadDialog({
                                     maxLength={2000}
                                     className="textarea-bordered textarea w-full"
                                     placeholder="Who sent them, what they are for"
+                                    aria-invalid={Boolean(errors.note)}
                                     data-test="document-note"
                                 />
 
@@ -176,6 +194,9 @@ export default function DocumentUploadDialog({
                                     accept={accept}
                                     required
                                     className="file-input-bordered file-input w-full"
+                                    aria-invalid={Boolean(
+                                        errors.files ?? errors['files.0'],
+                                    )}
                                     data-test="document-files"
                                 />
 
@@ -195,22 +216,15 @@ export default function DocumentUploadDialog({
                                 />
                             </div>
 
-                            <DialogFooter className="gap-2">
-                                <DialogClose asChild>
-                                    <Button variant="secondary" type="button">
-                                        Cancel
-                                    </Button>
-                                </DialogClose>
-
-                                <Button
-                                    type="submit"
-                                    disabled={processing}
-                                    data-test="submit-document-upload"
-                                >
-                                    <Upload />
-                                    {processing ? 'Uploading…' : 'Upload'}
-                                </Button>
-                            </DialogFooter>
+                            {/* A batch is a record like any other, and they
+                                arrive in runs — so this one keeps "Save & add
+                                another". */}
+                            <FormDialogFooter
+                                processing={processing}
+                                addAnother
+                                onIntent={setIntent}
+                                saveTestId="submit-document-upload"
+                            />
                         </>
                     )}
                 </Form>

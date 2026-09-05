@@ -25,9 +25,14 @@ export function UserMenuContent({ user }: Props) {
 
             <DropdownMenuSeparator />
 
+            {/*
+             * No `block w-full` and no `mr-2`: `DropdownMenuItem` now carries
+             * `flex w-full … gap-2` itself, and `block` would win the merge and
+             * undo it. The gap replaces the margin at the same 0.5rem.
+             */}
             <DropdownMenuItem asChild>
-                <Link className="block w-full" href={edit()} prefetch>
-                    <Settings className="mr-2" />
+                <Link href={edit()} prefetch>
+                    <Settings />
                     Settings
                 </Link>
             </DropdownMenuItem>
@@ -36,13 +41,12 @@ export function UserMenuContent({ user }: Props) {
 
             <DropdownMenuItem asChild>
                 <Link
-                    className="block w-full"
                     href={logout()}
                     as="button"
                     onClick={() => router.flushAll()}
                     data-test="logout-button"
                 >
-                    <LogOut className="mr-2" />
+                    <LogOut />
                     Log out
                 </Link>
             </DropdownMenuItem>

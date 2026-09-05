@@ -1,18 +1,17 @@
 import { Form } from '@inertiajs/react';
 import type { ReactNode } from 'react';
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 import InputError from '@/components/input-error';
-import { Button } from '@/components/ui/button';
+import FormDialogFooter from '@/components/shared/form-dialog-footer';
 import { Checkbox } from '@/components/ui/checkbox';
 import {
     Dialog,
-    DialogClose,
     DialogContent,
     DialogDescription,
-    DialogFooter,
     DialogTitle,
     DialogTrigger,
 } from '@/components/ui/dialog';
+import { useFormDialog } from '@/hooks/use-form-dialog';
 import type { UserListItem } from '@/types';
 import type { RouteFormDefinition } from '@/wayfinder';
 
@@ -22,6 +21,9 @@ import type { RouteFormDefinition } from '@/wayfinder';
  * `roles` arrives already filtered by `UserService::assignableRoleNames()` —
  * `super-admin` is absent unless the signed-in user holds it, so it can be
  * neither granted nor accidentally revoked here. The server refuses either way.
+ *
+ * **No "Save & add another"** — it edits one named user's roles, so there is no
+ * next record to add (ARCHITECTURE.md §8.10).
  */
 export default function UserRoleDialog({
     submit,
@@ -35,6 +37,8 @@ export default function UserRoleDialog({
     children: ReactNode;
 }) {
     const [open, setOpen] = useState(false);
+    const close = useCallback(() => setOpen(false), []);
+    const { formKey, formProps, setIntent } = useFormDialog(close);
 
     return (
         <Dialog open={open} onOpenChange={setOpen}>
@@ -48,9 +52,10 @@ export default function UserRoleDialog({
                 </DialogDescription>
 
                 <Form
+                    key={formKey}
                     {...submit}
+                    {...formProps}
                     options={{ preserveScroll: true }}
-                    onSuccess={() => setOpen(false)}
                     className="mt-4 space-y-4"
                 >
                     {({ processing, errors }) => (
@@ -85,21 +90,11 @@ export default function UserRoleDialog({
                                 message={errors.roles ?? errors['roles.0']}
                             />
 
-                            <DialogFooter className="gap-2">
-                                <DialogClose asChild>
-                                    <Button variant="secondary" type="button">
-                                        Cancel
-                                    </Button>
-                                </DialogClose>
-
-                                <Button
-                                    type="submit"
-                                    disabled={processing}
-                                    data-test="save-user-roles"
-                                >
-                                    Save roles
-                                </Button>
-                            </DialogFooter>
+                            <FormDialogFooter
+                                processing={processing}
+                                onIntent={setIntent}
+                                saveTestId="save-user-roles"
+                            />
                         </>
                     )}
                 </Form>

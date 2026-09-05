@@ -86,7 +86,6 @@ export default function NotificationColorsIndex({
                             statuses={statuses}
                             title="New notification colour"
                             description="It becomes selectable straight away."
-                            submitLabel="Create colour"
                         >
                             <Button data-test="new-notification-color">
                                 <Plus /> New colour
@@ -217,7 +216,6 @@ export default function NotificationColorsIndex({
                                                     notificationColor={color}
                                                     title={`Edit ${color.name}`}
                                                     description="Changing the colour updates it everywhere — records reference the row, not a copy of its hex."
-                                                    submitLabel="Save changes"
                                                 >
                                                     <Button
                                                         variant="ghost"

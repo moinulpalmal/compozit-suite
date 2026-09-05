@@ -230,6 +230,11 @@ the other without one.
 It uses the shared list apparatus unchanged — sortable headers, a filter cell per column, a page
 size selector, numbered pagination, all carried in the query string
 ([ARCHITECTURE.md §8.6](../ARCHITECTURE.md#86-every-list-is-paginated-sortable-and-filtered-per-column)).
+
+The create/edit modals use the shared form footer just as unchanged — Cancel, Save & add another
+(on create only), Save & close, per
+[ARCHITECTURE.md §8.10](../ARCHITECTURE.md#810-a-form-modal-has-three-buttons-and-each-one-means-something).
+Master data is entered in runs, which is the case that footer exists for.
 Being the **second module** to import that apparatus is what triggered its promotion from
 `components/admin/` to `components/shared/`
 ([ARCHITECTURE.md §6.5](../ARCHITECTURE.md#65-components)).
@@ -397,3 +402,9 @@ deletion guard from both sides. The paginate/sort/filter contract comes from `Li
 `colors[n][...]` array field names, and the PHP suite posts arrays straight to the controller — so a
 repeater emitting the wrong shape would ship green. **The dialog is not proven until someone has
 saved a template in a browser.**
+
+The ladder is also why this dialog is the one that proves the clearing half of
+[ARCHITECTURE.md §8.10](../ARCHITECTURE.md#810-a-form-modal-has-three-buttons-and-each-one-means-something).
+Its rungs are React state, not `defaultValue`s, so Inertia's `reset()` leaves them standing; only
+the remount the standard prescribes empties the ladder between two entries. Check that after a
+"Save & add another" here, not just on a flat form.

@@ -1,20 +1,19 @@
 import { Form } from '@inertiajs/react';
 import type { ReactNode } from 'react';
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 import InputError from '@/components/input-error';
-import { Button } from '@/components/ui/button';
+import FormDialogFooter from '@/components/shared/form-dialog-footer';
 import { Checkbox } from '@/components/ui/checkbox';
 import Combobox from '@/components/ui/combobox';
 import {
     Dialog,
-    DialogClose,
     DialogContent,
     DialogDescription,
-    DialogFooter,
     DialogTitle,
     DialogTrigger,
 } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
+import { useFormDialog } from '@/hooks/use-form-dialog';
 import { options as buyerOptionsRoute } from '@/routes/admin/buyers';
 import type { UserListItem } from '@/types';
 import type { RouteFormDefinition } from '@/wayfinder';
@@ -33,6 +32,9 @@ import type { RouteFormDefinition } from '@/wayfinder';
  * The picker is `searchUrl`-backed: buyers outgrow being shipped to the browser
  * whole, and the chips keep their labels because `Combobox` folds remote results
  * in with the options it was rendered with.
+ *
+ * **No "Save & add another"** — it edits one named user's access, so there is no
+ * next record to add (ARCHITECTURE.md §8.10).
  */
 export default function UserBuyerAccessDialog({
     submit,
@@ -45,6 +47,16 @@ export default function UserBuyerAccessDialog({
 }) {
     const [open, setOpen] = useState(false);
     const [allBuyers, setAllBuyers] = useState(user.all_buyer_access ?? false);
+
+    // `allBuyers` sits above `DialogContent`, so it survives the children
+    // unmounting and has to be re-seeded by hand — otherwise Cancel leaves the
+    // checkbox showing an abandoned decision the next time the dialog opens.
+    const close = useCallback(() => {
+        setAllBuyers(user.all_buyer_access ?? false);
+        setOpen(false);
+    }, [user.all_buyer_access]);
+
+    const { formKey, formProps, setIntent } = useFormDialog(close);
 
     const held = user.buyers ?? [];
 
@@ -60,9 +72,10 @@ export default function UserBuyerAccessDialog({
                 </DialogDescription>
 
                 <Form
+                    key={formKey}
                     {...submit}
+                    {...formProps}
                     options={{ preserveScroll: true }}
-                    onSuccess={() => setOpen(false)}
                     className="mt-4 space-y-4"
                 >
                     {({ processing, errors }) => (
@@ -119,6 +132,9 @@ export default function UserBuyerAccessDialog({
                                     }))}
                                     searchUrl={buyerOptionsRoute.url()}
                                     placeholder="Search buyers…"
+                                    aria-invalid={Boolean(
+                                        errors.buyers ?? errors['buyers.0'],
+                                    )}
                                     data-test="buyer-select"
                                 />
                                 <p className="text-xs text-base-content/60">
@@ -133,21 +149,11 @@ export default function UserBuyerAccessDialog({
                                 />
                             </div>
 
-                            <DialogFooter className="gap-2">
-                                <DialogClose asChild>
-                                    <Button variant="secondary" type="button">
-                                        Cancel
-                                    </Button>
-                                </DialogClose>
-
-                                <Button
-                                    type="submit"
-                                    disabled={processing}
-                                    data-test="save-buyer-access"
-                                >
-                                    Save access
-                                </Button>
-                            </DialogFooter>
+                            <FormDialogFooter
+                                processing={processing}
+                                onIntent={setIntent}
+                                saveTestId="save-buyer-access"
+                            />
                         </>
                     )}
                 </Form>

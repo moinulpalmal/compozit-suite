@@ -738,6 +738,22 @@ thin preset over `confirm-action-dialog`, and promoting the wrapper alone would 
 component importing out of `components/admin/` — which is the coupling the rule exists to remove.
 The `*-form-dialog.tsx` files stayed put; they know their module's fields and have one caller each.
 
+**`form-dialog-footer.tsx` was born in `components/shared/`, and that is not an exception to the
+rule but its conclusion reached early.** Admin, Settings and Merchandising all imported it in the
+change that created it, so starting it in one module's folder would have meant promoting it in the
+same commit. Read the rule as "a component lives where its importers say it does"; the usual case is
+that they say so one module at a time. Note what stayed behind: the `*-form-dialog.tsx` files still
+know their own fields, and it is only the *footer* — three buttons and their states — that every
+module shares. See [§8.10](#810-a-form-modal-has-three-buttons-and-each-one-means-something).
+
+**`password-policy-checklist.tsx` was born there for the same reason**, and it also records why the
+rule matters. It replaced `PasswordStrength`, which lived *inside* `components/admin/user-form-dialog.tsx`
+and was imported from `components/admin/user-password-dialog.tsx` — a dialog reaching into a sibling
+dialog for a component neither one owns. That component also carried its own hardcoded copy of the
+password rules and went on advertising a 12-character minimum after the policy had dropped to 8. The
+replacement reads the rules from the `passwordPolicy` shared prop ([§9.5](#95-shared-props)) and is
+imported by `pages/auth/`, `pages/settings/` and `components/admin/`.
+
 File names are kebab-case; the exported component is PascalCase.
 
 ### 6.6 TypeScript types
@@ -940,6 +956,15 @@ presentation only — the route's `permission:` middleware is what actually deni
   colour swatch is an unnamed visual control that writes into it. Two named inputs would submit the
   field twice and the last one would win, which is a bug that looks like nothing until the values
   disagree. Any further control built from more than one element does the same.
+- **A compound control must also accept and paint `aria-invalid`.** Server errors set it on every
+  field in a form modal ([§8.10](#810-a-form-modal-has-three-buttons-and-each-one-means-something)),
+  and a control that swallows the attribute shows a red message under a normal border while its
+  plain-`Input` neighbours turn red. `Combobox` paints `select-error` from it and `ColorInput` takes
+  an `invalid` prop; a third compound control owes the same.
+- **A control that replaces a native element must also be focusable by `id`.** The same section
+  moves focus to the first rejected field, and it finds it by `#id` before falling back to `name` —
+  which works only because `Combobox` puts the caller's `id` on its trigger `<button>` rather than
+  on the hidden input. Keep that where it is.
 - **Why a dependency at all**, when `dropdown-menu.tsx` deliberately replaced Radix by hand: that
   file's docblock states the rule — hand-roll the simple primitive, buy the complicated one.
   `aria-activedescendant`, roving virtual focus and filtered-result announcements are the
@@ -1050,7 +1075,17 @@ typed work or a destructive confirmation, and a stray click outside one was disc
   removed survived Cancel *and* a successful save. `DialogClose` stays outside the guard, because
   the only exit is never conditional. A dialog that must survive being closed keeps that state in
   the component *above* `DialogContent`, the way the two import dialogs keep their
-  reopen-on-pending `useRef`.
+  reopen-on-pending `useRef` — and note the cost of doing so: state up there is *not* cleared by
+  closing, so `user-password-dialog` and `user-buyer-access-dialog` both have to re-seed it by hand.
+  **The same remount, driven by a `key` instead of by closing, is how a form modal clears itself
+  without closing** — that is "Save & add another", and it lives in
+  [§8.10](#810-a-form-modal-has-three-buttons-and-each-one-means-something).
+- **"Never conditional" has exactly one narrowing: `busy`.** A form modal disables both exits —
+  Cancel and the X — while its save is in flight, so the panel cannot be dismissed between the
+  request leaving and the answer arriving. It is a *disable*, not a removal, and it lifts the moment
+  the request settles, so the user is never without an exit for longer than a round trip. Only
+  `FormDialogFooter` sets it; a dialog with no form footer never touches the flag, so the
+  confirmation and preview dialogs are unaffected. §8.10 has the reasoning.
 - **`Sheet` inherits it**, being the same primitive with a different placement. The mobile
   navigation drawer therefore closes by its X, not by tapping the page behind it.
 - **Menus are the opposite case and keep light dismiss.** `dropdown-menu.tsx` keeps
@@ -1058,6 +1093,17 @@ typed work or a destructive confirmation, and a stray click outside one was disc
   keeps downshift's outside-click and Escape handling. A menu holds no work, so there is nothing
   to protect and a user who opens one by accident must be able to leave. Do not extend the modal
   rule to them.
+- **Never put a class that sets `display` on a `[popover]` element**, and that includes daisyUI's
+  `.menu`. The browser hides a closed popover with a *User-Agent* rule
+  (`[popover]:not(:popover-open){display:none}`), and any author declaration beats it outright —
+  specificity and `@layer` only order rules within one origin. `dropdown-menu.tsx` wore
+  `.menu`, which is `display:flex`, and the user menu could not be dismissed by anything: the
+  trigger, Escape and outside-click all fired, `hidePopover()` ran, `:popover-open` went false,
+  and the menu stayed on screen in every engine — visible even before it had been opened. The
+  bullet above was describing dismissal the app did not actually have. `dropdown-menu.tsx` is
+  therefore styled with plain utilities and lays out in block flow with `space-y-*`, never
+  `flex flex-col`; `combobox.tsx` avoids the same trap by gating its own `hidden` on React state.
+  `tests/Browser/UserMenuDismissalTest.php` guards it, because only a real engine can see it.
 - `.modal-box` is `position: static` in daisyUI, so `DialogContent` adds `relative`; without it
   the close button anchors to `.modal` (`position: fixed; inset: 0`) and lands in the viewport
   corner rather than the panel's.
@@ -1135,6 +1181,121 @@ surface.
   exposes.
 - **Severity is asserted, not assumed.** `assertToast($response, 'warning')` in `tests/Pest.php`
   reaches into the `inertia.flash_data` session key; use it on both sides of every guard.
+
+### 8.10 A form modal has three buttons, and each one means something
+
+**Every insert/update modal in this application wears the same footer**, and a new one inherits it
+rather than choosing its own verbs. This is a standard, not a description: it governs the modals
+that exist and the ones that do not exist yet.
+
+| Button | On success | On failure |
+| --- | --- | --- |
+| **Cancel** | Clears the form and closes | — it does not submit |
+| **Save & add another** | Clears the form; the panel **stays open** for the next record | Error shown, panel stays open, typed values untouched |
+| **Save & close** | Clears the form and closes | Error shown, panel stays open, typed values untouched |
+
+Two files carry it, and a dialog needs nothing else:
+
+| Piece | Job |
+| --- | --- |
+| `hooks/use-form-dialog.ts` | The remount key, the save intent, and focus-on-error. Returns `formKey`, `formProps` and `setIntent` |
+| `components/shared/form-dialog-footer.tsx` | The three buttons, their disabled states, and the panel's busy flag |
+
+```tsx
+const close = useCallback(() => setOpen(false), []);
+const { formKey, formProps, setIntent } = useFormDialog(close);
+
+<Form key={formKey} {...submit} {...formProps} options={{ preserveScroll: true }}>
+    {({ processing, errors }) => (
+        <>
+            {/* fields */}
+            <FormDialogFooter
+                processing={processing}
+                addAnother={designation === undefined}
+                onIntent={setIntent}
+                saveTestId="save-designation"
+            />
+        </>
+    )}
+</Form>
+```
+
+`designation-form-dialog.tsx` is the reference implementation; `user-form-dialog.tsx` is the same
+shape at ten fields.
+
+#### The rules, and why each one is what it is
+
+- **"Save & add another" is create-only.** An edit modal posts to *that record's* update route, so a
+  second submit would re-save the same row rather than create a new one. Pass `addAnother` from
+  whether the dialog was handed a record. An edit modal shows Cancel + Save & close.
+- **Clearing is a `key` remount, never `reset()`.** Inertia's `resetOnSuccess` and the slot's
+  `reset()` write `el.value` straight onto the named DOM nodes, which is wrong for every control
+  here that is React-controlled behind its `name` — `combobox.tsx` submits through a hidden input
+  and `color-input.tsx` through a controlled text field, so React repaints its own state over the
+  write and the visible control ends up disagreeing with what is submitted. That is the "looks like
+  data loss" failure [§8.5](#85-selects-are-comboboxes) already records once, arrived at from the
+  other direction. It also cannot clear a `<input type="file">` at all, and it leaves a repeater's
+  `useState` rows standing — the TNA colour ladder is the case that proves both.
+  Bumping `key` unmounts and remounts the subtree instead: every `defaultValue` re-seeds, every
+  `useState` re-initialises, every file input empties, and the `<Form>`'s own errors clear. It is
+  the same mechanism [§8.7](#87-modals-never-light-dismiss-menus-always-do) uses when a panel
+  closes, driven by a key rather than by closing.
+- **"Clear" means back to the seed, not empty.** On a create modal the seed is blank; on an edit
+  modal it is the row the server holds. That is what makes Cancel on an edit modal discard the edit
+  rather than blank the record.
+- **The panel survives the round trip, and that is why any of this works.** `<Form>` submits through
+  `router.post`, which defaults `preserveState: true`, so the page component is *not* remounted
+  after a successful save and the dialog's `open` state lives through it. Verified against
+  `@inertiajs/react` 3.7.0 — if a future upgrade changes that default, "Save & add another" is the
+  first thing to break.
+- **The intent never reaches the server.** `<Form>` builds its payload with
+  `new FormData(element, submitter)`, so a `name`d submit button would post an extra field that
+  every form request would then need a rule to ignore. It lives in a ref written by the button's
+  `onClick`.
+- **Enter submits the leftmost save button** — "Save & add another" on create, "Save & close" on
+  edit, where the middle button is absent. That is what implicit submission does for free, and the
+  `onClick` that records the intent fires on it too. Visual order, DOM order and tab order all
+  agree; reordering the DOM to make Enter mean "close" was considered and declined, because it
+  leaves tab order disagreeing with what the eye sees.
+- **The first field carries `autoFocus`, and this is required.** Without it, focus after a
+  "Save & add another" remount falls to the document and a keyboard user is stranded mid-run.
+  `Combobox` accepts `autoFocus` for the dialogs whose first control is a picker.
+- **A rejected field turns red, takes focus, and is announced.** Every field passes
+  `aria-invalid={Boolean(errors.x)}` — `Input` and `Combobox` both paint their error variant from
+  it, and `ColorInput` takes `invalid`. `useFormDialog`'s `onError` moves focus to the first
+  rejected control and scrolls it into view, and `InputError` carries `role="alert"`. On a modal the
+  size of the user form the message alone is not enough: it can sit several rows above the fold, and
+  the reader is left looking at a panel that simply did not close. This generalises what
+  `delete-user.tsx` and `settings/security.tsx` each hand-rolled with their own refs.
+  - The lookup is by `#id` **first**, then by `name`. A `Combobox` carries the caller's `id` on its
+    trigger `<button>` while its `name` belongs to a hidden input, which cannot take focus.
+  - A nested key from a repeater (`colors.0.max_days_remaining`) matches neither and fails softly.
+    Do not synthesise ids to make it match.
+- **Both exits are disabled while the save is in flight**, not just the save buttons.
+  `FormDialogFooter` mirrors `processing` into the dialog context and `DialogContent` disables its
+  X from it. This is the one narrowing of §8.7's "the close button is never conditional", and it is
+  a *disable*, never a removal — the moment the request settles the X is back. Escape needs nothing:
+  §8.7 already refuses it.
+- **Cancel gets no unsaved-changes confirmation.** It is an explicit action, unlike the stray
+  outside click §8.7 exists to refuse. Adding a second dialog over the first was considered and
+  declined.
+
+#### What is in scope
+
+The ten modals that take a form: the five `*-form-dialog.tsx` create/edit dialogs, the document
+library's upload and replace dialogs, and the three single-record user actions (password, roles,
+buyer access). The last five show two buttons — they act on one named record, so there is no next
+one to add.
+
+**The two import dialogs are deliberately outside it.** `bqs-import-dialog.tsx` and
+`purchase-order-import-dialog.tsx` are multi-step: step two holds skip/revise/overwrite decisions
+about orders already staged on the server ([§5](#5-module-registry)), and neither "add another" nor
+"clear the form" describes anything there. `role-form.tsx` and `permission-form.tsx` are pages, not
+modals, and keep their own `submitLabel`.
+
+The contract is proved once, in `tests/Browser/FormDialogStandardTest.php`, against
+`admin/designations` — a DOM is the only thing that can answer any of it
+([§13.2](#132-a-dom-level-test-harness-exists--testsbrowser)).
 
 ---
 
@@ -1363,12 +1524,67 @@ referenced row breaks it just as thoroughly.
 ### 9.5 Shared props
 
 `app/Http/Middleware/HandleInertiaRequests.php` shares `name`, `auth.user`, `sidebarOpen`,
-`collapsedNavGroups` and `theme` with every page. Anything added there is paid for on **every**
-request — prefer per-page props, and use `Inertia::optional()` for anything expensive.
+`collapsedNavGroups`, `theme` and `passwordPolicy` with every page. Anything added there is paid for
+on **every** request — prefer per-page props, and use `Inertia::optional()` for anything expensive.
 
-The last three are all cookie reads rather than queries, which is what makes them affordable here:
-each is a preference the *first paint* needs, so deferring it to the client would trade a byte on
-the wire for a visible flicker. That is the bar for adding a fourth — not "it is small".
+`sidebarOpen` and `collapsedNavGroups` are cookie reads rather than queries, which is what makes
+them affordable here: each is a preference the *first paint* needs, so deferring it to the client
+would trade a byte on the wire for a visible flicker.
+
+#### `theme` is the one shared prop with a second job
+
+> This paragraph previously grouped `theme` with the two cookie reads above and stopped there. That
+> was accurate about its cost and wrong about its purpose, and the gap was a live bug: the prop had
+> **no reader in `resources/js` at all**, so it was paid for on every request and used by nothing.
+
+**`users.theme` is authoritative for a signed-in user; the `theme` cookie is a mirror the server
+maintains.** Three rules follow, and each is load-bearing:
+
+- **`Theme::forRequest()` prefers the stored theme over the cookie, unconditionally.** So a client
+  that paints a choice and then fails to save it is showing something the next page load will
+  contradict. That is the "the theme changed by itself" report, and it is why the client is not
+  allowed to treat its own paint as the truth.
+- **`components/theme-sync.tsx` reads the prop and re-paints on a mismatch.** It is rendered by
+  `app-layout.tsx` and `auth-layout.tsx` rather than by `app.tsx`'s `withApp`, because `<Toaster />`
+  is a sibling of the Inertia app and therefore outside its page context — the same reason
+  `use-appearance.tsx` is deliberately free of `usePage()`. `ThemeSync` is the page-tree half of
+  that module. With it, a lost save is corrected on the next Inertia visit instead of surviving
+  until a full reload.
+- **Only the server writes the cookie**, in `HandleAppearance`, via `Cookie::forever()` — which
+  takes its path, domain, secure and same-site attributes from `config/session.php`, so nothing is
+  hardcoded. A browser-written copy is not merely redundant: browsers key cookies by name **+ domain
+  + path**, so a client cookie whose attributes differ from the server's becomes a *second* `theme`
+  cookie and which one wins is order-dependent. `use-appearance.tsx` therefore paints and nothing
+  else.
+
+**The cookie is re-planted on every authenticated request, not written once on save**, and that is a
+deployment decision rather than belt-and-braces. This application answers on several hosts —
+`192.168.5.99:8787` and `localhost:8787` today, more IPs after deployment. Cookies are host-scoped
+and port-blind, and **a bare-IP host cannot carry a `Domain` attribute at all**: RFC 6265 forbids it
+and browsers drop such a cookie. So the jars can never be joined, and **`SESSION_DOMAIN` must stay
+`null`** — setting it to an IP silently breaks every cookie, the session included. Re-planting means
+a host the user has never visited is correct from their first authenticated page load there, and
+adding an IP costs no code and no configuration.
+
+The cookie's only readers are surfaces with **no authenticated user** — login, 419, 500, password
+confirm — where there is no `users.theme` to consult. A consequence worth stating: on a shared
+terminal the login screen keeps the last signed-in user's theme. That was chosen over clearing it at
+logout, which would make the theme visibly change at every sign-out by design.
+
+Note what this does **not** fix: each host remains a separate *session*. The theme now survives a
+host hop; the login does not, and that is inherent to IP-only hosting.
+
+**`passwordPolicy` qualifies on a different ground, and it is the only one that does.** It is a
+static `config('auth.password_policy')` read — no query, no cookie — needed by
+`components/shared/password-policy-checklist.tsx` on both authed pages (security settings, the two
+Admin user dialogs) and a **guest** page (password reset), which no per-page convention covers in
+one place. The deciding argument is not size but omission: the checklist falls back to its loosest
+reading when the prop is absent, so a fifth password surface added later must not be *able* to ship
+without the rules. Per-page props would have made that a thing you remember.
+
+So the bar for adding a seventh is one of these two: a preference the first paint needs, or a
+cross-cutting constant whose absence would silently degrade a shared component. "It is small" is
+still not a reason.
 
 ### 9.6 Authentication identity
 
@@ -1386,6 +1602,33 @@ on it automatically.
 - `users` uses `SoftDeletes`, so a deleted user cannot authenticate: the default user provider
   applies the global scope. Their `employee_id` and `email` stay reserved by the unique indexes,
   which is intentional — reusing one is refused with a message pointing at the Historical tab.
+
+#### 9.6.1 Password policy
+
+**`config/auth.php` → `password_policy` is the single definition**, and the only place a rule may be
+written down. It is read exactly twice: `AppServiceProvider::passwordPolicy()` assembles
+`Password::defaults()` from it, and `HandleInertiaRequests` shares it as `passwordPolicy`
+([§9.5](#95-shared-props)) so `components/shared/password-policy-checklist.tsx` can state the same
+requirements the validator enforces. Every consumer — the three form requests and
+`Actions/Fortify/ResetUserPassword` — goes through `App\Concerns\PasswordValidationRules`, so
+nothing needs touching when a value changes.
+
+The current policy is **8 characters** with mixed case, letters, numbers, symbols and
+`uncompromised`. It was `min(12)`, and it applied **only in production**: the closure read
+`app()->isProduction() ? Password::min(12)->… : null`, so `Password::default()` fell through to
+Laravel's bare `min(8)` everywhere else and the suite could not exercise the real rule at all.
+**That branch is gone and must not come back** — one policy in every environment is what makes
+`tests/Feature/PasswordPolicyTest.php` mean anything, and that file asserts it.
+
+`uncompromised` is a live Have I Been Pwned range lookup. `tests/Pest.php` fakes the endpoint for
+the whole suite via `fakeBreachedPasswordLookup()`; without it every password test would make a real
+HTTPS call that fails **open** on network error, quietly passing without having checked. Pass the
+helper a password to get the opposite answer. The browser suite talks to a real server and cannot be
+faked, so browser tests type a password that is genuinely compliant and unbreached.
+
+`UserFactory` hashes `password` directly and never passes through validation, so seeded and
+factory-made logins — including the development credential in `CLAUDE.md` — are unaffected by the
+policy. Existing users are not forced to rotate: lowering a minimum cannot invalidate anyone.
 
 ---
 
@@ -1495,7 +1738,8 @@ Do not append a contradicting note that leaves both readings live.
 ## 13. Commands
 
 ```bash
-# Run everything (server :8000 + queue + vite) — the app is only live while this runs
+# Run everything (server :8000 + queue + vite) — this server is only live while this runs.
+# Note :8000 is NOT the URL people use; see the note under this block.
 composer run dev
 
 # Migrations — against the MySQL development database. The suite never runs these
@@ -1525,7 +1769,19 @@ php artisan route:list --path=merchandising
 php artisan wayfinder:generate --with-form   # the flag is required — see §8.2
 ```
 
-Local URL is **http://localhost:8000** (port 8080 is the Laragon landing page, not this app).
+**The base URL is whatever `.env`'s `APP_URL` names — today `http://192.168.5.99:8787`.** Do not
+hardcode it anywhere; more IPs are expected and the port may change on deployment.
+
+> This line previously read "Local URL is **http://localhost:8000**", and it was wrong in a way that
+> looked right. **There are two different servers.** `composer run dev` runs a bare
+> `php artisan serve`, which binds `127.0.0.1:8000`; the URL people actually use is served by the
+> Laragon/Apache vhost on **8787**, which binds `0.0.0.0` and therefore also answers on
+> `localhost:8787`. Both can be up at once. Port 8080 is the Laragon landing page, and is neither.
+>
+> That the app answers on more than one host is not cosmetic — cookies are host-scoped, so each host
+> has its own session and its own `theme` cookie. See [§9.5](#95-shared-props) for what that costs
+> and how the theme is made to survive it.
+
 PHP is not on the bash `PATH`; invoke it via
 `D:\Projects\laragon\bin\php\php-8.4.12-nts-Win32-vs17-x64\php.exe` or use PowerShell.
 
@@ -1591,6 +1847,26 @@ Three things about it are decisions rather than defaults:
 - **A browser test earns its place by testing something a DOM can only answer.** Anything provable
   by posting a payload belongs in `tests/Feature/`, which is an order of magnitude faster. The rule
   of thumb: if removing the fix would still fail the feature test, the browser test is redundant.
+
+**The suite runs against whatever assets are on disk, and a stale bundle fails every test at once.**
+The served process reads `public/build/manifest.json` unless a Vite dev server is running, which it
+knows by `public/hot`. So the suite passes against `composer run dev`'s live bundle right up until
+that dev server stops — at which point `public/hot` disappears, the app silently falls back to
+whichever build was last written, and the failures read like application bugs rather than a missing
+build: dialogs that never open, a `[popover]` menu visible before it is opened, timeouts everywhere.
+It cost a full diagnosis once, on a run where fourteen of eighteen tests failed including four that
+had passed minutes earlier. **Run `npm run build` before the browser suite** rather than relying on a
+dev server that may not outlive the session, and recognise the symptom by its shape: near-total
+failure, including tests untouched by the change.
+
+**The plugin's bare-text click is an *exact* `getByText`.** `->click('Size chart')` works because
+that option's element holds exactly that text; `->click('Kingfisher Urgent')` does **not**, because
+[§8.5](#85-selects-are-comboboxes)'s options render their `hint` inside the same element as the
+label, so the only exact text is `Kingfisher Urgent#D8A60B`. There is nothing wrong with the markup
+and nothing wrong with the test — it simply times out. Any option carrying a hint must be clicked by
+selector (`li:has-text("…")`), and the same caution applies to any label rendered beside a badge or
+a count. `GuessLocator` also tries `[id]` and `[name]` before falling back to text, which is why
+`->fill('input[name="name"]', …)` is the form idiom here.
 
 **A browser test cannot complete a file upload, and the limit is the plugin.** Its HTTP driver
 parses a request body only when the content type is `application/x-www-form-urlencoded`, and passes

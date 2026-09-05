@@ -73,7 +73,8 @@ test('a template with no colour bands submits an empty colour set', function () 
         ->fill('input[name="lead_time_to"]', '500')
         // Deliberately add no colour band — the state the dialog itself offers.
         ->assertSee('No bands yet')
-        ->click('Create template')
+        // The footer is the standard's, not this dialog's own — ARCHITECTURE.md §8.10.
+        ->click('Save & close')
         ->assertSee('No colours at all')
         ->assertDontSee('colors field')
         ->assertNoJavaScriptErrors();
@@ -115,6 +116,50 @@ test('the edit dialog shows the colour each band already uses', function () {
 });
 
 /**
+ * The colour ladder is the case the form-modal standard's clearing rule exists for.
+ *
+ * ARCHITECTURE.md §8.10 requires "Save & add another" to clear the form through a
+ * `key` remount rather than through Inertia's `reset()`, and *this* repeater is why:
+ * its rungs are React `useState`, not `defaultValue`s, so `reset()` — which writes
+ * `el.value` onto named DOM nodes — would leave the whole ladder standing and the
+ * next template would inherit the last one's bands. `FormDialogStandardTest` proves
+ * the contract on a flat form; only this one proves it where a repeater is involved.
+ */
+test('save & add another empties the colour ladder, which reset() would not', function () {
+    $this->actingAs(userWithPermissions(
+        BROWSER_MASTER_DATA_VIEW,
+        BROWSER_MASTER_DATA_CREATE,
+    ));
+
+    NotificationColor::factory()->create(['name' => 'Kingfisher Urgent']);
+
+    visit('/settings/master-data/tna-templates')
+        ->click('New template')
+        ->fill('input[name="name"]', 'First of a run')
+        ->fill('input[name="lead_time_from"]', '400')
+        ->fill('input[name="lead_time_to"]', '500')
+        ->click('Add band')
+        ->click('[data-test="band-color-0"]')
+        // Not `->click('Kingfisher Urgent')`: the plugin's bare-text click is an
+        // *exact* `getByText`, and a colour option's label sits beside its hex
+        // hint inside one element — so the only exact text on the page is
+        // "Kingfisher Urgent#D8A60B" and the click times out looking for the
+        // label alone. Options carrying a hint have to be clicked by selector.
+        ->click('li:has-text("Kingfisher Urgent")')
+        ->assertSeeIn('[data-test="band-color-0"]', 'Kingfisher Urgent')
+        ->click('Save & add another')
+        ->waitForText('TNA template created.')
+        // "Add band" only renders inside the ladder, so it tells an open panel
+        // from a closed one — "Colour bands" is the list's column header too.
+        ->assertSee('Add band')
+        ->assertSee('No bands yet')
+        ->assertDontSee('Kingfisher Urgent')
+        ->assertNoJavaScriptErrors();
+
+    expect(TnaTemplate::where('name', 'First of a run')->sole()->colors)->toHaveCount(1);
+});
+
+/**
  * The bug was display-only — the hidden input still carried the id — and this is
  * what pins that, so a future change to the matching cannot quietly start blanking
  * a ladder nobody touched.
@@ -129,7 +174,8 @@ test('saving an untouched ladder preserves every band', function () {
 
     visit('/settings/master-data/tna-templates')
         ->click('[aria-label="Edit '.$template->name.'"]')
-        ->click('Save changes')
+        // An edit modal offers two buttons, never "Save & add another" — §8.10.
+        ->click('Save & close')
         // The toast is the only thing that says the round trip finished; the
         // assertions below do not retry, so without this they race it.
         ->waitForText('TNA template updated')

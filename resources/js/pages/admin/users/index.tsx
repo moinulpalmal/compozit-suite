@@ -118,7 +118,6 @@ export default function UsersIndex({
                             roles={roles}
                             title="New user"
                             description="The employee ID is the login name. The user is not emailed — hand the password over yourself."
-                            submitLabel="Create user"
                         >
                             <Button data-test="new-user">
                                 <Plus /> New user
@@ -502,7 +501,6 @@ export default function UsersIndex({
                                                             user={user}
                                                             title={`Edit ${user.name}`}
                                                             description="Roles and passwords are changed with their own actions."
-                                                            submitLabel="Save changes"
                                                         >
                                                             <Button
                                                                 variant="ghost"
