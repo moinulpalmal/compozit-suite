@@ -703,6 +703,11 @@ whenever that child exits — on a crash, or on the hourly `--max-time` recycle.
 in `deploy/run/<name>.pid`; the loop script itself is written to `deploy/run/<name>.loop.ps1` and is
 readable.
 
+**Everything in `deploy/run/` is generated and git-ignored** — it is rewritten on every `start` with
+this machine's paths, so it must never be committed: a tracked copy would arrive on this server
+wrong and then abort the `git pull --ff-only` in [§7](#7-updating-a-running-server). To read one
+without a server running, `deploy/examples/` holds a sample of each, tracked purely as reference.
+
 Two implementation details are deliberate, and both were found by testing:
 
 - **Processes are launched with `Win32_Process.Create`, not `Start-Process`.** A process started by

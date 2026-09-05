@@ -1,3 +1,11 @@
-# Runtime state. PIDs and the stop flag are per-machine and must never
-# be committed - a stale PID from another host is worse than none.
+# Runtime state. PIDs, the stop flag and the loop scripts are per-machine and
+# must never be committed - a stale PID from another host is worse than none,
+# and a committed loop script is worse still: compozit.ps1 rewrites it on every
+# start, so a server that pulls one gets a permanently dirty working tree and a
+# `git pull --ff-only` that aborts mid-release.
+#
+# This rule only bites on files git is not already tracking. Three loop scripts
+# were committed here before it existed and stayed tracked despite it - they now
+# live in `examples/`, which is the reference copy of what the generator emits.
+# Nothing reads them; nothing here should ever be tracked again.
 run/

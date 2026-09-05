@@ -113,7 +113,8 @@ compozit-suite/
 │   ├── stop.bat
 │   ├── restart.bat
 │   ├── status.bat
-│   └── run/                 GENERATED — PIDs and loop scripts; git-ignored
+│   ├── examples/            Sample generated loop scripts — tracked, read by nobody
+│   └── run/                 GENERATED — PIDs, stop flag, loop scripts; git-ignored
 │
 ├── database/
 │   ├── factories/           Grouped by module (mirrors app/Models/)
@@ -1946,6 +1947,7 @@ switch exists rather than being unconditional.
 | **Targets Windows PowerShell 5.1** | `.bat` launches `powershell.exe`, which is 5.1 — and 5.1 is what Windows Server ships. `pwsh` 7 is not guaranteed present. This is why `Get-HttpStatus` digs a status code out of an exception instead of using `-SkipHttpErrorCheck`, which is 7-only |
 | **`Win32_Process.Create`, not `Start-Process`** | A `Start-Process` child inherits the caller's console handles, so a detached worker holds the parent's stdout pipe open for its whole life and `start.bat > log.txt` never returns. Found by testing; the comment in `Start-Component` says so |
 | **A supervising loop per component** | The loop relaunches its `php.exe` after a crash or the hourly `--max-time` recycle. Verified: a killed worker was back in ~2s |
+| **Nothing in `run/` is ever tracked; samples live in `examples/`** | A loop script holds this machine's absolute paths and its Apache build, and `start` rewrites it every time. Committed, it arrives on a server wrong, is overwritten on first start, and then aborts §7's `git pull --ff-only` — after `php artisan down` has run. Three of them were tracked from `8016c1e` until this was fixed, because `.gitignore` does not apply to files git already follows. `examples/` keeps them readable without arming that |
 | **PID + command-line check before any kill** | Windows recycles PIDs. The recorded PID must also *be* this component's loop script, or `stop` could eventually kill something unrelated |
 | **Graceful only where it means something** | Queue workers get `queue:restart` and a wait, because killing one mid-job leaves that job reserved until it times out. Apache and the scheduler hold nothing and ignore that signal — waiting on the scheduler made `stop` take 120s instead of 4s |
 | **Apache stops before the queue drains** | It reads backwards, but closing the front door first means no new work arrives while the queue finishes what it has. `stop` reverses the start order and takes non-graceful components first, which produces exactly that |
