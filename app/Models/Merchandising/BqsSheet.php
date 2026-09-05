@@ -5,6 +5,7 @@ namespace App\Models\Merchandising;
 use App\Concerns\Audited;
 use App\Concerns\BuyerScoped;
 use App\Concerns\Listable;
+use App\Contracts\Auditable;
 use App\Enums\FilterType;
 use App\Enums\Merchandising\BqsParseStatus;
 use App\Models\Admin\Buyer;
@@ -21,7 +22,6 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Carbon;
-use OwenIt\Auditing\Contracts\Auditable;
 
 /**
  * A BQS — the buyer's buy plan for one product program — as one revision of it.

@@ -2,6 +2,9 @@
 
 namespace App\Providers;
 
+use App\Listeners\Admin\RecordFailedLogin;
+use App\Listeners\Admin\RecordLogin;
+use App\Listeners\Admin\RecordLogout;
 use App\Models\Admin\Buyer;
 use App\Models\Admin\Designation;
 use App\Models\Admin\Permission;
@@ -23,9 +26,14 @@ use App\Models\Settings\TnaTemplateColor;
 use App\Models\Settings\TnaTemplateMilestone;
 use App\Models\User;
 use Carbon\CarbonImmutable;
+use Illuminate\Auth\Events\Failed;
+use Illuminate\Auth\Events\Login;
+use Illuminate\Auth\Events\Logout;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\Relation;
 use Illuminate\Support\Facades\Date;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\ServiceProvider;
 use Illuminate\Validation\Rules\Password;
@@ -46,7 +54,7 @@ class AppServiceProvider extends ServiceProvider
      * implementation this was ported from maintained that list by hand and it had
      * drifted to 18 of 32 models.
      *
-     * @var array<string, class-string<\Illuminate\Database\Eloquent\Model>>
+     * @var array<string, class-string<Model>>
      */
     public const array MORPH_MAP = [
         'user' => User::class,
@@ -90,6 +98,25 @@ class AppServiceProvider extends ServiceProvider
         $this->configureMorphMap();
         $this->configureDefaults();
         $this->configureAuthorization();
+        $this->configureAuditListeners();
+    }
+
+    /**
+     * Record authentication in the audit trail — ARCHITECTURE.md §9.3.
+     *
+     * A sign-in changes no row, so none of it reaches the trail through model
+     * events. These are the application's **first** event listeners, and they are
+     * registered here rather than left to Laravel's discovery of `app/Listeners`
+     * for the same reason `Gate::before` and the morph map are: one place names
+     * every global hook, and a listener that silently stopped being discovered
+     * would be a gap nobody would notice — which is the one failure mode an audit
+     * trail cannot afford.
+     */
+    protected function configureAuditListeners(): void
+    {
+        Event::listen(Login::class, RecordLogin::class);
+        Event::listen(Logout::class, RecordLogout::class);
+        Event::listen(Failed::class, RecordFailedLogin::class);
     }
 
     /**

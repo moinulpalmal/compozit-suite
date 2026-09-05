@@ -6,6 +6,7 @@ namespace App\Models;
 use App\Concerns\Audited;
 use App\Concerns\HasStatus;
 use App\Concerns\Listable;
+use App\Contracts\Auditable;
 use App\Enums\Admin\Gender;
 use App\Enums\FilterType;
 use App\Enums\RecordStatus;
@@ -26,7 +27,6 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Illuminate\Support\Carbon;
-use OwenIt\Auditing\Contracts\Auditable;
 use Spatie\Permission\Traits\HasRoles;
 
 /**

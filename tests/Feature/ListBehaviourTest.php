@@ -2,6 +2,7 @@
 
 use App\Enums\RecordStatus;
 use App\Http\Requests\ListRequest;
+use App\Models\Admin\AuditLog;
 use App\Models\Admin\Buyer;
 use App\Models\Admin\Designation;
 use App\Models\Admin\Permission;
@@ -198,6 +199,25 @@ function surfaces(): array
             fn (string $name) => seedDocumentUploads(1, $name),
             'title',
             'title',
+        ],
+        /*
+         * The audit trail, and the only surface here that is read-only in the
+         * strong sense — there is no write path to it at all, so the rows are made
+         * by a factory rather than by exercising one. `AuditLogTest` is where the
+         * *writing* is proved.
+         *
+         * `actor_name` is the contains column for the same reason it is
+         * denormalised: it is what somebody types when they want to know what a
+         * particular person did.
+         */
+        'audit logs' => [
+            'admin.audit-logs.index',
+            'auditLogs',
+            'admin.audit-logs.view',
+            fn (int $count) => AuditLog::factory()->count($count)->create(),
+            fn (string $name) => AuditLog::factory()->create(['actor_name' => $name]),
+            'created_at',
+            'actor_name',
         ],
     ];
 }

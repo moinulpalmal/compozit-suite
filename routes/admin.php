@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Admin\AuditLogController;
 use App\Http\Controllers\Admin\BuyerController;
 use App\Http\Controllers\Admin\DesignationController;
 use App\Http\Controllers\Admin\PermissionController;
@@ -128,4 +129,26 @@ Route::middleware(['auth', 'auth.session', 'verified'])
             ->middlewareFor(['create', 'store'], 'permission:admin.permissions.create')
             ->middlewareFor(['edit', 'update'], 'permission:admin.permissions.update')
             ->middlewareFor(['destroy'], 'permission:admin.permissions.delete');
+
+        /*
+         * The audit trail — ARCHITECTURE.md §9.3. Read-only: there is no `store`,
+         * `update` or `destroy`, and no permission for one, because a trail an
+         * administrator can edit answers nothing.
+         *
+         * `admin.audit-logs.view` reaches only `super-admin`. That is enforced by
+         * the seeder rather than by a `role:` middleware here, so §9.1's rule
+         * against naming a role in a check still holds and widening access later
+         * is a seeder line rather than a code change.
+         *
+         * `audit-logs/history` is declared before the index for the convention
+         * `users/availability` and `buyers/options` already follow — a literal
+         * segment must never be shadowed by a model-bound one.
+         */
+        Route::get('audit-logs/history', [AuditLogController::class, 'history'])
+            ->name('audit-logs.history')
+            ->middleware('permission:admin.audit-logs.view');
+
+        Route::get('audit-logs', [AuditLogController::class, 'index'])
+            ->name('audit-logs.index')
+            ->middleware('permission:admin.audit-logs.view');
     });

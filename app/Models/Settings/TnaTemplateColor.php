@@ -3,13 +3,13 @@
 namespace App\Models\Settings;
 
 use App\Concerns\Audited;
+use App\Contracts\Auditable;
 use Database\Factories\Settings\TnaTemplateColorFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Carbon;
-use OwenIt\Auditing\Contracts\Auditable;
 
 /**
  * One rung of a template's urgency ladder.

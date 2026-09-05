@@ -4,6 +4,7 @@ import {
     CalendarClock,
     CalendarCog,
     FolderOpen,
+    History,
     KeyRound,
     LayoutGrid,
     Palette,
@@ -28,6 +29,7 @@ import {
 import { useCan } from '@/hooks/use-can';
 import { useNavGroups } from '@/hooks/use-nav-groups';
 import { dashboard } from '@/routes';
+import { index as auditLogsIndex } from '@/routes/admin/audit-logs';
 import { index as buyersIndex } from '@/routes/admin/buyers';
 import { index as designationsIndex } from '@/routes/admin/designations';
 import { index as permissionsIndex } from '@/routes/admin/permissions';
@@ -57,6 +59,11 @@ export function AppSidebar() {
     const canViewPermissions = useCan('admin.permissions.view');
     const canViewDesignations = useCan('admin.designations.view');
     const canViewBuyers = useCan('admin.buyers.view');
+
+    // Seeded to `super-admin` alone, so in practice this is false for everyone
+    // else — but it is still the permission that decides, never the role name
+    // (ARCHITECTURE.md §9.1).
+    const canViewAuditLogs = useCan('admin.audit-logs.view');
 
     // One bucket gates every master-data table, so this same check will grow to
     // cover colours, sizes and UOM without a permission per screen.
@@ -93,6 +100,15 @@ export function AppSidebar() {
                       title: 'Permissions',
                       href: permissionsIndex(),
                       icon: KeyRound,
+                  },
+              ]
+            : []),
+        ...(canViewAuditLogs
+            ? [
+                  {
+                      title: 'Audit log',
+                      href: auditLogsIndex(),
+                      icon: History,
                   },
               ]
             : []),

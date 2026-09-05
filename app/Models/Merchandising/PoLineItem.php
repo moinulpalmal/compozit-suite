@@ -3,6 +3,7 @@
 namespace App\Models\Merchandising;
 
 use App\Concerns\Audited;
+use App\Contracts\Auditable;
 use App\Enums\Merchandising\BqsLinkSource;
 use App\Services\Merchandising\BqsPoLinker;
 use Database\Factories\Merchandising\PoLineItemFactory;
@@ -11,7 +12,6 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Carbon;
-use OwenIt\Auditing\Contracts\Auditable;
 
 /**
  * One colour/size line of an imported purchase order.

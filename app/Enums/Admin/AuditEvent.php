@@ -57,8 +57,14 @@ enum AuditEvent: string
     /** A BQS row was linked to, or unlinked from, purchase-order lines. */
     case BqsLinkChanged = 'bqs-link-changed';
 
-    /** A document was imported — one entry standing for the whole batch of rows. */
-    case Imported = 'imported';
+    /*
+     * **There is no `Imported` case, deliberately.** An upload already writes a
+     * `created` audit for its own `PoImport` / `BqsImport` row, carrying the file
+     * name, the buyer, the parse status and the counts — so a second event saying
+     * "an import happened" would name the same fact twice, and the two could
+     * disagree. What the child rows do *not* get is a row each; that is the
+     * suppression in the two import services, not a missing event here.
+     */
 
     case LoggedIn = 'logged-in';
     case LoggedOut = 'logged-out';
@@ -97,7 +103,6 @@ enum AuditEvent: string
             self::BuyerAccessChanged => 'Buyer access changed',
             self::RevisionRetired => 'Revision retired',
             self::BqsLinkChanged => 'BQS link changed',
-            self::Imported => 'Imported',
             self::LoggedIn => 'Signed in',
             self::LoggedOut => 'Signed out',
             self::LoginFailed => 'Sign-in failed',

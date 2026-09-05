@@ -3,6 +3,8 @@
 namespace App\Concerns;
 
 use App\Models\User;
+use App\Observers\ActorObserver;
+use App\Services\Admin\AuditRecorder;
 use Illuminate\Support\Facades\Auth;
 use OwenIt\Auditing\Auditable;
 
@@ -12,16 +14,22 @@ use OwenIt\Auditing\Auditable;
  * A model opts in with two lines, which is the whole registration:
  *
  * ```php
- * class Designation extends Model implements \OwenIt\Auditing\Contracts\Auditable
+ * use App\Concerns\Audited;
+ * use App\Contracts\Auditable;
+ *
+ * class Designation extends Model implements Auditable
  * {
  *     use Audited;
  * }
  * ```
  *
- * **It is named `Audited`, not `Auditable`.** The package's *contract* is
- * `OwenIt\Auditing\Contracts\Auditable` and every model has to import it by that
- * name; a trait sharing it would collide in the `use` list of every single model.
- * The adjectival form also matches {@see BuyerScoped} and {@see Listable}.
+ * **The interface is this application's own** ({@see \App\Contracts\Auditable}),
+ * which extends the package's and adds the two custom-event operations below. A
+ * model therefore names one interface and no package namespace appears in it.
+ *
+ * **The trait is named `Audited`, not `Auditable`,** so it cannot collide with
+ * that interface in the `use` list of every single model. The adjectival form
+ * also matches {@see BuyerScoped} and {@see Listable}.
  *
  * The nesting works because Laravel's `Model::bootTraits()` walks
  * `class_uses_recursive()`, so the package's own `bootAuditable()` still fires
@@ -30,7 +38,7 @@ use OwenIt\Auditing\Auditable;
  *
  * Two hooks are overridden here rather than per model, so that what the trail
  * records cannot drift between one model and the next — the same argument
- * {@see \App\Observers\ActorObserver} makes for being one shared class.
+ * {@see ActorObserver} makes for being one shared class.
  */
 trait Audited
 {
@@ -73,7 +81,7 @@ trait Audited
      * the `users` table later became.
      *
      * `transformAudit()` is the package's last hook before the row is written, so
-     * this applies to package-written and {@see \App\Services\Admin\AuditRecorder}
+     * this applies to package-written and {@see AuditRecorder}
      * custom events alike.
      *
      * @param  array<string, mixed>  $data
@@ -88,5 +96,50 @@ trait Audited
             'actor_name' => $actor instanceof User ? $actor->name : null,
             'actor_employee_id' => $actor instanceof User ? $actor->employee_id : null,
         ];
+    }
+
+    /**
+     * Stage an event the package's Eloquent observers cannot produce.
+     *
+     * The four properties come from the package trait `use`d above, which is why
+     * this lives here rather than in {@see AuditRecorder}: inside the trait they
+     * are visible, and to a caller holding only the contract they are not.
+     *
+     * `auditEvent` is assigned rather than passed through `setAuditEvent()`,
+     * which nulls any name outside `config('audit.events')` — every event this
+     * path writes is outside it by definition, and the null then surfaces as an
+     * `AuditingException` from `toAudit()` rather than as anything readable.
+     *
+     * @param  array<string, mixed>  $old
+     * @param  array<string, mixed>  $new
+     */
+    public function prepareCustomAudit(string $event, array $old, array $new): void
+    {
+        $this->auditEvent = $event;
+        $this->isCustomEvent = true;
+        $this->auditCustomOld = $old;
+        $this->auditCustomNew = $new;
+    }
+
+    /**
+     * Discard staged custom-event state.
+     *
+     * **`isCustomEvent` is the one that must be reset**, and the reason this
+     * method exists: `resolveAttributeGetter()` consults it before anything else,
+     * so an instance left staged would write its next ordinary save as another
+     * custom event with the previous event's values.
+     *
+     * `auditEvent` is deliberately *not* cleared. The package's observer calls
+     * `setAuditEvent()` before every dispatch, so a stale value here is
+     * overwritten before it can be read — and the property is declared
+     * `@var string` by the package even though its own `setAuditEvent()` assigns
+     * null to it, so writing null would be claiming a type the package does not
+     * admit to.
+     */
+    public function clearCustomAudit(): void
+    {
+        $this->isCustomEvent = false;
+        $this->auditCustomOld = null;
+        $this->auditCustomNew = null;
     }
 }

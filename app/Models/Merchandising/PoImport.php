@@ -4,6 +4,7 @@ namespace App\Models\Merchandising;
 
 use App\Concerns\Audited;
 use App\Concerns\BuyerScoped;
+use App\Contracts\Auditable;
 use App\Enums\Merchandising\PoFileType;
 use App\Enums\Merchandising\PoParseStatus;
 use App\Models\Admin\Buyer;
@@ -20,7 +21,6 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Carbon;
-use OwenIt\Auditing\Contracts\Auditable;
 
 /**
  * One uploaded purchase-order document, and what the parser made of it.

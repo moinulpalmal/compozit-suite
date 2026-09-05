@@ -6,6 +6,7 @@ use App\DataTransferObjects\Merchandising\BqsImportResult;
 use App\DataTransferObjects\Merchandising\BqsResolveResult;
 use App\DataTransferObjects\Merchandising\BqsRowDto;
 use App\DataTransferObjects\Merchandising\BqsWorkbookDto;
+use App\Enums\Admin\AuditEvent;
 use App\Enums\Merchandising\BqsConflictDecision;
 use App\Enums\Merchandising\BqsFileType;
 use App\Exceptions\Merchandising\BqsImportException;
@@ -13,6 +14,7 @@ use App\Models\Merchandising\BqsImport;
 use App\Models\Merchandising\BqsRow;
 use App\Models\Merchandising\BqsSheet;
 use App\Models\User;
+use App\Services\Admin\AuditRecorder;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
@@ -55,6 +57,7 @@ class BqsImportService
     public function __construct(
         protected BqsWorkbookReader $reader,
         protected BqsPoLinker $linker,
+        protected AuditRecorder $audits,
     ) {}
 
     /**
@@ -318,6 +321,24 @@ class BqsImportService
 
         BqsSheet::query()->where('root_id', $rootId)->update(['is_current' => false]);
 
+        /*
+         * **A query-builder update fires no model event**, so retiring the held
+         * revision leaves no trace of its own (ARCHITECTURE.md §9.3). The
+         * replacement sheet's `created` audit says a new revision arrived; this
+         * says which one stopped being current, which is the other half.
+         *
+         * The `root_id` re-parenting in `overwrite()` is deliberately *not*
+         * recorded the same way: it is mechanical bookkeeping that follows from a
+         * delete and an insert the trail already holds, and a row for it would say
+         * nothing a reader could act on.
+         */
+        $this->audits->record(
+            $import,
+            AuditEvent::RevisionRetired,
+            ['root_id' => $rootId, 'revision_no' => $held->revision_no, 'is_current' => true],
+            ['root_id' => $rootId, 'revision_no' => $next, 'is_current' => false],
+        );
+
         $sheet = $this->writeStaged($import, $staged, revisionNo: $next, rootId: $rootId);
 
         /*
@@ -473,16 +494,35 @@ class BqsImportService
      */
     private function writeRow(BqsSheet $sheet, array $values, array $months, array $packSizes): void
     {
-        /** @var BqsRow $row */
-        $row = $sheet->rows()->create($values);
+        /*
+         * **The bulk load is not audited row by row, and that is a decision**
+         * (ARCHITECTURE.md §9.3). `bqs_rows`, `bqs_row_months` and
+         * `bqs_row_pack_sizes` are all `Audited`, so an edit to any one of them
+         * from a screen is still recorded — but a workbook is up to 200 rows,
+         * each with ~18 months and ~10 pack sizes, so an import would write
+         * roughly 5,800 audits *inside the upload request* and make `audit_logs`
+         * several times larger than the data it describes.
+         *
+         * The import is recorded once instead, against the `BqsImport` row, by
+         * `recordImported()` — which is deliberately called outside this
+         * suppression, because `globally: true` silences `AuditRecorder` too.
+         *
+         * This is the single funnel for every child-row write on both import
+         * paths; suppressing it here rather than at the two call sites is what
+         * keeps that true when a third path appears.
+         */
+        BqsRow::withoutAuditing(function () use ($sheet, $values, $months, $packSizes): void {
+            /** @var BqsRow $row */
+            $row = $sheet->rows()->create($values);
 
-        if ($months !== []) {
-            $row->months()->createMany($months);
-        }
+            if ($months !== []) {
+                $row->months()->createMany($months);
+            }
 
-        if ($packSizes !== []) {
-            $row->packSizes()->createMany($packSizes);
-        }
+            if ($packSizes !== []) {
+                $row->packSizes()->createMany($packSizes);
+            }
+        }, globally: true);
     }
 
     /**

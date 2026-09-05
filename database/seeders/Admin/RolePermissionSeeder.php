@@ -32,6 +32,10 @@ class RolePermissionSeeder extends Seeder
         'admin.designations' => ['view', 'create', 'update', 'delete'],
         'admin.buyers' => ['view', 'create', 'update', 'delete'],
         'admin.buyer-access' => ['view', 'update'],
+        /*
+         * `view` alone: the audit trail is read, never written or corrected. See
+         * `SUPER_ADMIN_ONLY` below for who actually receives it.
+         */
         'admin.audit-logs' => ['view'],
         'settings.master-data' => ['view', 'create', 'update', 'delete'],
         'settings.application' => ['view', 'update'],
@@ -85,6 +89,30 @@ class RolePermissionSeeder extends Seeder
      *
      * @var array<string, list<string>>
      */
+    /**
+     * Permissions that reach `super-admin` and nothing else.
+     *
+     * **The seeder's one exception to prefix matching**, and it needs one because
+     * two separate prefixes would otherwise pick this up: `admin` holds `admin.`
+     * and `viewer` holds every `.view`. Excluding it in both places by writing
+     * narrower prefixes would mean two rules to keep in step; naming the
+     * permission once is the smaller thing to maintain.
+     *
+     * The audit trail is every recorded value in the application, including users'
+     * contact details and every change to buyer-owned records across every buyer —
+     * so it is not a read-only convenience, and `viewer` inheriting it through a
+     * suffix match was an accident of how that role is defined rather than a
+     * decision (ARCHITECTURE.md §9.3).
+     *
+     * Widening access later is a line here, not a code change: the route is gated
+     * on the permission, per §9.1's rule against naming a role in a check.
+     *
+     * @var list<string>
+     */
+    protected const array SUPER_ADMIN_ONLY = [
+        'admin.audit-logs.view',
+    ];
+
     protected const array ROLES = [
         Role::SUPER_ADMIN => [],
         'admin' => ['admin.', 'settings.'],
@@ -155,6 +183,10 @@ class RolePermissionSeeder extends Seeder
      */
     protected function matchesAny(string $permission, array $prefixes): bool
     {
+        if (in_array($permission, self::SUPER_ADMIN_ONLY, true)) {
+            return false;
+        }
+
         foreach ($prefixes as $prefix) {
             $matched = str_starts_with($prefix, '.')
                 ? str_ends_with($permission, $prefix)

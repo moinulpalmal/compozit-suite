@@ -3,6 +3,7 @@
 namespace App\Models\Merchandising;
 
 use App\Concerns\Audited;
+use App\Contracts\Auditable;
 use App\Services\Merchandising\BqsImportService;
 use App\Services\Merchandising\BqsRowKey;
 use Database\Factories\Merchandising\BqsRowFactory;
@@ -12,7 +13,6 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Carbon;
-use OwenIt\Auditing\Contracts\Auditable;
 
 /**
  * One line of a BQS — a vendor style in one colourway.

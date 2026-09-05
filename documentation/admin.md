@@ -16,7 +16,7 @@
 | b. RBAC — roles & permissions | `Admin\RoleController`, `Admin\PermissionController` | `pages/admin/{roles,permissions}/` | ✅ built |
 | c. Buyer-wise user access control | `Admin\UserController::updateBuyerAccess`, `Admin\BuyerAccessService` | a dialog on `pages/admin/users/index.tsx` | ✅ built |
 | d. Buyer setup & management | `Admin\BuyerController` | `pages/admin/buyers/index.tsx` | ✅ built |
-| e. Audit logging | `Admin\AuditLogController` | `pages/admin/audit-logs/` | 🟡 scaffolded |
+| e. Audit logging | `Admin\AuditLogController` | `pages/admin/audit-logs/index.tsx` | ✅ built — [§11](#11-the-audit-trail) |
 | f. Designations | `Admin\DesignationController` | `pages/admin/designations/index.tsx` | ✅ built |
 
 Admin is the only module allowed to write roles, permissions, buyer-access assignments, designations
@@ -290,9 +290,15 @@ the UI never offers what the server would refuse.
 
 `app/Observers/ActorObserver.php` sets `inserted_by` on create and `last_updated_by` on update from
 `Auth::id()`. Neither column is in the model's `#[Fillable]` list, so the observer is the only
-writer and *every* path — Admin screens, account settings, console — is stamped identically. This is
-narrower than the audit-log mechanism, which is still undecided
-([ARCHITECTURE.md §9.3](../ARCHITECTURE.md#93-audit-logging)).
+writer and *every* path — Admin screens, account settings, console — is stamped identically.
+
+**This is narrower than the audit trail, which is now built** ([§11](#11-the-audit-trail) and
+[ARCHITECTURE.md §9.3](../ARCHITECTURE.md#93-audit-logging)) — this line previously said that
+mechanism was undecided. The two do different jobs and both stay: these columns answer "who last
+touched this row" from the row itself, in one join, on any screen; the trail answers "what changed,
+when, and from what". One visible consequence: the observer stamps `last_updated_by` inside the same
+save, so it shows up in nearly every `updated` diff. It is not excluded from auditing — the trail
+should say what the row now holds — and the id is rendered as a name.
 
 It is **one shared observer**, typed against `Model` and attached with `#[ObservedBy]` to every model
 carrying the two columns — `User` and `Admin\Designation` today. It was `UserObserver` until
@@ -804,3 +810,68 @@ Buyer-scoped lists render `components/shared/no-buyer-access.tsx` — "no buyers
 administrator" — instead of an empty table, so "you have no access" never reads as "there is no
 data". That component exists before its first consumer on purpose: the alternative is each new list
 inventing its own empty state.
+
+---
+
+## 11. The audit trail
+
+**What it is, and what decides its shape, is
+[ARCHITECTURE.md §9.3](../ARCHITECTURE.md#93-audit-logging).** This section covers only what the
+Admin *surface* does and what has been measured about it.
+
+### 11.1 The screen
+
+One page, `pages/admin/audit-logs/index.tsx`, with two dialogs and **no write action of any kind** —
+there is no create, edit or delete, and no `admin.audit-logs.{create,update,delete}` permission for
+one to hide behind. A trail an administrator can correct answers nothing.
+
+| Control | Shows |
+| --- | --- |
+| The list | One row per recorded change: when, who, which record, what event, which fields moved, from what IP |
+| Diff dialog (`audit-diff-dialog.tsx`) | One event's before and after, field by field, plus the URL, IP and browser |
+| History dialog (`audit-history-dialog.tsx`) | Every audit for **one record**, newest first |
+
+**The diff dialog makes no request.** Old and new values ride with each list row, which is only
+affordable because the six JSON payload columns are excluded from auditing; if one of those is ever
+audited, this has to become a fetch. The history dialog *does* fetch — a record's history is
+unbounded — using `fetch` + `AbortController` per [§8.4](../ARCHITECTURE.md#84-inertia-v3-notes),
+and only while the panel is open, so a hundred rows on screen cost nothing.
+
+**Three things the ported implementation got wrong are fixed here**, and each is worth not
+reintroducing:
+
+- **A deleted user's history no longer reads "System".** `actor_name` is stamped at write time
+  rather than joined at read time.
+- **The model-type list cannot drift.** It is derived from `Relation::morphMap()`; the original kept
+  it by hand and it had drifted to 18 of 32 audited models, so a third of the trail could not be
+  filtered to or opened.
+- **The endpoints leak no exception detail.** The original caught `\Exception` and returned
+  `message`, `file` and `line`, which its own view rendered into an alert.
+
+Values that are user ids — `inserted_by`, `last_updated_by`, `user_id` — are rendered as names.
+`AuditLogService::resolveUserNames()` does that for the whole page **in one query**; the original
+called `User::find()` per key per row, which is two hundred queries to draw one column of a
+hundred-row page.
+
+### 11.2 `audit_logs` indexes — measured, and honestly incomplete
+
+Four indexes, per [ARCHITECTURE.md §6.3](../ARCHITECTURE.md#63-migrations). `EXPLAIN` on MySQL 9,
+**at three rows**, which is the whole caveat:
+
+| Query | Plan | Verdict |
+| --- | --- | --- |
+| Event filter + default sort | `audit_logs_event_created_at_index`, `ref`, **Backward index scan**, no filesort | **Confirmed.** The composite does what it was added for — an equality on `event` lets the index supply the `created_at` order, so a filtered page stops at the `LIMIT` |
+| Record history | `audit_logs_auditable_type_auditable_id_index`, `ref` | Confirmed. Filesort on the sort, which is fine — one record's history is small |
+| Model-type filter | same index, `ref` | Confirmed — the equality seeks on the leading column, so no separate index is owed |
+| Actor filter | `audit_logs_user_id_user_type_index`, `ref` | Confirmed |
+| **Default view** (`created_at desc limit 10`) | `key=NULL`, `type=ALL`, filesort | **Inconclusive.** At three rows a scan is genuinely cheaper and the planner is right to take it |
+
+**The last row is the outstanding work.** The default unfiltered view is how this screen is opened
+almost every time, and its index is the one the numbers do not yet justify — three rows proves
+nothing either way. Re-run these at volume before treating `audit_logs_created_at_index` as earned;
+`php artisan users:benchmark` ([§2.1.3](#213-the-benchmark)) is the shape to copy, and unlike
+`users` this table needs no seeding trick, because the trail fills itself.
+
+**`actor_name` is deliberately unindexed.** It is `FilterType::Contains`, and a leading wildcard
+cannot use a B-tree for the predicate at any selectivity — the `ORDER BY` is already served by
+`created_at`.

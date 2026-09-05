@@ -2,12 +2,14 @@
 
 namespace App\Services\Merchandising;
 
+use App\Enums\Admin\AuditEvent;
 use App\Enums\Merchandising\BqsLinkSource;
 use App\Models\Merchandising\BqsColourLink;
 use App\Models\Merchandising\BqsRow;
 use App\Models\Merchandising\BqsSheet;
 use App\Models\Merchandising\PoLineItem;
 use App\Models\Merchandising\PurchaseOrder;
+use App\Services\Admin\AuditRecorder;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\DB;
@@ -52,6 +54,8 @@ use Illuminate\Support\Facades\DB;
  */
 class BqsPoLinker
 {
+    public function __construct(private readonly AuditRecorder $audits) {}
+
     /**
      * Link every line of one purchase order.
      *
@@ -117,6 +121,33 @@ class BqsPoLinker
             $lines = $order->lineItems()
                 ->where('vendor_stock', $vendorStock)
                 ->where('color', $color);
+
+            /*
+             * **The only human decision in the linker, and none of the writes below
+             * record it** (ARCHITECTURE.md §9.3). The `po_line_items` writes are
+             * query-builder updates, which fire no model event; and the
+             * `BqsColourLink` rule is written with `updateOrCreate`, so re-affirming
+             * an existing mapping saves nothing and audits nothing.
+             *
+             * It is recorded against the *order the person was looking at*, because
+             * that is where the decision was made — even though the rule it creates
+             * reaches every other order of the same buyer, style and colour.
+             *
+             * The automatic matching paths (`linkForPurchaseOrder`, `linkForSheet`,
+             * `carryForward`) are not recorded: they are mechanical consequences of
+             * an import whose own audits already name the document.
+             */
+            $this->audits->record(
+                $order,
+                AuditEvent::BqsLinkChanged,
+                ['vendor_stock' => $vendorStock, 'color' => $color],
+                [
+                    'vendor_stock' => $vendorStock,
+                    'color' => $color,
+                    'bqs_row_key' => $row?->row_key,
+                    'bqs_link_source' => $row instanceof BqsRow ? BqsLinkSource::Manual->value : null,
+                ],
+            );
 
             if (! $row instanceof BqsRow) {
                 BqsColourLink::query()

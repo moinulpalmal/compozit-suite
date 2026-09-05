@@ -6,6 +6,7 @@ use App\DataTransferObjects\Merchandising\Po\ParseResultDto;
 use App\DataTransferObjects\Merchandising\Po\PurchaseOrderDto;
 use App\DataTransferObjects\Merchandising\PoImportResult;
 use App\DataTransferObjects\Merchandising\PoResolveResult;
+use App\Enums\Admin\AuditEvent;
 use App\Enums\Merchandising\PoConflictDecision;
 use App\Enums\Merchandising\PoType;
 use App\Exceptions\Merchandising\PoParser\PoParserException;
@@ -13,8 +14,10 @@ use App\Exceptions\Merchandising\PoParser\TextExtractionException;
 use App\Http\Requests\Merchandising\PurchaseOrderImportRequest;
 use App\Models\Admin\Buyer;
 use App\Models\Merchandising\PoImport;
+use App\Models\Merchandising\PoLineItem;
 use App\Models\Merchandising\PurchaseOrder;
 use App\Models\User;
+use App\Services\Admin\AuditRecorder;
 use App\Services\Admin\BuyerService;
 use App\Services\Merchandising\PoParser\ParserService;
 use App\Services\Merchandising\PoParser\Support\ParseGrader;
@@ -82,6 +85,7 @@ final class PurchaseOrderImportService
         private readonly BuyerService $buyers,
         private readonly BqsPoLinker $linker,
         private readonly BqsSizeVocabulary $sizeVocabulary,
+        private readonly AuditRecorder $audits,
     ) {}
 
     /**
@@ -392,7 +396,7 @@ final class PurchaseOrderImportService
             'is_current' => true,
         ]);
 
-        $order->lineItems()->createMany($staged['line_items']);
+        $this->writeLineItems($order, $staged['line_items']);
 
         /*
          * Connect the new lines to the BQS rows that planned them. Done here rather
@@ -403,6 +407,32 @@ final class PurchaseOrderImportService
         $this->linker->linkForPurchaseOrder($order);
 
         return $order;
+    }
+
+    /**
+     * Write an order's lines without auditing each one.
+     *
+     * **The bulk load is deliberately not audited row by row**
+     * (ARCHITECTURE.md §9.3). `PoLineItem` is `Audited`, so changing one from a
+     * screen — linking a colour, say — is still recorded; what is suppressed is
+     * the import writing a few hundred of them at once, which would bury the
+     * trail under rows nobody asks about and slow the upload request for it.
+     *
+     * The import is recorded once instead, against the `PoImport` row, outside
+     * this suppression — `globally: true` silences `AuditRecorder` as well.
+     *
+     * Both write paths go through here (a first import and the `overwrite`
+     * branch of a resolved conflict), for the same reason `writeOrder()` is the
+     * single write path: a third caller inherits this rather than forgetting it.
+     *
+     * @param  list<array<string, mixed>>  $lines
+     */
+    private function writeLineItems(PurchaseOrder $order, array $lines): void
+    {
+        PoLineItem::withoutAuditing(
+            fn () => $order->lineItems()->createMany($lines),
+            globally: true,
+        );
     }
 
     /**
@@ -607,6 +637,21 @@ final class PurchaseOrderImportService
             ->where('po_number', $poNumber)
             ->update(['is_current' => false]);
 
+        /*
+         * **A query-builder update fires no model event**, so retiring the held
+         * revisions is invisible to the audit trail unless it is recorded here
+         * (ARCHITECTURE.md §9.3). It is worth recording: "which revision was
+         * current, and when did it stop being" is the question a disputed order
+         * turns into, and the new revision's own `created` audit answers only half
+         * of it.
+         */
+        $this->audits->record(
+            $import,
+            AuditEvent::RevisionRetired,
+            ['po_number' => $poNumber, 'revision_nos' => $existing->pluck('revision_no')->all()],
+            ['po_number' => $poNumber, 'is_current' => false],
+        );
+
         $this->writeOrder($import, $staged, ((int) $existing->max('revision_no')) + 1);
 
         return $poNumber;
@@ -660,7 +705,7 @@ final class PurchaseOrderImportService
             'is_current' => true,
         ]);
 
-        $current->lineItems()->createMany($staged['line_items']);
+        $this->writeLineItems($current, $staged['line_items']);
 
         /*
          * The old lines were deleted, taking their links with them, so the replacement

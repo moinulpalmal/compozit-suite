@@ -5,6 +5,7 @@ namespace App\Models\Settings;
 use App\Concerns\Audited;
 use App\Concerns\HasStatus;
 use App\Concerns\Listable;
+use App\Contracts\Auditable;
 use App\Enums\FilterType;
 use App\Enums\Merchandising\TnaMilestone;
 use App\Enums\RecordStatus;
@@ -20,7 +21,6 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Carbon;
-use OwenIt\Auditing\Contracts\Auditable;
 
 /**
  * A reusable schedule, matched to a purchase order by how long its programme runs.

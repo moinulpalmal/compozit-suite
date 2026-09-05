@@ -2,6 +2,7 @@
 
 namespace App\Services\Admin;
 
+use App\Enums\Admin\AuditEvent;
 use App\Models\User;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
@@ -20,6 +21,8 @@ use Illuminate\Support\Facades\DB;
  */
 class BuyerAccessService
 {
+    public function __construct(private readonly AuditRecorder $audits) {}
+
     /**
      * Replace a user's buyer access.
      *
@@ -34,6 +37,18 @@ class BuyerAccessService
     public function assign(User $user, bool $allBuyerAccess, array $buyerIds): void
     {
         DB::transaction(function () use ($user, $allBuyerAccess, $buyerIds): void {
+            /*
+             * Captured before the write, because the audit below is the only record
+             * of it. `buyer_user` is a pivot: `sync()` writes raw rows and fires no
+             * model event, so widening somebody's visibility is invisible to the
+             * trail unless it is recorded here (ARCHITECTURE.md §9.3).
+             *
+             * Names rather than ids, and sorted — the trail is read by a person, and
+             * a stable order is what lets `recordChange()` tell a real change from
+             * the database returning the same set in a different order.
+             */
+            $before = $this->accessSnapshot($user);
+
             $user->buyers()->sync($allBuyerAccess ? [] : $buyerIds);
 
             /*
@@ -43,7 +58,31 @@ class BuyerAccessService
              * phone number.
              */
             $user->forceFill(['all_buyer_access' => $allBuyerAccess])->save();
+
+            $this->audits->recordChange(
+                $user,
+                AuditEvent::BuyerAccessChanged,
+                $before,
+                $this->accessSnapshot($user->refresh()),
+            );
         });
+    }
+
+    /**
+     * A user's buyer access as the trail records it.
+     *
+     * @return array{all_buyer_access: bool, buyers: list<string>}
+     */
+    private function accessSnapshot(User $user): array
+    {
+        $names = $user->buyers()->pluck('name')->all();
+
+        sort($names);
+
+        return [
+            'all_buyer_access' => (bool) $user->all_buyer_access,
+            'buyers' => $names,
+        ];
     }
 
     /**

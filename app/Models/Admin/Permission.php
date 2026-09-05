@@ -4,11 +4,11 @@ namespace App\Models\Admin;
 
 use App\Concerns\Audited;
 use App\Concerns\Listable;
+use App\Contracts\Auditable;
 use App\Enums\FilterType;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Carbon;
-use OwenIt\Auditing\Contracts\Auditable;
 use Spatie\Permission\Models\Permission as SpatiePermission;
 
 /**

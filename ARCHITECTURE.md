@@ -28,6 +28,7 @@ database, five functional modules plus a dashboard.
 | Framework | Laravel | `^13.17` | |
 | Auth | Laravel Fortify | `^1.37` | Headless auth backend; routes registered by the package. **Login identifier is `employee_id`**, not email — see [§9.6](#96-authentication-identity) |
 | RBAC | spatie/laravel-permission | `^8.3` | Published and wired, teams off — see [§9.1](#91-rbac-roles--permissions) |
+| Audit trail | `owen-it/laravel-auditing` | `^14.0.6` | Every model audited into `audit_logs` — see [§9.3](#93-audit-logging). Re-pointed at `Admin\AuditLog` and this application's table name; `14.0.6` is the first release supporting Laravel 13 |
 | Adapter | Inertia.js (Laravel) | `^3.0` | v3 — no Axios, `Inertia::optional()` not `lazy()` |
 | Typed routes | Laravel Wayfinder | `^0.1` | Generates TS from routes/controllers |
 | UI | React | `19.2` | React Compiler enabled via Babel |
@@ -83,6 +84,7 @@ compozit-suite/
 │   │   └── Fortify/         Fortify's auth action contracts (not a module)
 │   ├── Concerns/            Shared traits (validation rule sets, etc.)
 │   ├── Console/Commands/    Artisan commands
+│   ├── Contracts/           App-owned interfaces — see §9.3
 │   ├── DataTransferObjects/ Immutable value objects, grouped by module — see §6.7
 │   ├── Enums/               Backed enums, grouped by module
 │   ├── Exceptions/          Custom exception types, grouped by module
@@ -90,6 +92,7 @@ compozit-suite/
 │   │   ├── Controllers/     Grouped by module
 │   │   ├── Middleware/      App-wide middleware
 │   │   └── Requests/        Form requests, grouped by module
+│   ├── Listeners/           Event listeners, grouped by module — see §9.3
 │   ├── Models/              Eloquent models, grouped by module
 │   │   └── Scopes/          Global query scopes — currently `BuyerScope`, see §9.2
 │   ├── Observers/           Model observers — see §9.3
@@ -205,7 +208,7 @@ engine ever qualifies, it earns its own line here.
 | # | Module | Namespace segment | Route file | Name prefix | URL prefix | Pages root | Status |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | 0 | Dashboard | `Dashboard` | `routes/web.php` | `dashboard` | `/dashboard` | `pages/dashboard.tsx` | ✅ built (placeholder content) |
-| 1 | Admin | `Admin` | `routes/admin.php` | `admin.` | `/admin` | `pages/admin/` | 🟡 users + RBAC + designations built, rest scaffolded |
+| 1 | Admin | `Admin` | `routes/admin.php` | `admin.` | `/admin` | `pages/admin/` | ✅ users, RBAC, designations, buyers and the audit trail built |
 | 2 | Settings | `Settings` | `routes/settings.php` | *(see note)* | `/settings` | `pages/settings/` | ✅ partly built |
 | 3 | Merchandising | `Merchandising` | `routes/merchandising.php` | `merchandising.` | `/merchandising` | `pages/merchandising/` | 🟡 purchase-order and BQS imports, TNA board and document library built; tech packs and bookings scaffolded |
 | 4 | Production | `Production` | `routes/production.php` | `production.` | `/production` | `pages/production/` | 🟡 scaffolded |
@@ -241,7 +244,7 @@ dashboard tile needs a query, that query belongs in the owning module's service.
 | b. RBAC (roles & permissions) | `Admin\RoleController`, `Admin\PermissionController` | `pages/admin/roles/`, `pages/admin/permissions/` | ✅ |
 | c. Buyer-wise user access control | `Admin\UserController::updateBuyerAccess`, `Admin\BuyerAccessService` | a dialog on `pages/admin/users/` | ✅ |
 | d. Buyer setup & management | `Admin\BuyerController` | `pages/admin/buyers/` | ✅ |
-| e. Audit logging | `Admin\AuditLogController` | `pages/admin/audit-logs/` | 🟡 |
+| e. Audit logging | `Admin\AuditLogController` | `pages/admin/audit-logs/` | ✅ |
 | f. Designations (HR job titles) | `Admin\DesignationController` | `pages/admin/designations/` | ✅ |
 
 Models live in `app/Models/Admin/` (`Role`, `Permission`, `Designation`, `Buyer`, `AuditLog`, …). `Role` and
@@ -1450,10 +1453,113 @@ does not change with depth.
 
 ### 9.3 Audit logging
 
-Every mutation to a buyer-owned or administrative record is auditable. The general mechanism — what
-gets written to `audit_logs`, and by what — is still undecided. ⬜
+**Every model in the application is audited, into `audit_logs`, by
+`owen-it/laravel-auditing` ^14.0.6.** The ⬜ that stood here is resolved; the shape:
 
-**Actor stamping is decided and built.** `app/Observers/` holds a single `ActorObserver`, which sets
+| Piece | Where |
+| --- | --- |
+| Config | `config/audit.php` — published, then pointed at this application's names |
+| Table | `audit_logs` (`…051423_create_audit_logs_table`) |
+| Model | `App\Models\Admin\AuditLog`, extending the package's `Audit` |
+| Opting a model in | `implements App\Contracts\Auditable` + `use App\Concerns\Audited;` |
+| Non-Eloquent events | `App\Services\Admin\AuditRecorder` |
+| Authentication | `app/Listeners/Admin/Record{Login,Logout,FailedLogin}.php` |
+| Morph aliases | `AppServiceProvider::MORPH_MAP` |
+| Browser | `Admin\AuditLogController` → `pages/admin/audit-logs/index.tsx` |
+
+The mechanism was ported from a sibling application that runs the same package, and the decisions
+below are where it deliberately diverges.
+
+- **The package is renamed to fit the map, not the other way round.** `implementation` is
+  `Admin\AuditLog` and the driver's table is `audit_logs`, because [§5](#5-module-registry) and
+  [§6.3](#63-migrations) both committed to those names before the package existed here.
+- **Opt-in is two lines and covers all 20 models.** The trait wraps the package's, and nesting works
+  because Laravel's `bootTraits()` walks `class_uses_recursive()`. It is named `Audited` rather than
+  `Auditable` so it cannot collide with the interface in a model's `use` list.
+- **`App\Contracts\Auditable` extends the package's contract**, so a model names one interface and
+  no package namespace appears in it. It adds `prepareCustomAudit()` / `clearCustomAudit()`, which
+  exist because the package's documented way to write an event of your own is to assign four public
+  properties that live on its *trait* rather than its contract — unreachable, and rightly rejected by
+  static analysis, from a caller holding the interface. Naming the operations also means the
+  resetting half cannot be forgotten. This is the only file in `app/Contracts/`.
+- **`Audited` overrides exactly two hooks, so what is recorded cannot drift per model.**
+  `generateTags()` tags a row with `buyer:{id}` off the `buyer_id` attribute — a *filter*, not an
+  access control. `transformAudit()` stamps `actor_name` and `actor_employee_id`.
+- **The actor's name is denormalised, and that is a bug fix rather than a preference.** The package
+  stores only `user_id` and resolves the name through a relation; `users` is soft-deleted
+  ([§9.6](#96-authentication-identity)), so a deleted account's entire history would render as
+  "System". Copying the name at write time is also what gives the list its `Contains` column
+  without a per-row subquery.
+- **Secrets are excluded per model, and `config('audit.strict')` being `false` is why.** The package
+  honours `#[Hidden]` only in strict mode, so `User::$auditExclude` names all four credential
+  columns itself. A model's `$auditExclude` *replaces* `config('audit.exclude')` rather than merging
+  with it, which is why that global list is empty.
+- **Six JSON payload columns are excluded** — `purchase_orders.payload`, `po_imports.payload` +
+  `staged_orders`, `bqs_imports.payload` + `staged_rows`, `bqs_sheets.payload`. Audited, the trail
+  becomes a second copy of every imported document. `old_values`/`new_values` are `longText` as well:
+  the package's own migration types them `text`, which caps at 64 KB and would have truncated
+  `po_imports.payload` silently. Note `allowed_array_values` does **not** cover this — the package
+  reads raw attributes, where a `json`-cast column is still a string.
+- **Imports do not audit their child rows.** `BqsImportService::writeRow()` and
+  `PurchaseOrderImportService::writeLineItems()` — the single funnels for `bqs_rows`,
+  `bqs_row_months`, `bqs_row_pack_sizes` and `po_line_items` — wrap their writes in
+  `withoutAuditing(globally: true)`. One workbook is ~5,800 child rows, which would be ~5,800 audits
+  inside the upload request. Every one of those models is still `Audited`, so editing a row from a
+  screen is recorded; and the import itself is already recorded by the `created` audit on its own
+  `PoImport`/`BqsImport` row, which is why there is no separate "imported" event.
+- **`AuditRecorder` is the single writer for everything Eloquent cannot see**, on the same argument
+  `ActorObserver` is one shared class. Three kinds: pivot grants (`UserService`, `RoleService`,
+  `PermissionService`, `BuyerAccessService` — spatie and `buyer_user` write raw rows and fire no
+  model event), the importers' `Builder::update()` revision retirements, and authentication.
+  `recordChange()` writes nothing when the before and after match, so re-saving a roles dialog
+  unchanged leaves no row.
+- **`config('permission.events_enabled')` stays `false`.** Spatie's `RoleAttachedEvent` pair would be
+  the alternative hook, but enabling it changes `syncRoles()`'s own query path and emits a
+  detach-all/attach-all pair even when nothing moved. Diffing in the services gives one row with a
+  real before and after.
+- **`AuditRecorder` re-checks the console rule itself.** The package tests `isAuditingEnabled()`
+  before every model event but its `RecordCustomAudit` listener tests nothing, so without that guard
+  a seeder assigning a role would write an audit while the user it created wrote none.
+- **Console writes are not audited** (`audit.console` is `false`) — the same posture actor stamping
+  takes for a null actor. **This means the test suite runs with auditing off**, since a suite runs in
+  console; `tests/Feature/Admin/AuditLogTest.php` turns the flag on per test, which works because the
+  package reads it per write rather than at model boot.
+- **Audits are kept forever** (`threshold` is `0`, nothing prunes). The cost is a table that only
+  grows; child-row suppression removes the worst of it, and the list is paginated and indexed on
+  `created_at`, so the surface stays fast whatever the size. Revisit by adding a prune command, not
+  by changing what is recorded.
+- **Writes are synchronous** (`queue.enable` is `false`). `QUEUE_CONNECTION` is `database`, so
+  queueing would turn one insert into two *and* make the `deploy/` worker load-bearing for the
+  trail's completeness.
+- **Reading it is super-admin only**, through `permission:admin.audit-logs.view` rather than a role
+  check — [§9.1](#91-rbac-roles--permissions) still holds. `RolePermissionSeeder::SUPER_ADMIN_ONLY`
+  keeps that permission from reaching `admin` (via its `admin.` prefix) or `viewer` (via `.view`).
+  Because only a super admin can read it, and a super admin sees every buyer anyway, the buyer tag is
+  a filter rather than a scope — **if that access is ever widened, the tag is what a scope must be
+  built on, and it does not become one by itself.**
+- **The browser never resolves a client-supplied class string.** The front end names a model by morph
+  alias, validated against `Relation::morphMap()`, and the type dropdown is *derived* from that map —
+  the ported implementation kept the equivalent list by hand and it had drifted to 18 of 32 models.
+
+Two gaps remain, and they are accepted rather than closed: a `Builder::update()` added later records
+nothing unless its author calls `AuditRecorder`, and an expiring session fires no `Logout`, so
+sign-ins outnumber sign-outs.
+
+#### The morph map is not optional, and it is why the RBAC pivots were rewritten
+
+`audit_logs.auditable_type` stores a **short alias** (`purchase-order`), not a class name, so moving
+or renaming a model does not orphan its history — and [§12](#12-keeping-this-file-in-sync) treats a
+module being renamed or re-scoped as expected. `AppServiceProvider::configureMorphMap()` registers it
+with `enforceMorphMap`, so a model that is added without an alias fails loudly on its first audit
+rather than quietly writing a class name.
+
+**A morph map is global, and `spatie/laravel-permission` writes `model_has_roles.model_type` through
+the same `getMorphClass()`.** Registering it without rewriting those rows silently drops every user's
+roles, the super admin included. `…051424_add_morph_map_to_permission_tables` is that rewrite, and it
+ships with the map rather than after it. Anything else that gains a polymorphic column inherits this
+question.
+
+**Actor stamping is decided and built, and is narrower than the above.** `app/Observers/` holds a single `ActorObserver`, which sets
 `inserted_by` on create and `last_updated_by` on update from `Auth::id()` for **every** model that
 carries those two columns — currently `User` and `Admin\Designation`. Both columns are nullable
 foreign keys to `users.id` with `nullOnDelete`, and both stay null for writes with no authenticated
@@ -1467,7 +1573,13 @@ observer stops being able to make. A model opts in by carrying the two columns a
 there is nothing else to write.
 
 Observers are registered with the `#[ObservedBy]` attribute on the model, not in a service provider.
-When the full audit-log mechanism is chosen, it belongs here alongside this.
+
+The two stay separate on purpose. `inserted_by` / `last_updated_by` answer "who last touched this
+row" from the row itself, in one join, on any screen; the trail answers "what changed, when, and from
+what" and costs a query against a table that only grows. Note the overlap is visible: `ActorObserver`
+stamps `last_updated_by` in the same save, so it appears in almost every `updated` diff. It is
+deliberately **not** excluded — the trail should say what the row now holds — and
+`AuditLogService::describeValues()` renders those ids as names so a diff never shows a bare number.
 
 ### 9.3.1 Active/inactive status
 

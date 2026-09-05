@@ -4,6 +4,7 @@ namespace App\Models\Merchandising;
 
 use App\Concerns\Audited;
 use App\Concerns\BuyerScoped;
+use App\Contracts\Auditable;
 use App\Models\Admin\Buyer;
 use App\Models\User;
 use App\Observers\ActorObserver;
@@ -16,7 +17,6 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Carbon;
-use OwenIt\Auditing\Contracts\Auditable;
 
 /**
  * A standing decision that a purchase-order colour means a particular BQS row.

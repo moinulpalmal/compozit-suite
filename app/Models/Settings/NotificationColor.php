@@ -6,6 +6,7 @@ use App\Concerns\Audited;
 use App\Concerns\HasStatus;
 use App\Concerns\Listable;
 use App\Concerns\NotificationColorValidationRules;
+use App\Contracts\Auditable;
 use App\Enums\FilterType;
 use App\Enums\RecordStatus;
 use App\Models\User;
@@ -17,7 +18,6 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Carbon;
-use OwenIt\Auditing\Contracts\Auditable;
 
 /**
  * A colour a notification can be raised in, and how long it is kept.

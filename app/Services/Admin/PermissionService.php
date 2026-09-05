@@ -2,6 +2,7 @@
 
 namespace App\Services\Admin;
 
+use App\Enums\Admin\AuditEvent;
 use App\Models\Admin\Permission;
 use Illuminate\Support\Collection;
 
@@ -13,6 +14,8 @@ use Illuminate\Support\Collection;
  */
 class PermissionService
 {
+    public function __construct(private readonly AuditRecorder $audits) {}
+
     /**
      * Every permission name, grouped by module segment, for the pickers.
      *
@@ -79,8 +82,14 @@ class PermissionService
      */
     public function create(string $name, array $roles = []): void
     {
-        Permission::create(['name' => $name, 'guard_name' => 'web'])
-            ->syncRoles($roles);
+        /*
+         * `query()->create()` rather than `Permission::create()`: spatie's static
+         * is typed against its own contract, so the bare form hands back
+         * `Spatie\...\Contracts\Permission` and loses this application's model.
+         */
+        $permission = Permission::query()->create(['name' => $name, 'guard_name' => 'web']);
+
+        $this->syncRoles($permission, $roles);
     }
 
     /**
@@ -92,6 +101,44 @@ class PermissionService
     {
         $permission->update(['name' => $name]);
 
+        $this->syncRoles($permission, $roles);
+    }
+
+    /**
+     * Replace the roles holding a permission, and record the change.
+     *
+     * The same pivot as {@see RoleService::syncPermissions()} approached from the
+     * other end — `role_has_permissions` again, written as raw rows with no model
+     * event. Granting a permission to a role from this screen widens every account
+     * holding that role, so it is recorded here for the same reason.
+     *
+     * @param  list<string>  $roles
+     */
+    private function syncRoles(Permission $permission, array $roles): void
+    {
+        $before = $this->roleNames($permission);
+
         $permission->syncRoles($roles);
+
+        $this->audits->recordChange(
+            $permission,
+            AuditEvent::PermissionsChanged,
+            ['roles' => $before],
+            ['roles' => $this->roleNames($permission)],
+        );
+    }
+
+    /**
+     * The roles holding a permission, by name, in a stable order.
+     *
+     * @return list<string>
+     */
+    private function roleNames(Permission $permission): array
+    {
+        $names = $permission->roles()->pluck('name')->all();
+
+        sort($names);
+
+        return $names;
     }
 }

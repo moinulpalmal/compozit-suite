@@ -164,3 +164,40 @@ export type BuyerFilters = ListFilters;
 export type RoleFilters = ListFilters;
 
 export type PermissionFilters = ListFilters;
+
+/**
+ * A recorded change, as `Admin\AuditLogService::describe()` ships it.
+ *
+ * `old_values` and `new_values` ride with every row, so the diff dialog opens
+ * without a request. That is affordable only because the six JSON payload
+ * columns are excluded from auditing (ARCHITECTURE.md §9.3); if one is ever
+ * audited, this becomes a fetch.
+ */
+export type AuditLogListItem = {
+    id: number;
+    /** The raw stored string. Matches `App\Enums\Admin\AuditEvent` for known events. */
+    event: string;
+    event_label: string;
+    /** A morph alias (`purchase-order`), never a class name. Null for authentication events. */
+    auditable_type: string | null;
+    auditable_id: number | null;
+    model_label: string | null;
+    /**
+     * Stamped at write time, so it survives the account being deleted. Null when
+     * there was no authenticated actor.
+     */
+    actor_name: string | null;
+    actor_employee_id: string | null;
+    user_id: number | null;
+    /** The union of both sides' keys — a delete has no new values, a create no old ones. */
+    changed: string[];
+    old_values: Record<string, unknown>;
+    new_values: Record<string, unknown>;
+    ip_address: string | null;
+    url: string | null;
+    user_agent: string | null;
+    tags: string | null;
+    created_at: string | null;
+};
+
+export type AuditLogFilters = ListFilters;

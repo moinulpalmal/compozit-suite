@@ -2,6 +2,7 @@
 
 namespace App\Services\Admin;
 
+use App\Enums\Admin\AuditEvent;
 use App\Enums\RecordStatus;
 use App\Models\Admin\Role;
 use App\Models\User;
@@ -18,6 +19,8 @@ use Illuminate\Support\Facades\Auth;
  */
 class UserService
 {
+    public function __construct(private readonly AuditRecorder $audits) {}
+
     /**
      * Create a user and grant it the given roles.
      *
@@ -34,7 +37,7 @@ class UserService
         $user->email_verified_at = now();
         $user->save();
 
-        $user->syncRoles($roles);
+        $this->syncRoles($user, $roles);
 
         return $user;
     }
@@ -56,7 +59,57 @@ class UserService
      */
     public function assignRoles(User $user, array $roles): void
     {
+        $this->syncRoles($user, $roles);
+    }
+
+    /**
+     * Replace a user's roles and record the change.
+     *
+     * **Every role write in this class goes through here**, which is the point:
+     * `model_has_roles` is a pivot that spatie writes as raw rows, firing no model
+     * event, so a grant is invisible to the audit trail unless it is recorded
+     * deliberately. `admin.users.assign-roles` is the permission
+     * `documentation/admin.md` §2.5 calls a privilege escalation if unguarded —
+     * a trail that cannot answer "who made them an admin" is not doing its job.
+     *
+     * `config('permission.events_enabled')` is left `false` on purpose. Turning it
+     * on would supply `RoleAttachedEvent`/`RoleDetachedEvent`, but it also changes
+     * `syncRoles()`'s own code path — it switches from one `detachRoles()` to a
+     * `removeRole()` per current role — and it emits a detach-all/attach-all pair
+     * even when nothing moved. Diffing here instead yields one row with a real
+     * before and after, and no row at all when the set is unchanged.
+     *
+     * @param  list<string>  $roles
+     */
+    private function syncRoles(User $user, array $roles): void
+    {
+        $before = $this->roleNames($user);
+
         $user->syncRoles($roles);
+
+        $this->audits->recordChange(
+            $user,
+            AuditEvent::RolesChanged,
+            ['roles' => $before],
+            ['roles' => $this->roleNames($user)],
+        );
+    }
+
+    /**
+     * A user's roles by name, in a stable order.
+     *
+     * Sorted because `recordChange()` compares arrays: unsorted, the database
+     * returning the same roles in a different order would read as a change.
+     *
+     * @return list<string>
+     */
+    private function roleNames(User $user): array
+    {
+        $names = $user->roles()->pluck('name')->all();
+
+        sort($names);
+
+        return $names;
     }
 
     /**

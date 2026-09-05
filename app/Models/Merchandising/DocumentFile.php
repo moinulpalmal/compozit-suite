@@ -3,6 +3,7 @@
 namespace App\Models\Merchandising;
 
 use App\Concerns\Audited;
+use App\Contracts\Auditable;
 use App\Models\User;
 use App\Observers\ActorObserver;
 use Database\Factories\Merchandising\DocumentFileFactory;
@@ -12,7 +13,6 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Carbon;
-use OwenIt\Auditing\Contracts\Auditable;
 
 /**
  * One file inside a {@see DocumentUpload}.
