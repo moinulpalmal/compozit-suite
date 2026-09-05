@@ -18,6 +18,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Carbon;
 
 /**
@@ -39,6 +40,7 @@ use Illuminate\Support\Carbon;
  * @property-read User|null $insertedBy
  * @property-read User|null $lastUpdatedBy
  * @property-read Collection<int, User> $users
+ * @property-read Collection<int, Department> $departments
  */
 #[ObservedBy(ActorObserver::class)]
 #[Fillable(['name', 'code', 'status'])]
@@ -83,6 +85,21 @@ class Buyer extends Model implements Auditable
     public function users(): BelongsToMany
     {
         return $this->belongsToMany(User::class);
+    }
+
+    /**
+     * This buyer's own merchandise departments.
+     *
+     * `Department` is `BuyerScoped`, so reading this relation as a non-super-admin
+     * returns only what the actor may see. `BuyerService::deletionBlocker()`
+     * deliberately escapes that with `withoutBuyerScope()` — a department the
+     * actor cannot see still blocks the buyer's deletion.
+     *
+     * @return HasMany<Department, $this>
+     */
+    public function departments(): HasMany
+    {
+        return $this->hasMany(Department::class);
     }
 
     /**

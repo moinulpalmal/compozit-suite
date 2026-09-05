@@ -246,8 +246,9 @@ dashboard tile needs a query, that query belongs in the owning module's service.
 | d. Buyer setup & management | `Admin\BuyerController` | `pages/admin/buyers/` | ✅ |
 | e. Audit logging | `Admin\AuditLogController` | `pages/admin/audit-logs/` | ✅ |
 | f. Designations (HR job titles) | `Admin\DesignationController` | `pages/admin/designations/` | ✅ |
+| g. Departments (a buyer's merchandise departments) | `Admin\DepartmentController` | `pages/admin/departments/` | ✅ |
 
-Models live in `app/Models/Admin/` (`Role`, `Permission`, `Designation`, `Buyer`, `AuditLog`, …). `Role` and
+Models live in `app/Models/Admin/` (`Role`, `Permission`, `Designation`, `Buyer`, `Department`, `AuditLog`, …). `Role` and
 `Permission` extend spatie's models so RBAC data is Admin-owned like everything else — see
 [§9.1](#91-rbac-roles--permissions). `User` stays at `app/Models/User.php` — it is an
 authentication concern shared by the whole app, not an Admin-owned model.
@@ -282,6 +283,30 @@ delete in modals, retired with `status` rather than soft-deleted. A buyer is the
 [§9.2](#92-buyer-scoped-access-control) scopes every buyer-owned row by, so deleting one is refused
 by `Admin\BuyerService::deletionBlocker()` once anything factual references it; access grants are not
 facts and cascade.
+
+**Departments follow the designation shape too, and are this module's first buyer-owned model.** One
+page, `pages/admin/departments/index.tsx`, create/edit/delete in modals, retired with `status`.
+
+**A department here is the *buyer's* merchandise department** — `GIRLSWEAR`, `BOYSWEAR`, `MENSWEAR` —
+not an internal org unit, which is why every one belongs to exactly one buyer and why the same name
+legitimately appears once per buyer (`unique(buyer_id, name)`). It is Admin-owned because
+[§9.4](#94-master-data) puts it there, not because it is HR data; that section carries the full
+reasoning and the correction it replaced.
+
+Two consequences that do not arise for designations or buyers:
+
+- **It carries `use BuyerScoped;`**, so a user reaches departments through their buyer access and
+  nothing else — [§9.2](#92-buyer-scoped-access-control) is the whole of "who may see which
+  departments", with no second grant and no pivot of its own.
+- **Its form validates `buyer_id` against the actor's own access**, exactly as the purchase-order and
+  BQS importers do. Creating a department under a buyer you cannot see would succeed and then be
+  hidden by the scope — a success message followed by a list the row is missing from.
+
+`Admin\DepartmentService::deletionBlocker()` returns `null` today because **nothing references a
+department yet**: Merchandising holds its department as free text, and `Merchandising\BqsRowKey`
+hashes that string. The seam exists so normalising it later is one clause rather than a refactor.
+Departments *are* referenced in the other direction, though — they are the first fact to make
+`Admin\BuyerService::deletionBlocker()` non-trivial.
 
 **There is no buyer-access page.** Sub-area (c) was planned as `pages/admin/buyer-access/` with its
 own controller; the owner decided a user's buyer access is edited where the user is — a dialog on
@@ -1410,7 +1435,10 @@ Rules, each of which is a decision rather than an accident:
   visible, per [§9.3.1](#931-activeinactive-status).
 - **Zero buyers is a valid state** — a new hire pending assignment. Buyer-scoped lists render
   `components/shared/no-buyer-access.tsx` rather than an empty table, so "no access" never reads as
-  "no data".
+  "no data". **`pages/admin/departments/index.tsx` is that component's first and so far only
+  consumer.** This line previously described the treatment as though every buyer-scoped list already
+  had it; the component existed and nothing imported it. The rule stands and the claim is now true of
+  one screen — a buyer-scoped list added without it is the exception, not the norm it inherits.
 - **The id list is memoised on the `User` instance.** A global scope runs on *every* query; a fresh
   `buyer_user` round trip per query is not affordable.
 
@@ -1422,6 +1450,15 @@ throwaway model stays — it pins the trait's contract independently of any modu
 
 > This paragraph previously read "the scope ships with no buyer-owned models … `tech_packs` and the
 > rest do not exist yet". `purchase_orders` exists; the line is corrected rather than annotated.
+
+**`Admin\Department` is the first buyer-owned model outside Merchandising**, and it took the
+mechanism unchanged: one `use BuyerScoped;`, a non-nullable `buyer_id`, no other registration. It
+also settles a question the Merchandising tables never raised, because none of them has a create
+form: **a buyer-scoped model whose form chooses its own buyer must validate that choice against the
+actor's access.** The scope decides what you can *read*; nothing stops a write naming a buyer you
+cannot see, and the row then vanishes on the redirect. `DepartmentValidationRules` and
+`BqsImportRequest` both do this with `Rule::in(array_keys(BuyerService::assignableToActor()))` — any
+future buyer-scoped form owes the same.
 
 `po_line_items` is the first model to hit the stated limit: it reaches its buyer through its parent
 and therefore has **no** `buyer_id` and does **not** use the trait. Every read goes through
@@ -1561,7 +1598,12 @@ question.
 
 **Actor stamping is decided and built, and is narrower than the above.** `app/Observers/` holds a single `ActorObserver`, which sets
 `inserted_by` on create and `last_updated_by` on update from `Auth::id()` for **every** model that
-carries those two columns — currently `User` and `Admin\Designation`. Both columns are nullable
+carries those two columns — currently thirteen: `User`, `Admin\Buyer`, `Admin\Department`,
+`Admin\Designation`, `Settings\NotificationColor`, `Settings\TnaTemplate`, and the seven
+Merchandising parents (`BqsColourLink`, `BqsImport`, `BqsSheet`, `DocumentFile`, `DocumentUpload`,
+`PoImport`, `PurchaseOrder`). This sentence read "currently `User` and `Admin\Designation`" long
+after that stopped being true; the count is the thing that goes stale, so treat the list as
+illustrative and `grep` for `ObservedBy(ActorObserver` for the current answer. Both columns are nullable
 foreign keys to `users.id` with `nullOnDelete`, and both stay null for writes with no authenticated
 actor (seeders, migrations, console). Neither is mass-assignable on any stamped model — the observer
 is the only writer, so every write path is stamped identically.
@@ -1586,8 +1628,8 @@ deliberately **not** excluded — the trail should say what the row now holds �
 `App\Enums\RecordStatus` (`'A'` / `'I'`) is the application's **one** active/inactive vocabulary, and
 `App\Concerns\HasStatus` is how a model gets it: the cast, `scopeActive()`, `scopeInactive()` and
 `isActive()` from a single `use`. A table opts in with a `string(1) status` column defaulting to
-`'A'`, and adds `'status'` to `#[Fillable]` if a form writes it. Currently `users` and
-`designations`.
+`'A'`, and adds `'status'` to `#[Fillable]` if a form writes it. Currently `users`, `designations`,
+`buyers`, `departments`, `notification_colors` and `tna_templates`.
 
 - **The enum lives at the root of `app/Enums/`**, like `Theme`, because it belongs to no module — an
   exception to [§6.1](#61-backend-classes).
@@ -1612,7 +1654,7 @@ Reference master data by foreign key, never by copying its label into another ta
 | Kind | Owner | Examples | Models | Seeders |
 | --- | --- | --- | --- | --- |
 | **Product / process** reference data | Settings | notification colors ✅, TNA templates ✅, colors, sizes, UOM, seasons, fabric & trim types, machine types, process stages | `app/Models/Settings/` | `database/seeders/Settings/` |
-| **HR / org-structure** reference data | Admin | designations ✅, departments | `app/Models/Admin/` | `database/seeders/Admin/` |
+| **HR / org-structure** reference data | Admin | designations ✅, departments ✅ | `app/Models/Admin/` | `database/seeders/Admin/` |
 
 Everyone else *reads* both and writes neither.
 
@@ -1631,8 +1673,30 @@ referenced row breaks it just as thoroughly.
 > HR reference data is administered next to the users who hold it, on the same screen family and
 > behind the same `admin.*` permissions, not on a Settings page beside colors and sizes. The split
 > is by *subject*, not by table shape — the test is "does an Admin administering people need this?"
-> **Departments move to Admin when they are built**; the §5 Module 2 row still lists them and is
-> the line to correct at that point.
+
+**Departments are built, and they are not what the row above implies.** The table pairs them with
+designations under "HR / org-structure", which is where the owner's earlier decision put them and is
+why they are Admin-owned. It is not what one *is*: a department here is the **buyer's own
+merchandise department** — `GIRLSWEAR`, `BOYSWEAR`, `MENSWEAR` — so every one belongs to exactly one
+buyer, `Admin\Department` carries `use BuyerScoped;`, and the same name recurs once per buyer. The
+ownership decision was kept when this surfaced, deliberately: the alternative was moving it to
+Settings as product reference data, and the owner chose Admin. Read the row as recording *who
+administers it*, not *what it classifies*.
+
+> An earlier version of this paragraph read "**Departments move to Admin when they are built**; the
+> §5 Module 2 row still lists them and is the line to correct at that point." Both halves are now
+> spent: they have moved, and §5 Module 2 had already been corrected to say "Departments are not
+> here" before this change. The instruction is removed rather than annotated.
+
+**This is not the `department` that Merchandising already stores.** `bqs_sheets.department` and
+`bqs_rows.department` are free-text `varchar(100)` columns holding the same concept, and
+`Merchandising\BqsRowKey::COMPONENTS` hashes the *string* as component #3 of a BQS row's identity.
+Normalising them into a `department_id` would change every stored `row_key`, making every held BQS
+read as new, and `department` is in `BqsHeaderMap::REQUIRED_COLUMNS` besides. **The two are
+deliberately unreconciled**, pending a BQS re-architecture the owner has scheduled separately. Until
+then nothing references `departments`, which is why `Admin\DepartmentService::deletionBlocker()`
+returns `null` — the one place this file's own rule below is knowingly unmet, and the seam is
+written so meeting it is a single clause.
 
 ### 9.5 Shared props
 

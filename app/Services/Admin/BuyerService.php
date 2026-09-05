@@ -60,6 +60,56 @@ class BuyerService
     }
 
     /**
+     * The buyers the signed-in user holds, **whatever their status**.
+     *
+     * The filter-cell counterpart to {@see self::assignableToActor()}, and the
+     * split is deliberate: that method feeds *forms*, so it offers active buyers
+     * only, while a filter has to be able to find the departments of a buyer that
+     * has since been retired. `DesignationService::filterOptions()` makes the same
+     * split against `assignableOptions()` for the same reason.
+     *
+     * This is not an access control. `BuyerScope` already limits buyer-owned rows
+     * to the actor's buyers; this only decides what the dropdown offers and what
+     * an out-of-range filter value is validated against.
+     *
+     * @return array<int, string> buyer id => name
+     */
+    public function filterOptionsForActor(): array
+    {
+        $query = Buyer::query();
+
+        $actor = Auth::user();
+
+        if ($actor !== null && ! $actor->seesAllBuyers()) {
+            $query->whereIn('id', $actor->accessibleBuyerIds());
+        }
+
+        /** @var array<int, string> $buyers */
+        $buyers = $query->orderBy('name')->pluck('name', 'id')->all();
+
+        return $buyers;
+    }
+
+    /**
+     * The same set, as a filter dropdown renders it.
+     *
+     * Named to match `DesignationService::filterOptions()`, which answers the
+     * identical question for the users list.
+     *
+     * @return list<array{value: int, label: string}>
+     */
+    public function filterOptions(): array
+    {
+        $options = [];
+
+        foreach ($this->filterOptionsForActor() as $id => $name) {
+            $options[] = ['value' => $id, 'label' => $name];
+        }
+
+        return $options;
+    }
+
+    /**
      * The same set, shaped for `components/ui/combobox.tsx`.
      *
      * @return list<array{value: int, label: string}>
@@ -104,18 +154,39 @@ class BuyerService
     /**
      * The reason this buyer may not be deleted, if there is one.
      *
-     * **Nothing blocks yet, and that is correct today:** no buyer-owned table
-     * exists. As Merchandising and Production land, every table that records a
-     * *fact* about a buyer — purchase orders, tech packs, bookings, production
-     * output — is checked here, and the refusal points the admin at deactivation
-     * instead. Access grants are explicitly not such a fact.
+     * **Departments are the first fact that blocks**, and this line used to read
+     * "nothing blocks yet". A department belongs to exactly one buyer, so
+     * `departments.buyer_id` is `restrictOnDelete` and the database refuses the
+     * delete on its own — this method exists so the admin is told *why* in a
+     * sentence, rather than being shown the stack trace an integrity-constraint
+     * violation produces (ARCHITECTURE.md §9.4).
+     *
+     * As the rest of Merchandising and Production land, every further table that
+     * records a *fact* about a buyer — purchase orders, tech packs, bookings,
+     * production output — is checked here too. Access grants are explicitly not
+     * such a fact and cascade.
+     *
+     * The count deliberately escapes `BuyerScope`: this is a question about the
+     * database, not about what the actor can see, and a department hidden from the
+     * actor still blocks the delete just as hard.
      *
      * Deactivating (`status = 'I'`) is how a buyer stops appearing in pickers
      * while its history stays readable. See ARCHITECTURE.md §9.3.1.
      */
     public function deletionBlocker(Buyer $buyer): ?string
     {
-        return null;
+        $departments = $buyer->departments()->withoutBuyerScope()->count();
+
+        if ($departments === 0) {
+            return null;
+        }
+
+        return trans_choice(
+            '{1} One department belongs to this buyer. Deactivate the buyer instead, or delete that department first.'
+            .'|[2,*] :count departments belong to this buyer. Deactivate the buyer instead, or delete them first.',
+            $departments,
+            ['count' => $departments],
+        );
     }
 
     /**
