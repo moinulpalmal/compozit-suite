@@ -1,25 +1,25 @@
 import { Form } from '@inertiajs/react';
 import type { ReactNode } from 'react';
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 import InputError from '@/components/input-error';
-import { Button } from '@/components/ui/button';
+import FormDialogFooter from '@/components/shared/form-dialog-footer';
 import Combobox from '@/components/ui/combobox';
 import {
     Dialog,
-    DialogClose,
     DialogContent,
     DialogDescription,
-    DialogFooter,
     DialogTitle,
     DialogTrigger,
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { useFormDialog } from '@/hooks/use-form-dialog';
 import type { BuyerListItem, StatusOption } from '@/types';
 import type { RouteFormDefinition } from '@/wayfinder';
 
 /**
- * Create/edit a buyer in a modal — the sibling of `designation-form-dialog.tsx`.
+ * Create/edit a buyer in a modal — the sibling of `designation-form-dialog.tsx`,
+ * and the same three-button contract (ARCHITECTURE.md §8.10).
  *
  * `BuyerStoreRequest` and `BuyerUpdateRequest` enforce the rules; everything here
  * is feedback, and their errors render in the same `InputError` slots.
@@ -30,7 +30,6 @@ export default function BuyerFormDialog({
     buyer,
     title,
     description,
-    submitLabel,
     children,
 }: {
     submit: RouteFormDefinition<'post'>;
@@ -38,10 +37,11 @@ export default function BuyerFormDialog({
     buyer?: BuyerListItem;
     title: string;
     description: string;
-    submitLabel: string;
     children: ReactNode;
 }) {
     const [open, setOpen] = useState(false);
+    const close = useCallback(() => setOpen(false), []);
+    const { formKey, formProps, setIntent } = useFormDialog(close);
 
     return (
         <Dialog open={open} onOpenChange={setOpen}>
@@ -52,9 +52,10 @@ export default function BuyerFormDialog({
                 <DialogDescription>{description}</DialogDescription>
 
                 <Form
+                    key={formKey}
                     {...submit}
+                    {...formProps}
                     options={{ preserveScroll: true }}
-                    onSuccess={() => setOpen(false)}
                     className="mt-4 space-y-4"
                 >
                     {({ processing, errors }) => (
@@ -70,6 +71,7 @@ export default function BuyerFormDialog({
                                     autoFocus
                                     autoComplete="off"
                                     placeholder="Zara"
+                                    aria-invalid={Boolean(errors.name)}
                                 />
                                 <InputError message={errors.name} />
                             </div>
@@ -88,6 +90,7 @@ export default function BuyerFormDialog({
                                     maxLength={20}
                                     autoComplete="off"
                                     placeholder="ZARA"
+                                    aria-invalid={Boolean(errors.code)}
                                 />
                                 <p className="text-xs text-base-content/60">
                                     The short form used on orders and reports.
@@ -108,6 +111,7 @@ export default function BuyerFormDialog({
                                     defaultValue={buyer?.status ?? 'A'}
                                     options={statuses}
                                     required
+                                    aria-invalid={Boolean(errors.status)}
                                     data-test="buyer-status"
                                 />
                                 <p className="text-xs text-base-content/60">
@@ -118,21 +122,12 @@ export default function BuyerFormDialog({
                                 <InputError message={errors.status} />
                             </div>
 
-                            <DialogFooter className="gap-2">
-                                <DialogClose asChild>
-                                    <Button variant="secondary" type="button">
-                                        Cancel
-                                    </Button>
-                                </DialogClose>
-
-                                <Button
-                                    type="submit"
-                                    disabled={processing}
-                                    data-test="save-buyer"
-                                >
-                                    {submitLabel}
-                                </Button>
-                            </DialogFooter>
+                            <FormDialogFooter
+                                processing={processing}
+                                addAnother={buyer === undefined}
+                                onIntent={setIntent}
+                                saveTestId="save-buyer"
+                            />
                         </>
                     )}
                 </Form>

@@ -53,6 +53,18 @@ class RolePermissionSeeder extends Seeder
         'merchandising.purchase-orders' => ['view', 'create', 'update', 'delete', 'import'],
         'merchandising.bookings' => ['view', 'create', 'update', 'delete'],
         /*
+         * **`create`, not `import`** — the opposite of the two entries above, and
+         * deliberately so. `import` names the power to run a parser over an upload;
+         * the document library stores a file and reads nothing out of it, so a batch
+         * labelled "BQS" there is a stored document rather than an imported BQS. An
+         * `import` here would name a distinction the surface does not make.
+         *
+         * `delete` additionally gates *replacing* a file, which destroys the one it
+         * replaces with no version chain to recover it from — see
+         * `DocumentFileReplaceRequest`, and `BqsResolveRequest` for the same split.
+         */
+        'merchandising.documents' => ['view', 'create', 'update', 'delete'],
+        /*
          * `view` alone, because the TNA board has nothing to write. Its dates are
          * computed from a Settings template and the order's own ship date, so every
          * correction is made on one of those screens under their own permissions —
@@ -77,6 +89,13 @@ class RolePermissionSeeder extends Seeder
         Role::SUPER_ADMIN => [],
         'admin' => ['admin.', 'settings.'],
         'merchandiser' => ['merchandising.', 'settings.master-data.view', 'reports.merchandising.'],
+        /*
+         * One surface, and nothing else. It exists because "upload the files people
+         * send us" is a real job that does not come with the right to read the buy
+         * plans and orders those files sit beside — `merchandiser` grants the whole
+         * module through its `merchandising.` prefix, which is the opposite request.
+         */
+        'document-uploader' => ['merchandising.documents.'],
         'production-manager' => ['production.', 'merchandising.purchase-orders.view', 'reports.production.'],
         'viewer' => ['.view'],
     ];

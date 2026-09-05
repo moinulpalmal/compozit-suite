@@ -205,7 +205,7 @@ test('a user is created with roles and a verified email', function () {
         ->and($user->email_verified_at)->not->toBeNull()
         ->and($user->status)->toBe(RecordStatus::Active)
         ->and($user->hasRole('merchandiser'))->toBeTrue()
-        ->and(Hash::check('Str0ng-Pass!word', $user->password))->toBeTrue();
+        ->and(Hash::check(compliantPassword(), $user->password))->toBeTrue();
 });
 
 test('creating a user requires the create permission', function () {
@@ -316,11 +316,11 @@ test('an administrator sets another password without knowing the old one', funct
     $user = User::factory()->create();
 
     $this->put(route('admin.users.password', $user), [
-        'password' => 'Str0ng-Pass!word',
-        'password_confirmation' => 'Str0ng-Pass!word',
+        'password' => compliantPassword(),
+        'password_confirmation' => compliantPassword(),
     ])->assertSessionHasNoErrors();
 
-    expect(Hash::check('Str0ng-Pass!word', $user->refresh()->password))->toBeTrue();
+    expect(Hash::check(compliantPassword(), $user->refresh()->password))->toBeTrue();
 });
 
 test('roles are replaced wholesale', function () {
@@ -608,8 +608,8 @@ function userPayload(array $overrides = [], array $except = []): array
             ?? Designation::factory()->create())->id,
         'status' => RecordStatus::Active->value,
         'approval_authority' => 0,
-        'password' => 'Str0ng-Pass!word',
-        'password_confirmation' => 'Str0ng-Pass!word',
+        'password' => compliantPassword(),
+        'password_confirmation' => compliantPassword(),
         ...$overrides,
     ];
 

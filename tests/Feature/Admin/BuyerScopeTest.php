@@ -1,6 +1,7 @@
 <?php
 
 use App\Concerns\BuyerScoped;
+use App\Concerns\BuyerScopedOrGlobal;
 use App\Models\Admin\Buyer;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Model;
@@ -135,4 +136,95 @@ test('the accessible buyer ids are read once per instance', function () {
         ->count();
 
     expect($pivotReads)->toBe(1);
+});
+
+/*
+|--------------------------------------------------------------------------
+| The nullable-buyer variant — `BuyerScopedOrGlobal`
+|--------------------------------------------------------------------------
+|
+| A table whose `buyer_id` may be null needs the second trait, because the
+| plain scope gets that case silently backwards: `NULL` never matches an `IN`
+| list, so an unassigned row would be visible to nobody. Proven on a second
+| throwaway model for the same reason the first one exists — the contract
+| belongs to the mechanism, not to whichever module happens to use it.
+|
+*/
+
+class OptionallyBuyerOwnedThing extends Model
+{
+    use BuyerScopedOrGlobal;
+
+    protected $table = 'optional_buyer_things';
+
+    public $timestamps = false;
+
+    protected $guarded = [];
+}
+
+/** Build the nullable-buyer table and seed one row per buyer plus an unassigned one. */
+function seedOptionalBuyerThings(): void
+{
+    Schema::create('optional_buyer_things', function (Blueprint $table): void {
+        $table->id();
+        $table->foreignId('buyer_id')->nullable()->constrained()->cascadeOnDelete();
+        $table->string('label')->default('row');
+    });
+
+    foreach (test()->buyers as $buyer) {
+        OptionallyBuyerOwnedThing::create(['buyer_id' => $buyer->id, 'label' => 'owned']);
+    }
+
+    OptionallyBuyerOwnedThing::create(['buyer_id' => null, 'label' => 'everyone']);
+}
+
+test('an unassigned row is visible to a user who holds one buyer', function () {
+    seedOptionalBuyerThings();
+
+    $user = User::factory()->create();
+    $user->buyers()->attach($this->buyers->first());
+
+    $this->actingAs($user);
+
+    // Their own buyer's row, plus the one belonging to nobody. Under
+    // `BuyerScoped` the second would be invisible — which reads as a
+    // permissions bug and is a modelling one.
+    expect(OptionallyBuyerOwnedThing::query()->count())->toBe(2)
+        ->and(OptionallyBuyerOwnedThing::query()->whereNull('buyer_id')->count())->toBe(1);
+});
+
+test('an unassigned row is visible to a user who holds no buyers', function () {
+    seedOptionalBuyerThings();
+
+    $this->actingAs(User::factory()->create());
+
+    // Zero buyers is a legitimate state (a new hire pending assignment), and
+    // "belongs to no buyer" is exactly the thing such a user should still see.
+    expect(OptionallyBuyerOwnedThing::query()->count())->toBe(1);
+});
+
+test('the unassigned arm does not escape an existing where clause', function () {
+    seedOptionalBuyerThings();
+
+    $user = User::factory()->create();
+    $user->buyers()->attach($this->buyers->first());
+
+    $this->actingAs($user);
+
+    /*
+     * The regression this exists for. `orWhere` binds looser than everything
+     * already on the query, so an ungrouped `orWhereNull` in the scope would
+     * read as `(label = 'owned' AND buyer_id IN (…)) OR buyer_id IS NULL` and
+     * return the unassigned row despite the filter excluding it. The closure in
+     * `BuyerScope::apply()` is what keeps this at 1.
+     */
+    expect(OptionallyBuyerOwnedThing::query()->where('label', 'owned')->count())->toBe(1);
+});
+
+test('a super admin still sees every row including the unassigned one', function () {
+    seedOptionalBuyerThings();
+
+    $this->actingAs(superAdmin());
+
+    expect(OptionallyBuyerOwnedThing::query()->count())->toBe(4);
 });

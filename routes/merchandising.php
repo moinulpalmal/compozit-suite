@@ -3,6 +3,8 @@
 use App\Http\Controllers\Merchandising\BqsController;
 use App\Http\Controllers\Merchandising\BqsImportController;
 use App\Http\Controllers\Merchandising\BqsLinkController;
+use App\Http\Controllers\Merchandising\DocumentFileController;
+use App\Http\Controllers\Merchandising\DocumentUploadController;
 use App\Http\Controllers\Merchandising\PurchaseOrderController;
 use App\Http\Controllers\Merchandising\PurchaseOrderImportController;
 use App\Http\Controllers\Merchandising\TnaController;
@@ -118,4 +120,67 @@ Route::middleware(['auth', 'auth.session', 'verified'])
         Route::get('tna', [TnaController::class, 'index'])
             ->middleware('permission:merchandising.tna.view')
             ->name('tna.index');
+
+        /*
+         * The document library: files as they arrived, with nothing read out of them.
+         *
+         * **`create`, not `import`** — and the difference is the whole surface. The two
+         * importers above run a parser over an upload, which is a distinct power worth
+         * its own permission; nothing here parses, so `import` would name a
+         * distinction the library does not make. A batch typed `bqs` is a stored
+         * document and not an imported BQS (ARCHITECTURE.md §5, Module 3).
+         *
+         * **There is no GET for the form.** It is a modal on the list page, like every
+         * other create surface in this application.
+         */
+        Route::get('documents', [DocumentUploadController::class, 'index'])
+            ->middleware('permission:merchandising.documents.view')
+            ->name('documents.index');
+
+        Route::post('documents', [DocumentUploadController::class, 'store'])
+            ->middleware('permission:merchandising.documents.create')
+            ->name('documents.store');
+
+        /*
+         * **`scopeBindings()` is a security control here, not tidiness.**
+         * `DocumentFile` carries no `buyer_id` and no global scope — it reaches its
+         * buyer through its batch, which is the §9.2 rule for a child table — so a
+         * file resolved on its own would be served to somebody the batch is hidden
+         * from. Binding it through `$documentUpload->files()` puts the parent's scope
+         * in front of it, and a mismatched pair 404s.
+         *
+         * Replace is `POST` rather than `PUT` because a browser form cannot send a
+         * multipart body with `PUT`. It is gated on `update` at the route and
+         * additionally requires `delete` in `DocumentFileReplaceRequest`: the file it
+         * replaces is destroyed, and there is no version chain to recover it from.
+         */
+        Route::scopeBindings()->group(function (): void {
+            Route::get('documents/{documentUpload}/files/{documentFile}/download', [DocumentFileController::class, 'download'])
+                ->middleware('permission:merchandising.documents.view')
+                ->name('documents.files.download');
+
+            Route::get('documents/{documentUpload}/files/{documentFile}/preview', [DocumentFileController::class, 'preview'])
+                ->middleware('permission:merchandising.documents.view')
+                ->name('documents.files.preview');
+
+            Route::post('documents/{documentUpload}/files/{documentFile}', [DocumentFileController::class, 'update'])
+                ->middleware('permission:merchandising.documents.update')
+                ->name('documents.files.update');
+
+            Route::delete('documents/{documentUpload}/files/{documentFile}', [DocumentFileController::class, 'destroy'])
+                ->middleware('permission:merchandising.documents.delete')
+                ->name('documents.files.destroy');
+        });
+
+        /*
+         * Declared after the nested file routes so `/documents/{id}` cannot capture a
+         * path that was meant for one of them.
+         */
+        Route::get('documents/{documentUpload}', [DocumentUploadController::class, 'show'])
+            ->middleware('permission:merchandising.documents.view')
+            ->name('documents.show');
+
+        Route::delete('documents/{documentUpload}', [DocumentUploadController::class, 'destroy'])
+            ->middleware('permission:merchandising.documents.delete')
+            ->name('documents.destroy');
     });

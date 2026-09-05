@@ -64,6 +64,18 @@ type SharedProps = {
     className?: string;
     disabled?: boolean;
     required?: boolean;
+    /**
+     * Set from the server's errors, the way `Input` takes it — the trigger paints
+     * `select-error` so a rejected choice looks rejected, not merely described by
+     * the message underneath it. See ARCHITECTURE.md §8.5 and §8.10.
+     */
+    'aria-invalid'?: boolean;
+    /**
+     * Focus the trigger on mount. A form modal's first control must carry this —
+     * a "Save & add another" remount would otherwise drop focus to the document
+     * (ARCHITECTURE.md §8.10).
+     */
+    autoFocus?: boolean;
     'aria-label'?: string;
     'data-test'?: string;
 };
@@ -207,6 +219,9 @@ function SingleCombobox({
                 // call site expects them to.
                 className={cn(
                     'select w-full items-center justify-between text-left',
+                    // Mirrors `Input`'s `input-error`, so a rejected choice
+                    // reads the same as a rejected text field.
+                    rest['aria-invalid'] === true && 'select-error',
                     selected === null && 'text-base-content/50',
                     className,
                 )}
@@ -390,6 +405,7 @@ function MultiCombobox({
                 disabled={disabled}
                 className={cn(
                     'select h-auto min-h-10 w-full items-center justify-between gap-2 py-1.5 text-left',
+                    rest['aria-invalid'] === true && 'select-error',
                     className,
                 )}
                 {...rest}

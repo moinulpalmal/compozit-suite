@@ -52,8 +52,8 @@ test('password can be reset with valid token', function () {
         $response = $this->post(route('password.update'), [
             'token' => $notification->token,
             'email' => $user->email,
-            'password' => 'password',
-            'password_confirmation' => 'password',
+            'password' => compliantPassword(),
+            'password_confirmation' => compliantPassword(),
         ]);
 
         $response
@@ -70,9 +70,11 @@ test('password cannot be reset with invalid token', function () {
     $response = $this->post(route('password.update'), [
         'token' => 'invalid-token',
         'email' => $user->email,
-        'password' => 'newpassword123',
-        'password_confirmation' => 'newpassword123',
+        'password' => compliantPassword(),
+        'password_confirmation' => compliantPassword(),
     ]);
 
+    // Compliant on purpose: the token is what must fail here, and a password
+    // the policy also rejects would let this pass without proving that.
     $response->assertSessionHasErrors('email');
 });

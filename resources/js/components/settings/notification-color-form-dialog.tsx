@@ -1,27 +1,27 @@
 import { Form } from '@inertiajs/react';
 import type { ReactNode } from 'react';
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 import InputError from '@/components/input-error';
-import { Button } from '@/components/ui/button';
+import FormDialogFooter from '@/components/shared/form-dialog-footer';
 import ColorInput from '@/components/ui/color-input';
 import Combobox from '@/components/ui/combobox';
 import {
     Dialog,
-    DialogClose,
     DialogContent,
     DialogDescription,
-    DialogFooter,
     DialogTitle,
     DialogTrigger,
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { useFormDialog } from '@/hooks/use-form-dialog';
 import type { NotificationColorListItem, StatusOption } from '@/types';
 import type { RouteFormDefinition } from '@/wayfinder';
 
 /**
  * Create/edit a notification colour in a modal — the shape
- * `designation-form-dialog.tsx` established.
+ * `designation-form-dialog.tsx` established, including its three-button footer
+ * (ARCHITECTURE.md §8.10).
  *
  * `NotificationColorStoreRequest` and `NotificationColorUpdateRequest` are what
  * enforce the rules; everything here is feedback, and their errors render in the
@@ -33,7 +33,6 @@ export default function NotificationColorFormDialog({
     notificationColor,
     title,
     description,
-    submitLabel,
     children,
 }: {
     submit: RouteFormDefinition<'post'>;
@@ -41,10 +40,11 @@ export default function NotificationColorFormDialog({
     notificationColor?: NotificationColorListItem;
     title: string;
     description: string;
-    submitLabel: string;
     children: ReactNode;
 }) {
     const [open, setOpen] = useState(false);
+    const close = useCallback(() => setOpen(false), []);
+    const { formKey, formProps, setIntent } = useFormDialog(close);
 
     return (
         <Dialog open={open} onOpenChange={setOpen}>
@@ -55,9 +55,10 @@ export default function NotificationColorFormDialog({
                 <DialogDescription>{description}</DialogDescription>
 
                 <Form
+                    key={formKey}
                     {...submit}
+                    {...formProps}
                     options={{ preserveScroll: true }}
-                    onSuccess={() => setOpen(false)}
                     className="mt-4 space-y-4"
                 >
                     {({ processing, errors }) => (
@@ -73,6 +74,7 @@ export default function NotificationColorFormDialog({
                                     autoFocus
                                     autoComplete="off"
                                     placeholder="Urgent"
+                                    aria-invalid={Boolean(errors.name)}
                                 />
                                 <InputError message={errors.name} />
                             </div>
@@ -116,6 +118,9 @@ export default function NotificationColorFormDialog({
                                     }
                                     required
                                     autoComplete="off"
+                                    aria-invalid={Boolean(
+                                        errors.retention_days,
+                                    )}
                                 />
                                 <p className="text-xs text-base-content/60">
                                     How long a notification in this colour is
@@ -137,6 +142,7 @@ export default function NotificationColorFormDialog({
                                     }
                                     options={statuses}
                                     required
+                                    aria-invalid={Boolean(errors.status)}
                                     data-test="notification-color-status"
                                 />
                                 <p className="text-xs text-base-content/60">
@@ -146,21 +152,12 @@ export default function NotificationColorFormDialog({
                                 <InputError message={errors.status} />
                             </div>
 
-                            <DialogFooter className="gap-2">
-                                <DialogClose asChild>
-                                    <Button variant="secondary" type="button">
-                                        Cancel
-                                    </Button>
-                                </DialogClose>
-
-                                <Button
-                                    type="submit"
-                                    disabled={processing}
-                                    data-test="save-notification-color"
-                                >
-                                    {submitLabel}
-                                </Button>
-                            </DialogFooter>
+                            <FormDialogFooter
+                                processing={processing}
+                                addAnother={notificationColor === undefined}
+                                onIntent={setIntent}
+                                saveTestId="save-notification-color"
+                            />
                         </>
                     )}
                 </Form>

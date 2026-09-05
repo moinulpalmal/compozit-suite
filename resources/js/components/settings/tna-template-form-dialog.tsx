@@ -1,21 +1,21 @@
 import { Form } from '@inertiajs/react';
 import { Plus, Trash2 } from 'lucide-react';
 import type { ReactNode } from 'react';
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 import InputError from '@/components/input-error';
+import FormDialogFooter from '@/components/shared/form-dialog-footer';
 import { Button } from '@/components/ui/button';
 import Combobox from '@/components/ui/combobox';
 import {
     Dialog,
-    DialogClose,
     DialogContent,
     DialogDescription,
-    DialogFooter,
     DialogTitle,
     DialogTrigger,
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { useFormDialog } from '@/hooks/use-form-dialog';
 import type {
     ColorOption,
     MilestoneOption,
@@ -36,7 +36,10 @@ import type { RouteFormDefinition } from '@/wayfinder';
  *   template serve a season instead of needing a row per integer.
  * - **The ladder is a repeater**, because how many rungs a template wants is the
  *   user's decision. `TnaTemplateStoreRequest` refuses a second open-ended rung and
- *   a colour used twice; everything here is feedback.
+ *   a colour used twice; everything here is feedback. It is also why this dialog is
+ *   the one that proves §8.10's clearing rule: the rungs are `useState`, so only a
+ *   remount empties them between entries — Inertia's `reset()` would leave the
+ *   ladder standing.
  *
  * The milestone inputs are *not* a repeater — they are driven by `milestones`, which
  * the server derives from the enum's schedulable cases. Adding a milestone therefore
@@ -51,7 +54,6 @@ export default function TnaTemplateFormDialog({
     template,
     title,
     description,
-    submitLabel,
     children,
 }: {
     submit: RouteFormDefinition<'post'>;
@@ -61,10 +63,11 @@ export default function TnaTemplateFormDialog({
     template?: TnaTemplateListItem;
     title: string;
     description: string;
-    submitLabel: string;
     children: ReactNode;
 }) {
     const [open, setOpen] = useState(false);
+    const close = useCallback(() => setOpen(false), []);
+    const { formKey, formProps, setIntent } = useFormDialog(close);
 
     return (
         <Dialog open={open} onOpenChange={setOpen}>
@@ -75,6 +78,7 @@ export default function TnaTemplateFormDialog({
                 <DialogDescription>{description}</DialogDescription>
 
                 <Form
+                    key={formKey}
                     {...submit}
                     /* A repeater with no rows renders no inputs, so `milestones` and
                        `colors` vanish from the payload entirely — and both are `present`
@@ -93,8 +97,8 @@ export default function TnaTemplateFormDialog({
                         milestones: data.milestones ?? [],
                         colors: data.colors ?? [],
                     })}
+                    {...formProps}
                     options={{ preserveScroll: true }}
-                    onSuccess={() => setOpen(false)}
                     className="mt-4 space-y-4"
                 >
                     {({ processing, errors }) => (
@@ -110,6 +114,7 @@ export default function TnaTemplateFormDialog({
                                     autoFocus
                                     autoComplete="off"
                                     placeholder="Long lead"
+                                    aria-invalid={Boolean(errors.name)}
                                 />
                                 <InputError message={errors.name} />
                             </div>
@@ -134,6 +139,9 @@ export default function TnaTemplateFormDialog({
                                         required
                                         autoComplete="off"
                                         className="w-32"
+                                        aria-invalid={Boolean(
+                                            errors.lead_time_from,
+                                        )}
                                     />
                                     <span className="text-sm text-base-content/60">
                                         to
@@ -152,6 +160,9 @@ export default function TnaTemplateFormDialog({
                                         required
                                         autoComplete="off"
                                         className="w-32"
+                                        aria-invalid={Boolean(
+                                            errors.lead_time_to,
+                                        )}
                                     />
                                 </div>
 
@@ -184,6 +195,7 @@ export default function TnaTemplateFormDialog({
                                     defaultValue={template?.status ?? 'A'}
                                     options={statuses}
                                     required
+                                    aria-invalid={Boolean(errors.status)}
                                     data-test="tna-template-status"
                                 />
                                 <p className="text-xs text-base-content/60">
@@ -195,21 +207,12 @@ export default function TnaTemplateFormDialog({
                                 <InputError message={errors.status} />
                             </div>
 
-                            <DialogFooter className="gap-2">
-                                <DialogClose asChild>
-                                    <Button variant="secondary" type="button">
-                                        Cancel
-                                    </Button>
-                                </DialogClose>
-
-                                <Button
-                                    type="submit"
-                                    disabled={processing}
-                                    data-test="save-tna-template"
-                                >
-                                    {submitLabel}
-                                </Button>
-                            </DialogFooter>
+                            <FormDialogFooter
+                                processing={processing}
+                                addAnother={template === undefined}
+                                onIntent={setIntent}
+                                saveTestId="save-tna-template"
+                            />
                         </>
                     )}
                 </Form>

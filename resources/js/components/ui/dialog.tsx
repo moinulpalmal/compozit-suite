@@ -46,7 +46,18 @@ import { cn } from '@/lib/utils';
  * abandoned rather than the row the server holds. It was worst where a dialog kept
  * React state of its own — the TNA colour ladder is a repeater, so rows added and
  * removed survived both Cancel *and* a successful save. `DialogClose` stays outside
- * the guard: the only exit is never conditional.
+ * the guard: the only exit is never conditional. The same remount, driven by a
+ * `key` instead of by closing, is how a form modal clears itself *without* closing
+ * — see ARCHITECTURE.md §8.10.
+ *
+ * **`busy` is the one narrowing of "the close button is never conditional".** A
+ * form modal disables both exits while its save is in flight (§8.10), so the panel
+ * cannot be dismissed between the request leaving and the answer arriving — which
+ * would otherwise close the dialog over a save that then lands, or over one that is
+ * about to be refused. It is *disabled*, never removed: the moment the request
+ * settles the X is back. `FormDialogFooter` is the only thing that sets it, through
+ * the context below; a dialog with no form footer never touches it, so the
+ * confirmation and preview dialogs are unaffected.
  */
 type DialogContextValue = {
     open: boolean;
@@ -54,6 +65,9 @@ type DialogContextValue = {
     dialogRef: RefObject<HTMLDialogElement | null>;
     titleId: string;
     descriptionId: string;
+    /** True while a form inside the panel is submitting — see the docblock. */
+    busy: boolean;
+    setBusy: (busy: boolean) => void;
 };
 
 const DialogContext = createContext<DialogContextValue | null>(null);
@@ -66,6 +80,17 @@ function useDialog(): DialogContextValue {
     }
 
     return context;
+}
+
+/**
+ * The setter for the panel's busy flag, for a form footer to mirror its own
+ * `processing` into. Narrower than the whole context on purpose: nothing outside
+ * `dialog.tsx` should be reaching for `setOpen`, which is what `DialogClose` is
+ * for. The setter is `useState`'s, so it is stable and safe as an effect
+ * dependency.
+ */
+function useDialogBusy(): (busy: boolean) => void {
+    return useDialog().setBusy;
 }
 
 type DialogProps = {
@@ -82,6 +107,7 @@ function Dialog({
     onOpenChange,
 }: DialogProps) {
     const [uncontrolledOpen, setUncontrolledOpen] = useState(defaultOpen);
+    const [busy, setBusy] = useState(false);
     const dialogRef = useRef<HTMLDialogElement>(null);
     const id = useId();
 
@@ -107,6 +133,8 @@ function Dialog({
                 dialogRef,
                 titleId: `${id}-title`,
                 descriptionId: `${id}-description`,
+                busy,
+                setBusy,
             }}
         >
             {children}
@@ -172,7 +200,8 @@ function DialogContent({
     dialogClassName,
     ...props
 }: DialogContentProps) {
-    const { open, setOpen, dialogRef, titleId, descriptionId } = useDialog();
+    const { open, setOpen, dialogRef, titleId, descriptionId, busy } =
+        useDialog();
 
     useEffect(() => {
         const dialog = dialogRef.current;
@@ -216,9 +245,12 @@ function DialogContent({
                     state" in the docblock. */}
                 {open && children}
 
-                {/* The only way out — see the docblock. Never conditional. */}
+                {/* The only way out — see the docblock. Never conditional;
+                    `disabled` while a save is in flight is the one narrowing,
+                    and it lifts the moment the request settles. */}
                 <DialogClose
                     aria-label="Close"
+                    disabled={busy}
                     className="btn absolute top-4 right-4 btn-circle btn-ghost btn-sm"
                 >
                     <XIcon className="size-4" />
@@ -289,4 +321,5 @@ export {
     DialogHeader,
     DialogTitle,
     DialogTrigger,
+    useDialogBusy,
 };

@@ -1,5 +1,12 @@
 * text=auto eol=lf
 
+# deploy/ is Windows-only and must keep CRLF. cmd.exe's batch parser is line-
+# ending sensitive, so a .bat checked out with LF can fail in ways that read as
+# anything but a line-ending problem. The repository default above would do
+# exactly that on every clone.
+*.bat text eol=crlf
+*.ps1 text eol=crlf
+
 *.blade.php diff=html
 *.css diff=css
 *.html diff=html
